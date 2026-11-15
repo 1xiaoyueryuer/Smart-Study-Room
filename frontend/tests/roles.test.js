@@ -1,0 +1,135 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import vm from 'node:vm'
+import { readFile } from 'node:fs/promises'
+import { createPinia, setActivePinia } from 'pinia'
+import { useAuthStore } from '../src/stores/auth.js'
+import * as statsForm from '../src/composables/statsForm.js'
+import {createStatsRefresh} from '../src/composables/statsRefresh.js'
+import {statsClock} from './helpers/statsClock.js'
+
+async function auth(role) {
+  const values = new Map()
+  globalThis.localStorage = { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value), removeItem: key => values.delete(key) }
+  setActivePinia(createPinia())
+  const store = useAuthStore()
+  store.setLogin({ token: 'test-token', user: { role, credit_score: 100 } })
+  return store
+}
+async function sourceModule(source, mocks, extra = {}) {
+  const context = vm.createContext({ console, ...extra })
+  const module = new vm.SourceTextModule(source, { context })
+  await module.link(specifier => {
+    assert.ok(specifier in mocks, `Unmocked import: ${specifier}`)
+    const exports = mocks[specifier]
+    return new vm.SyntheticModule(Object.keys(exports), function () {
+      for (const [name, value] of Object.entries(exports)) this.setExport(name, value)
+    }, { context })
+  })
+  await module.evaluate()
+  return module.namespace
+}
+async function router(store) {
+  let guard, routes
+  const source = await readFile(new URL('../src/router/index.js', import.meta.url), 'utf8')
+  await sourceModule(source, {
+    'vue-router': { createWebHistory: () => ({}), createRouter: config => { routes = config.routes; return { beforeEach: callback => { guard = callback } } } },
+    '../stores/auth': { useAuthStore: () => store },
+    '../config/branding': { SYSTEM_NAME: 'Test' }
+  }, { document: {} })
+  return { guard, route: name => routes[1].children.find(item => item.name === name), routeForPath: path => routes[1].children.find(item => item.path === path) }
+}
+for (const role of ['student', 'staff']) {
+  test(`${role} can use the same ordinary routes and retains identity`, async () => {
+    const store = await auth(role)
+    assert.equal(store.isOrdinary, true)
+    assert.equal(store.isAdmin, false)
+    assert.equal(store.roleLabel, role === 'staff' ? '教职工' : '学生')
+    const navigation = await router(store)
+    for (const name of ['home', 'booking', 'mine', 'waitlist', 'notifications', 'complaints', 'complaint-detail', 'profile']) {
+      const route = navigation.route(name)
+      assert.equal(navigation.guard({ ...route, fullPath: route.path }), undefined)
+    }
+    assert.equal(navigation.guard(navigation.route('admin')), '/')
+    assert.equal(navigation.guard(navigation.route('analytics')), '/')
+    assert.equal(store.isLoggedIn, true)
+  })
+}
+test('administrator has management routes and cannot enter ordinary booking routes', async () => {
+  const store = await auth('admin')
+  const navigation = await router(store)
+  assert.equal(store.isOrdinary, false)
+  assert.equal(store.roleLabel, '管理员')
+  assert.equal(navigation.guard(navigation.route('admin')), undefined)
+  assert.equal(navigation.guard(navigation.route('analytics')), undefined)
+  assert.equal(navigation.guard(navigation.route('booking')), '/admin')
+  assert.equal(navigation.guard(navigation.route('complaints')), '/admin')
+  assert.equal(navigation.guard(navigation.route('complaint-detail')), '/admin')
+})
+test('unknown identity is removed rather than treated as an ordinary user', async () => {
+  const store = await auth('unknown')
+  const navigation = await router(store)
+  assert.equal(navigation.guard(navigation.route('home')).name, 'login')
+  assert.equal(store.isLoggedIn, false)
+})
+for (const role of ['student', 'staff', 'admin']) {
+  test(`${role} homepage only requests management statistics for administrator`, async () => {
+    const store = await auth(role)
+    let mounted, statsCalls = 0
+    const clock=statsClock(),cleanup=[]
+    const source = (await readFile(new URL('../src/views/HomeView.vue', import.meta.url), 'utf8')).split('<script setup>')[1].split('</script>')[0]
+    const mocks = {
+      vue: { ref: value => ({ value }), computed: getter => ({ get value() { return getter() } }), onMounted: callback => { mounted = callback }, onUnmounted: fn => cleanup.push(fn) },
+      'vue-router': { useRouter: () => ({ push() {} }) },
+      '../stores/auth': { useAuthStore: () => store },
+      '../stores/notification': { useNotificationStore: () => ({ unread: 0, refresh() {} }) },
+      '../api/room': { getRooms: async () => ({ data: [] }), getOpeningWindows: async () => ({ data: { windows: [], closed_reasons: [] } }) },
+      '../api/stats': { getOverview: async () => { statsCalls++; return { data: {} } } },
+      '../composables/statsForm.js': statsForm,
+      '../composables/statsRefresh.js': {createStatsRefresh:options=>createStatsRefresh({...options,...clock.options})},
+      '../api/credit': { getCreditOverview: async () => ({ data: { score: 100 } }) }
+    }
+    for (const component of ['StudyTips', 'ui/SAnimatedNumber', 'AppIcon', 'ui/SBanner', 'ui/SButton']) mocks[`../components/${component}.vue`] = { default: {} }
+    const homepage = await sourceModule(source + '\nexport { shortcuts }', mocks, { setInterval: () => 1, clearInterval() {} })
+    await mounted()
+    await clock.flush()
+    assert.equal(statsCalls, role === 'admin' ? 1 : 0)
+    assert.equal(clock.timers.size,role==='admin'?1:0)
+    await clock.advance(30000)
+    assert.equal(statsCalls,role==='admin'?4:0)
+    const navigation = await router(store)
+    for (const shortcut of homepage.shortcuts.value) {
+      const route = navigation.routeForPath(shortcut.to)
+      assert.ok(route, `Shortcut ${shortcut.title} must resolve to an existing route`)
+      assert.equal(navigation.guard(route), undefined, `${role} must be able to access ${shortcut.to}`)
+    }
+    cleanup.forEach(fn=>fn());assert.equal(clock.timers.size,0);assert.equal(clock.listeners.size,0)
+  })
+}
+test('homepage reads each room opening for campus date and shows a real open room rather than old daily fields', async () => {
+  const store = await auth('staff')
+  const calls = []
+  const clock=statsClock()
+  const source = (await readFile(new URL('../src/views/HomeView.vue', import.meta.url), 'utf8')).split('<script setup>')[1].split('</script>')[0]
+  const mocks = {
+    vue: { ref: value => ({ value }), computed: getter => ({get value(){return getter()}}), onMounted(){}, onUnmounted(){} },
+    'vue-router': { useRouter: () => ({push(){}}) },
+    '../stores/auth': { useAuthStore: () => store },
+    '../stores/notification': { useNotificationStore: () => ({unread:0,refresh(){}}) },
+    '../api/room': {
+      getRooms: async () => ({data:[{id:1,name:'闭馆空间',enabled:true,open_time:'01:00',close_time:'23:00'},{id:2,name:'分段空间',enabled:true,open_time:'01:00',close_time:'23:00'}]}),
+      getOpeningWindows: async (id,date) => { calls.push({id,date}); return {data:{windows:id===1?[]:[{start:'09:00',end:'12:00'},{start:'14:00',end:'18:00'}],closed_reasons:id===1?['日期闭馆']:[]}} }
+    },
+    '../api/stats': { getOverview: async () => ({data:{}}) },
+    '../composables/statsForm.js': statsForm,
+    '../composables/statsRefresh.js': {createStatsRefresh:options=>createStatsRefresh({...options,...clock.options})},
+    '../api/credit': { getCreditOverview: async () => ({data:{score:100}}) }
+  }
+  for (const component of ['StudyTips','ui/SAnimatedNumber','AppIcon','ui/SBanner','ui/SButton']) mocks[`../components/${component}.vue`]={default:{}}
+  const page = await sourceModule(source+'\nexport {loadRooms,openHours,roomOpeningText}',mocks)
+  await page.loadRooms()
+  assert.equal(calls.length,2)
+  assert.match(calls[0].date,/^\d{4}-\d{2}-\d{2}$/)
+  assert.equal(page.openHours.value.name,'分段空间')
+  assert.equal(page.openHours.value.text,'09:00–12:00、14:00–18:00')
+})

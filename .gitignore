@@ -1,0 +1,42 @@
+# Node
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/.npm-cache/
+
+# 环境与日志
+.env
+*.log
+logs/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# 本地临时
+tmp/
+.qa-docx/
+**/.qa-docx/
+
+# 文档备份与本地转换脚本（不入库）
+docs/_backup_docx/
+tools/
+
+# Agent 协同与临时目录
+.agents/
+
+# Word 临时锁文件
+~$*
+
+# Java and local tools
+backend/target/
+.local/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Per-developer drafts and complete debug logs
+work/

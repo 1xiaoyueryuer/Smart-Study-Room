@@ -1,0 +1,36 @@
+name: studyroom-java
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: studyroom_java
+      POSTGRES_USER: studyroom
+    env_file:
+      - .local/postgres.env
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - studyroom-postgres:/var/lib/postgresql/data
+      - ./database/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U studyroom -d studyroom_java"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+  redis:
+    profiles: [extra-redis]
+    image: redis:7.2-alpine
+    ports:
+      - "127.0.0.1:6380:6379"
+    volumes:
+      - studyroom-redis:/data
+    command: [redis-server, --appendonly, "yes"]
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+volumes:
+  studyroom-postgres:
+  studyroom-redis:
