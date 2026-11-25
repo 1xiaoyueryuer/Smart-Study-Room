@@ -112,7 +112,7 @@ onMounted(async () => { await loadAll(); if (!error.value) loadSelection() })
 </script>
 <template>
   <section class="schedule-management">
-    <p class="muted">统一使用校园时区 Asia/Shanghai。开放窗口不扣预约，不代表连续空档；保存前统一预览影响；确认后立即管理取消受影响预约，使用中须管理员自报已现场协调。版本：{{ version ?? '—' }}。</p>
+    <p class="muted">版本：{{ version ?? '—' }}。</p>
     <SButton size="sm" :loading="loading" :disabled="saving" @click="loadAll">重新加载安排和版本</SButton>
     <p v-if="loading" role="status">正在读取开放安排及停用记录…</p><SBanner v-if="error" type="error" :title="error" />
     <SBanner v-if="formError" type="error" :title="formError" /><SBanner v-if="success" type="success" :title="success" />
@@ -122,16 +122,16 @@ onMounted(async () => { await loadAll(); if (!error.value) loadSelection() })
         <label>安排类型<SSelect v-model="mode" :disabled="saving" :options="[{value:'weekday',label:'每周安排'},{value:'date',label:'日期例外'}]" @change="loadSelection" /></label>
         <label v-if="mode==='weekday'">ISO星期<SSelect v-model="weekday" :options="weekdays" :disabled="saving" @change="loadSelection" /></label>
         <label v-else>例外日期<SInput v-model="date" type="date" required :disabled="saving" @change="loadSelection" /></label>
-        <p class="muted full-width">日期例外覆盖整天星期安排；保留空窗口即明确闭馆。删除例外才恢复星期安排。相邻窗口由后端合并，重叠会拒绝。</p>
+        <p class="muted full-width">例外覆盖整天；空窗口即闭馆。</p>
         <div v-for="(window,index) in windows" :key="index" class="window-row full-width"><label>开始<SInput v-model="window.start" type="time" required :disabled="saving" /></label><label>结束（可填24:00）<SInput v-model="window.end" required maxlength="5" pattern="([01][0-9]|2[0-3]):[0-5][0-9]|24:00" placeholder="22:00或24:00" :disabled="saving" /></label><SButton size="sm" :disabled="saving" @click="windows.splice(index,1)">移除时段</SButton></div>
-        <p v-if="!windows.length" class="muted full-width">当前为空窗口：保存后该星期/日期闭馆。</p>
+        <p v-if="!windows.length" class="muted full-width">保存后闭馆。</p>
         <SButton :disabled="saving" @click="addWindow">添加开放时段</SButton>
         <label class="full-width">安排变更理由（公开，不含个人信息）<SInput v-model="scheduleReason" type="textarea" required maxlength="1000" :disabled="saving" /></label>
         <div class="row-actions full-width"><SButton type="submit" variant="primary" :loading="saving">保存开放安排</SButton><SButton v-if="mode==='date'" :disabled="saving || !existingException" @click="saveSchedule(true)">删除日期例外</SButton></div>
       </form>
       <h4>现有日期例外</h4><p v-if="!exceptions.length" class="muted">尚无日期例外，使用星期安排。</p><ul v-else><li v-for="item in exceptions" :key="item.date">{{ item.date }}：{{ item.windows.length ? item.windows.map(window=>`${window.start}–${window.end}`).join('、') : '闭馆' }} <SButton size="sm" :disabled="saving" @click="mode='date';date=item.date;loadSelection()">编辑例外</SButton></li></ul>
       <hr />
-      <h3>临时停用区间</h3><p class="muted">空间或单座位可跨日停用；重叠记录独立保留，撤销其中一条不会自动撤销其他记录。</p>
+      <h3>临时停用区间</h3><p class="muted">停用可跨日；重叠记录独立保留。</p>
       <div class="table-wrap"><div class="table-scroll" tabindex="0" aria-label="临时停用记录，可左右滑动"><table class="table block-table"><thead><tr><th>对象</th><th>校园时间起止</th><th>原因</th><th>状态</th><th>操作</th></tr></thead><tbody><tr v-for="block in blocks" :key="block.id"><td>{{ block.seat_id ? `座位 ${seats.find(seat=>seat.id===block.seat_id)?.seat_no || block.seat_id}` : '整个空间' }}</td><td>{{ block.start_at }}<br />{{ block.end_at }}</td><td>{{ block.reason }}<div v-if="block.cancel_reason">撤销理由：{{ block.cancel_reason }}</div></td><td>{{ block.cancelled ? '已撤销，保留历史' : '生效' }}</td><td><div v-if="!block.cancelled" class="row-actions"><SButton size="sm" :disabled="saving" @click="editBlock(block)">编辑停用</SButton><SButton size="sm" :disabled="saving" @click="openCancellation(block)">撤销停用</SButton></div></td></tr></tbody></table><p v-if="!blocks.length" class="muted">暂无临时停用记录。</p></div></div>
       <form v-if="cancellation" class="schedule-form" @submit.prevent="cancelBlock"><label class="full-width">撤销第{{ cancellation.id }}条停用记录的理由<SInput v-model="cancelReason" type="textarea" required maxlength="1000" :disabled="saving" /></label><div class="row-actions"><SButton type="submit" :loading="saving">确认撤销此记录</SButton><SButton :disabled="saving" @click="cancellation=null">保留记录</SButton></div></form>
       <h4>{{ blockId===null ? '新增停用区间' : '编辑停用区间' }}</h4><SButton v-if="blockId!==null" size="sm" :disabled="saving" @click="editBlock()">改为新增</SButton>

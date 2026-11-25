@@ -13,6 +13,13 @@ export function restrictionPayload(form, releasing=false) {
   }
   return body
 }
+export function activeBookingRestrictions(eligibility, failure) {
+  const failureRecords = failure?.active_restrictions
+  if (Array.isArray(failureRecords) && failureRecords.length) return failureRecords
+  if (eligibility?.can_book === false && eligibility?.blocked_by === 'restrictions' && Array.isArray(eligibility.active_restrictions)) return eligibility.active_restrictions
+  return []
+}
+export function isBookingRestricted(eligibility, failure) { return activeBookingRestrictions(eligibility, failure).length > 0 }
 export function validEligibility(value) {
   return typeof value?.can_book==='boolean'&&[null,'role','disabled','restrictions'].includes(value.blocked_by)&&Array.isArray(value.active_restrictions)&&typeof value.server_now==='string'
 }

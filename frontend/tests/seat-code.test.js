@@ -6,8 +6,17 @@ import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { ref, computed } from 'vue'
 import { BrowserQRCodeReader } from '@zxing/browser'
-import { QRCodeWriter, BarcodeFormat, DecodeHintType } from '@zxing/library'
-import { createSeatScanner, scanFailure } from '../src/composables/seatScanner.js'
+import zxingLibrary from '@zxing/library'
+const { QRCodeWriter, BarcodeFormat, DecodeHintType } = zxingLibrary
+const scannerContext=vm.createContext({})
+const scannerModule=new vm.SourceTextModule(await readFile(new URL('../src/composables/seatScanner.js',import.meta.url),'utf8'),{context:scannerContext})
+await scannerModule.link(specifier=>{
+  if(specifier==='@zxing/browser')return new vm.SyntheticModule(['BrowserQRCodeReader'],function(){this.setExport('BrowserQRCodeReader',BrowserQRCodeReader)},{context:scannerContext})
+  if(specifier==='@zxing/library')return new vm.SyntheticModule(['DecodeHintType'],function(){this.setExport('DecodeHintType',DecodeHintType)},{context:scannerContext})
+  return null
+})
+await scannerModule.evaluate()
+const { createSeatScanner, scanFailure } = scannerModule.namespace
 const code='studyroom-seat:v1:'+'a'.repeat(43)
 const usage={id:12,checkin_at:'2026-10-30T08:00:00.125+08:00',ended_at:null,end_reason:null,settled_at:null,duration_seconds:0.125,observed_at:'2026-10-30T08:00:00.250+08:00',origin:'seat_code'}
 const deferred=()=>{let resolve;const promise=new Promise(r=>{resolve=r});return{resolve,promise}}
@@ -76,7 +85,8 @@ async function checkin(overrides={}) {
   const page=await view('../src/views/CheckinView.vue',{
     vue:{ref,computed,onBeforeUnmount:handler=>cleanup.push(handler),watch:(source,handler)=>{routeChanged=handler;handler()}},
     '../api/reservation':{getReservation:async id=>{calls.push(['detail',id]);return{data:{id,allowed_actions:['checkin']}}},checkinReservation:async(id,text)=>{calls.push(['checkin',id,text])},...overrides},
-    '../composables/seatScanner.js':{createSeatScanner:options=>{scan=options;return{stop(){calls.push(['stop'])},file:async()=>{},camera:async()=>{}}}}
+    '../composables/seatScanner.js':{createSeatScanner:options=>{scan=options;return{stop(){calls.push(['stop'])},file:async()=>{},camera:async()=>{}}}},
+    '../composables/checkinDeadline.js':{checkinDeadlineOf:()=>null}
   },'load,submitCode,reservation,success,scanError,scanNotice,detailError,submitting,canCheckin', {defineProps:()=>props})
   await tick();return{...page,calls,scan,cleanup,changeId(id){props.id=id;routeChanged()}}
 }

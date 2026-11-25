@@ -26,9 +26,9 @@ async function mine(overrides={}) {
     'vue-router':{useRoute:()=>({query:{}}),useRouter:()=>({push:async location=>{calls.push(location)}})},
     '../composables/usePagination':{usePagination:items=>({page:ref(1),pages:computed(()=>1),pageItems:items})},
     '../components/ui/feedback':{message:{success(){}},confirmDialog:overrides.confirmDialog|| (async text=>{confirmations.push(text)})},
-    '../api/reservation':api
-  },'list,loading,error,actionError,busyId,violations,actionsOf,doAction,refreshAll,terminationLabels,snapshot,requestOccupationHelp')
-  page.violations.value={refresh:async()=>{calls.push('violations')}}
+    '../api/reservation':api,
+    '../composables/checkinDeadline.js':{checkinDeadlineOf:()=>null,deadlineLabel:()=>''}
+  },'list,loading,error,actionError,busyId,actionsOf,doAction,refreshAll,terminationLabels,snapshot,requestOccupationHelp')
   return{...page,calls,confirmations}
 }
 test('reservation buttons use only server allowed_actions, never infer cancel or abandon from pending',async()=>{
@@ -42,11 +42,11 @@ test('before-start cancellation and after-start abandonment have distinct truthf
   const cancellation=await mine()
   await cancellation.doAction(waiting(['cancel']),'cancel')
   assert.match(cancellation.confirmations[0],/不登记新的违规/)
-  assert.deepEqual(cancellation.calls,['cancel','mine','violations'])
+  assert.deepEqual(cancellation.calls,['cancel','mine'])
   const abandonment=await mine()
   await abandonment.doAction(waiting(['abandon']),'abandon')
   assert.match(abandonment.confirmations[0],/登记一次未使用违约/)
-  assert.deepEqual(abandonment.calls,['abandon','mine','violations'])
+  assert.deepEqual(abandonment.calls,['abandon','mine'])
 })
 test('action in-flight guard includes confirmation dialog and prevents duplicate abandonment',async()=>{
   let release
@@ -64,13 +64,13 @@ test('committed deadline 409 is explained and actual no_show state plus independ
   assert.match(page.actionError.value,/已按签到期限超时结束/)
   assert.equal(page.list.value[0].status,'unused_ended')
   assert.equal(page.actionsOf(page.list.value[0]).length,0)
-  assert.ok(page.calls.includes('violations'))
+
 })
 test('failed reservation refresh stays visible and still refreshes independent violation source',async()=>{
   const page=await mine({listMyReservations:async()=>{throw new Error('预约查询失败')}})
   await page.refreshAll()
   assert.equal(page.error.value,'预约查询失败')
-  assert.deepEqual(page.calls,['violations'])
+  assert.deepEqual(page.calls,[])
   await page.doAction(waiting(['cancel']),'cancel')
   assert.equal(page.calls.includes('cancel'),false)
 })
@@ -80,7 +80,7 @@ test('legacy terminal state is explained without fabricating an independent viol
   assert.match(page.terminationLabels.legacy_violation,/未转为新独立违规/)
   assert.equal(page.snapshot.value,null)
   const source=await readFile(new URL('../src/views/MyReservationsView.vue',import.meta.url),'utf8')
-  assert.match(source,/服务端查询/)
+  assert.match(source,/服务端当前允许/)
   assert.doesNotMatch(source,/今日待签到|kpi-label">违约记录/)
 })
 async function violations(loader) {
@@ -117,7 +117,7 @@ test('historical credit remains read-only while independent restriction eligibil
     assert.doesNotMatch(source,/履约加分|违约扣分|低于 60|可正常预约|按期履约 \+1|不足 30 分钟的取消将扣除/)
     if(file==='ProfileView'){
       assert.doesNotMatch(source,/overview\.legacy_ban_active === true/);assert.match(source,/<RestrictionsPanel/)
-      assert.match(source,/历史信用资料（只读）/)
+      assert.match(source,/历史信用（只读）/)
       assert.doesNotMatch(source,/new Date\(until\)|scoreColor/)
     }
   }
@@ -188,7 +188,7 @@ test('current UI removes temporary leave navigation and adapters while retaining
 test('managed cancellation exposes immutable public reason and preserves usage even though reservation is cancelled',async()=>{
   const source=await readFile(new URL('../src/views/MyReservationsView.vue',import.meta.url),'utf8')
   assert.match(source,/admin_resource_change:'资源管理取消（不记用户违约）'/);assert.match(source,/当次公开管理原因：\{\{ row.termination_note \}\}/)
-  assert.match(source,/<td><UsageRecordSummary :record="row.usage_record"/);assert.doesNotMatch(source,/coordination\.note|room\.resource_reason/)
+  assert.match(source,/<UsageRecordSummary :record="row.usage_record"/);assert.doesNotMatch(source,/coordination\.note|room\.resource_reason/)
 })
 
 test('all historical reservation rows can open occupation help without invoking lifecycle actions',async()=>{

@@ -114,7 +114,7 @@ async function confirmImport() {
 <template>
   <section class="import-section" aria-label="校园账号CSV导入">
     <div class="card-title-row"><h3>CSV批量导入</h3><SButton size="sm" :loading="downloading" @click="downloadTemplate">下载CSV模板</SButton></div>
-    <p class="muted">按模板表头填写CSV，文件中不要填密码；上传后先预检，再在下方设置初始密码。</p>
+    <p class="muted">按模板填写；先预检，再导入。记录号按逻辑记录计算，字段内换行不另计记录号。</p>
     <div class="import-actions"><label class="file-label">选择CSV文件<input type="file" accept=".csv,text/csv" :disabled="busy" @change="selectFile" /></label><SButton :disabled="!file || busy" :loading="previewing" @click="inspectFile">预检文件</SButton></div>
     <p v-if="file" class="muted">当前文件：{{ file.name }}（{{ file.size }}字节）</p>
     <SBanner v-if="error" type="error" :title="error"><SButton v-if="unknownResult" size="sm" @click="emit('refresh')">刷新账号列表核对</SButton></SBanner>
@@ -122,14 +122,14 @@ async function confirmImport() {
     <p v-if="previewing" role="status">正在预检文件，尚未写入账号…</p>
     <template v-if="preview">
       <p role="status">共{{ preview.total }}条：有效{{ preview.valid_count }}条，有错误{{ preview.invalid_count }}条。预检不会创建账号。</p>
-      <p v-if="preview.invalid_count" class="muted">请修正CSV中的错误后重新选择并预检，不能跳过错误记录导入。</p>
+      <p v-if="preview.invalid_count" class="muted">请修正错误后重新预检。</p>
       <div class="table-wrap"><div class="table-scroll" tabindex="0" aria-label="CSV预检逐记录结果，可左右滑动"><table class="table import-table"><thead><tr><th>记录号（含表头）</th><th>学号</th><th>用户名</th><th>姓名</th><th>角色</th><th>联系方式</th><th>预检结果</th></tr></thead><tbody><tr v-for="row in preview.rows" :key="row.row_number"><td>{{ row.row_number }}</td><td>{{ row.campus_id }}</td><td>{{ row.username }}</td><td>{{ row.real_name }}</td><td>{{ ROLE_LABELS[row.role] || row.role }}</td><td>{{ row.phone || '—' }}<br />{{ row.email || '—' }}</td><td>{{ row.errors.length ? row.errors.join('；') : '有效' }}</td></tr></tbody></table></div></div>
       <form class="import-confirm" @submit.prevent="confirmImport">
-        <p class="muted">请通过安全渠道交付初始密码；首次登录强制改密暂未支持。</p>
+        <p class="muted">请通过安全渠道交付初始密码。</p>
         <label>本批初始密码<SInput v-model="initialPassword" type="password" show-password required minlength="6" maxlength="64" autocomplete="new-password" :disabled="busy || preview.invalid_count > 0" /></label>
         <label>导入操作理由<SInput v-model="reason" type="textarea" required maxlength="1000" :disabled="busy" /></label>
         <SButton type="submit" variant="primary" :loading="confirming" :disabled="!canConfirm">确认整批导入</SButton>
-        <p v-if="confirming" role="status">正在导入，请勿重复提交；账号及审计会整批提交或整批回滚。</p>
+        <p v-if="confirming" role="status">正在导入，请勿重复提交。</p>
       </form>
     </template>
     <ul v-if="conflictRows.length" class="conflict-list" aria-label="确认导入失败记录"><li v-for="row in conflictRows" :key="row.row_number">第{{ row.row_number }}条记录（{{ row.campus_id }} / {{ row.username }}）：{{ row.errors.join('；') }}</li></ul>

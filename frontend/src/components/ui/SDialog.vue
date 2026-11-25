@@ -98,8 +98,8 @@ function onKeydown(e) {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 16px 20px;
+  gap: 16px;
+  padding: 18px 22px;
   border-bottom: 1px solid var(--hairline);
   flex: 0 0 auto;
 }
@@ -129,17 +129,26 @@ function onKeydown(e) {
 }
 
 .s-dialog__body {
-  padding: 20px;
+  padding: 22px;
   overflow-y: auto;
   min-height: 0;
+}
+
+.s-dialog__body p {
+  margin: 0 0 10px;
+  line-height: 1.65;
+}
+
+.s-dialog__body p:last-child {
+  margin-bottom: 0;
 }
 
 .s-dialog__footer {
   display: flex;
   justify-content: flex-end;
   align-items: center;
-  gap: 10px;
-  padding: 14px 20px;
+  gap: 16px;
+  padding: 16px 22px;
   border-top: 1px solid var(--hairline);
   background: var(--surface-2);
   flex: 0 0 auto;

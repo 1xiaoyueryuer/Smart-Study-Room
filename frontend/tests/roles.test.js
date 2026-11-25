@@ -20,8 +20,8 @@ async function sourceModule(source, mocks, extra = {}) {
   const context = vm.createContext({ console, ...extra })
   const module = new vm.SourceTextModule(source, { context })
   await module.link(specifier => {
-    assert.ok(specifier in mocks, `Unmocked import: ${specifier}`)
-    const exports = mocks[specifier]
+    assert.ok(specifier in mocks || specifier.endsWith('/checkinDeadline.js'), `Unmocked import: ${specifier}`)
+    const exports = mocks[specifier] || { checkinDeadlineOf: () => null, deadlineLabel: () => '' }
     return new vm.SyntheticModule(Object.keys(exports), function () {
       for (const [name, value] of Object.entries(exports)) this.setExport(name, value)
     }, { context })
@@ -85,6 +85,9 @@ for (const role of ['student', 'staff', 'admin']) {
       '../stores/notification': { useNotificationStore: () => ({ unread: 0, refresh() {} }) },
       '../api/room': { getRooms: async () => ({ data: [] }), getOpeningWindows: async () => ({ data: { windows: [], closed_reasons: [] } }) },
       '../api/stats': { getOverview: async () => { statsCalls++; return { data: {} } } },
+      '../api/reservation': { listMyReservations: async () => ({ data: [] }) },
+      '../api/notification': { listNotifications: async () => ({ data: [] }) },
+      '../composables/checkinDeadline.js': { checkinDeadlineOf: () => null, deadlineLabel: () => '' },
       '../composables/statsForm.js': statsForm,
       '../composables/statsRefresh.js': {createStatsRefresh:options=>createStatsRefresh({...options,...clock.options})},
       '../api/credit': { getCreditOverview: async () => ({ data: { score: 100 } }) }
@@ -121,15 +124,18 @@ test('homepage reads each room opening for campus date and shows a real open roo
       getOpeningWindows: async (id,date) => { calls.push({id,date}); return {data:{windows:id===1?[]:[{start:'09:00',end:'12:00'},{start:'14:00',end:'18:00'}],closed_reasons:id===1?['日期闭馆']:[]}} }
     },
     '../api/stats': { getOverview: async () => ({data:{}}) },
+    '../api/reservation': { listMyReservations: async () => ({ data: [] }) },
     '../composables/statsForm.js': statsForm,
     '../composables/statsRefresh.js': {createStatsRefresh:options=>createStatsRefresh({...options,...clock.options})},
     '../api/credit': { getCreditOverview: async () => ({data:{score:100}}) }
+    ,'../api/notification': { listNotifications: async () => ({data:[]}) }
   }
   for (const component of ['StudyTips','ui/SAnimatedNumber','AppIcon','ui/SBanner','ui/SButton']) mocks[`../components/${component}.vue`]={default:{}}
-  const page = await sourceModule(source+'\nexport {loadRooms,openHours,roomOpeningText}',mocks)
+  const page = await sourceModule(source+'\nexport {loadRooms,rooms,roomOpeningText}',mocks)
   await page.loadRooms()
   assert.equal(calls.length,2)
   assert.match(calls[0].date,/^\d{4}-\d{2}-\d{2}$/)
-  assert.equal(page.openHours.value.name,'分段空间')
-  assert.equal(page.openHours.value.text,'09:00–12:00、14:00–18:00')
+  assert.equal(page.rooms.value.length,2)
+  assert.equal(page.roomOpeningText(page.rooms.value[1]),'09:00–12:00、14:00–18:00')
+  assert.match(page.roomOpeningText(page.rooms.value[0]),/当日闭馆/)
 })

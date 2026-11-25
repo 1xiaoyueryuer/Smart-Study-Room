@@ -75,7 +75,7 @@ defineExpose({ run })
 <template>
   <SDialog :model-value="visible" title="资源变更影响预览与确认" width="1000px" :show-close="!locked" :close-on-click-modal="!locked" :close-on-escape="!locked" @update:model-value="onVisibility">
     <section class="change-preview">
-      <p v-if="loading" role="status">正在只读核对变更和受影响预约，尚未执行写入…</p>
+      <p v-if="loading" role="status">正在核对变更影响…</p>
       <SBanner v-if="error" type="error" :title="error" />
       <template v-if="preview && !loading">
         <h4>{{ changeLabels[preview.normalized_proposal.change_type] }} · {{ preview.target_label || '对象ID ' + preview.normalized_proposal.target_id }}</h4>
@@ -85,17 +85,17 @@ defineExpose({ run })
         <p class="muted">预览时刻：{{ preview.server_now }}（{{ preview.campus_zone }}）。操作ID：{{ operationId }}</p>
         <SBanner type="warning" title="确认将立即取消整条受影响预约，使用中按确认时刻结算。即使临停安排在未来，也会立即结束受影响的当前使用；如需继续使用，请稍后执行。" />
         <p v-if="preview.summary.warning">{{ preview.summary.warning }}</p>
-        <p>待签到{{ preview.pending.length }}条，使用中{{ preview.in_use.length }}条。不新增用户违规或信用奖惩；恢复资源不会复活已取消预约。</p>
+        <p>待签到{{ preview.pending.length }}条，使用中{{ preview.in_use.length }}条；不新增违规。</p>
         <div v-for="group in [{label:'待签到，将立即管理取消',rows:preview.pending},{label:'使用中，将立即终止并结算，需现场协调',rows:preview.in_use}]" :key="group.label">
           <h4>{{ group.label }}</h4><p v-if="!group.rows.length" class="muted">本次无该类受影响预约。</p>
           <div v-else class="table-wrap"><div class="table-scroll" tabindex="0" :aria-label="group.label"><table class="table impact-table"><thead><tr><th>预约 / 使用者</th><th>座位</th><th>日期 / 原时段</th><th>原状态 / 已登记签到</th></tr></thead><tbody><tr v-for="row in group.rows" :key="row.reservation_id"><td>#{{ row.reservation_id }} · {{ row.real_name || `用户${row.user_id}` }}</td><td>{{ row.seat_no }}</td><td>{{ row.date }} {{ row.start_time }}–{{ row.end_time }}</td><td>{{ row.status === 'checked_in' ? '使用中' : '待签到' }}<div>{{ row.checkin_at || '无使用签到记录' }}</div></td></tr></tbody></table></div></div>
         </div>
         <div v-if="preview.in_use.length" class="coordination">
           <label><input v-model="coordinationConfirmed" type="checkbox" :disabled="locked || stale" /> 我已现场协调，并确认立即终止上述使用中预约（管理员自报）</label>
-          <label>实际协调依据（私有自报记录，不作为公开资源原因）<SInput v-model="coordinationNote" type="textarea" maxlength="1000" :disabled="locked || stale" placeholder="填写实际现场协调情况；工程模拟请明确写明工程模拟，不冒充真实现场核实" /></label>
-          <p class="muted">系统只记录管理员自报，不证明已经实际腾退或恢复使用。请勿填写不必要的个人信息。</p>
+          <label>协调依据（私有）<SInput v-model="coordinationNote" type="textarea" maxlength="1000" :disabled="locked || stale" placeholder="填写现场协调情况" /></label>
+          <p class="muted">仅记录管理员自报。</p>
         </div>
-        <p v-if="stale" role="status">这是已失效的预览，不能用于确认。</p>
+        <p v-if="stale" role="status">预览已失效。</p>
       </template>
     </section>
     <template #footer>

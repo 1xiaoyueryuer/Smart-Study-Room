@@ -122,7 +122,7 @@ const { page, pages, pageItems } = usePagination(filtered, filterStatus)
         </nav>
       </section>
 
-      
+
     </div>
 
     <div class="split-right">

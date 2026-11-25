@@ -11,11 +11,14 @@ import UsageRecordSummary from '../UsageRecordSummary.vue'
 import SButton from '../ui/SButton.vue'
 import SBanner from '../ui/SBanner.vue'
 import SEmpty from '../ui/SEmpty.vue'
+import SDialog from '../ui/SDialog.vue'
 const props=defineProps({kind:{type:String,required:true}}),emit=defineEmits(['correct'])
 const reservation=props.kind==='reservation',fields=recordFields(props.kind,true),pager=createRecordPager(reservation?listAdminReservations:listAdminViolations,{initial:reservation?{record_type:'reservation'}:{}})
 const violationStatuses={active:'有效',revoked:'已撤销'}
 const {items,filters,snapshot,snapshotQuery,loading,error}=pager,detail=ref(null),detailError=ref(''),selected=ref(null),detailLoading=ref(false);let alive=true,ticket=0
 async function open(id){const current=++ticket;selected.value=id;detailLoading.value=true;detailError.value='';detail.value=null;try{const {data}=await getAdminReservation(id);if(!alive||current!==ticket)return;if(data?.reservation?.id!==id)throw new Error('管理预约详情不完整');detail.value=data}catch(e){if(alive&&current===ticket)detailError.value=e.message}finally{if(alive&&current===ticket)detailLoading.value=false}}
+function closeDetail(){selected.value=null;detail.value=null;detailError.value=''}
+function startCorrection(){const id=selected.value;closeDetail();emit('correct',id)}
 onMounted(()=>pager.refresh());onBeforeUnmount(()=>{alive=false;ticket++;pager.dispose()});defineExpose({refresh:pager.refresh})
 </script>
 <template>
@@ -46,8 +49,7 @@ onMounted(()=>pager.refresh());onBeforeUnmount(()=>{alive=false;ticket++;pager.d
       </div>
       <RecordPageControls :snapshot="snapshot" :query="snapshotQuery" :fields="fields" :disabled="loading" @page="pager.turn"/>
     </section>
-    <section v-if="selected" class="card">
-      <h3>管理预约#{{selected}}</h3>
+    <SDialog :model-value="!!selected" :title="selected?`管理预约#${selected}`:'管理预约'" width="720px" @update:model-value="value=>{if(!value)closeDetail()}">
       <SBanner v-if="detailError" type="error" :title="detailError"/>
       <p v-if="detailLoading">正在读取单条…</p>
       <template v-if="detail">
@@ -55,15 +57,18 @@ onMounted(()=>pager.refresh());onBeforeUnmount(()=>{alive=false;ticket++;pager.d
         <p>{{detail.reservation.res_date}} {{detail.reservation.start_time}}—{{detail.reservation.end_time}}</p>
         <UsageRecordSummary :record="detail.reservation.usage_record"/>
         <p>补签条件：{{detail.can_correct?'当前允许申请核实补签':detail.blocked_reason}} · 核对{{detail.server_now}}</p>
-        <SButton @click="emit('correct',selected)">进入原核实补签入口</SButton>
       </template>
-    </section>
+      <template #footer>
+        <SButton @click="closeDetail">关闭</SButton>
+        <SButton v-if="detail" variant="primary" @click="startCorrection">进入原核实补签入口</SButton>
+      </template>
+    </SDialog>
   </section>
 </template>
 <style scoped>
-.admin-records,.admin-records .card{display:grid;gap:16px;min-width:0;overflow-wrap:anywhere}
-.record-box{border:1px solid var(--border);border-radius:var(--r-lg);padding:16px;display:grid;gap:12px;min-height:120px}
-.admin-records article{display:grid;gap:10px;padding-bottom:12px;border-bottom:1px solid var(--hairline)}
+.admin-records,.admin-records .card{display:grid;gap:18px;min-width:0;overflow-wrap:anywhere}
+.record-box{border:1px solid var(--border);border-radius:var(--r-lg);padding:18px;display:grid;gap:16px;min-height:120px}
+.admin-records article{display:grid;gap:14px;padding-bottom:16px;border-bottom:1px solid var(--hairline)}
 .admin-records article:last-of-type{border-bottom:none;padding-bottom:0}
 .content{white-space:pre-wrap}
 </style>

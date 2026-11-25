@@ -29,8 +29,8 @@ class UserImportIntegrationTest {
     Map<String,Long> ids;
     String remote;
     static final String PASSWORD="S02-test-only-password";
-    static final String HEADER="campus_id,real_name,role,phone,email\r\n";
-    static final String VALID=HEADER+"202600011,导入模拟学生,student,,student@example.edu\r\n202630012,导入模拟教职工,staff,+86 123,staff@example.edu\r\n";
+    static final String HEADER="username,real_name,role,campus_id,phone,email\r\n";
+    static final String VALID=HEADER+"202600011,导入模拟学生,student,202600011,,student@example.edu\r\n202630012,导入模拟教职工,staff,202630012,+86 123,staff@example.edu\r\n";
     @BeforeEach void fixture() {
         assertEquals("studyroom_java_test",db.one("SELECT current_database() AS name").get("name"));
         TestDatabaseCleanup.clear(db);
@@ -75,7 +75,7 @@ class UserImportIntegrationTest {
         }
     }
     @Test void rowErrorsLocateDuplicatesIllegalRolesAndExistingIdentityWithoutWriting() throws Exception {
-        String csv=HEADER+"202600022,甲,student,,\r\n202600022,乙,student,,\r\n202630003,丙,student,,not-an-email\r\n";
+        String csv=HEADER+"202600022,甲,student,202600022,,\r\n202600022,乙,student,202600022,,\r\n202630003,丙,student,202630003,,not-an-email\r\n";
         String admin=token("admin");
         var response=http.perform(multipart("/api/admin/users/import/preview").file(file(csv)).header("Authorization","Bearer "+admin))
             .andExpect(status().isOk()).andExpect(jsonPath("$.data.total").value(3)).andExpect(jsonPath("$.data.valid_count").value(0)).andExpect(jsonPath("$.data.invalid_count").value(3))
@@ -93,22 +93,22 @@ class UserImportIntegrationTest {
         assertEquals(0,db.count("SELECT count(*) FROM audit_events"));
     }
     @Test void parserAcceptsBomQuotesCommaEscapedQuoteAndMultilineFields() throws Exception {
-        String csv="\uFEFF"+HEADER+"202630013,\"模拟,\"\"姓名\"\"\n第二行\",staff,,\r\n";
+        String csv="\uFEFF"+HEADER+"202630013,\"模拟,\"\"姓名\"\"\n第二行\",staff,202630013,,\r\n";
         String admin=token("admin");
         http.perform(multipart("/api/admin/users/import/preview").file(file(csv)).header("Authorization","Bearer "+admin)).andExpect(status().isOk())
             .andExpect(jsonPath("$.data.valid_count").value(1)).andExpect(jsonPath("$.data.rows[0].real_name").value("模拟,\"姓名\"\n第二行"));
     }
     @Test void fileErrorsRejectUnknownDuplicateCredentialHeadersBrokenUtf8FormatAndLimits() throws Exception {
         String admin=token("admin");
-        for(String csv:List.of("",HEADER,"username,real_name,role\nuser,姓名,student\n","campus_id,username,real_name,role,role\nA,user,姓名,student,staff\n","campus_id,username,real_name,role,password\nA,user,姓名,student,secret\n",HEADER+"A,user,\"unterminated,student,,",HEADER+"too,few\n")) {
+        for(String csv:List.of("",HEADER,"campus_id,username,real_name,role,role\nA,user,姓名,student,staff\n","campus_id,username,real_name,role,password\nA,user,姓名,student,secret\n",HEADER+"A,user,\"unterminated,student,,",HEADER+"too,few\n")) {
             http.perform(multipart("/api/admin/users/import/preview").file(file(csv)).header("Authorization","Bearer "+admin)).andExpect(status().isBadRequest());
         }
         http.perform(multipart("/api/admin/users/import/preview").file(new MockMultipartFile("file","bad.csv","text/csv",new byte[]{(byte)0xC3,(byte)0x28})).header("Authorization","Bearer "+admin)).andExpect(status().isBadRequest());
         http.perform(multipart("/api/admin/users/import/preview").file(new MockMultipartFile("file","large.csv","text/csv",new byte[1024*1024+1])).header("Authorization","Bearer "+admin)).andExpect(status().isBadRequest());
         StringBuilder huge=new StringBuilder(HEADER);
-        for(int i=1;i<=500;i++) { String id=String.format("2026%1d%04d",0,i);huge.append(id).append(",姓名,student,,\n"); }
+        for(int i=1;i<=500;i++) { String id=String.format("2026%1d%04d",0,i);huge.append(id).append(",姓名,student,").append(id).append(",,\n"); }
         http.perform(multipart("/api/admin/users/import/preview").file(file(huge.toString())).header("Authorization","Bearer "+admin)).andExpect(status().isOk()).andExpect(jsonPath("$.data.total").value(500));
-        String extra=String.format("2026%1d%04d",0,501);huge.append(extra).append(",姓名,student,,\n");
+        String extra=String.format("2026%1d%04d",0,501);huge.append(extra).append(",姓名,student,").append(extra).append(",,\n");
         http.perform(multipart("/api/admin/users/import/preview").file(file(huge.toString())).header("Authorization","Bearer "+admin)).andExpect(status().isBadRequest());
         assertEquals(3,db.count("SELECT count(*) FROM users"));
     }

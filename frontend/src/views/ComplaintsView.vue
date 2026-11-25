@@ -48,6 +48,7 @@ function roomOf(item) { return item.context_snapshot?.room_name || (item.room_id
 function titleOf(item) {
   const repair = parseRepair(item.description)
   if (repair) return `${repair.faultType || '设施'}故障`
+  if (item.service_kind === 'other_service' && item.service_topic) return item.service_topic
   const first = String(item.description || '').split(/\r?\n/).find(line => line.trim() && !line.startsWith('【')) || '求助与投诉'
   return first.length > 24 ? first.slice(0, 24) + '…' : first
 }
@@ -78,6 +79,13 @@ async function selectItem(item) {
   } finally {
     if (alive && ticket === detailSequence) detailLoading.value = false
   }
+}
+
+function closeDetail() {
+  selectedId.value = null
+  detail.value = null
+  detailError.value = ''
+  detailSequence++
 }
 
 function created(id) {
@@ -144,7 +152,10 @@ onBeforeUnmount(() => { alive = false; detailSequence++; pager.dispose() })
       <section class="card detail-panel">
         <div class="detail-head">
           <h3>详情</h3>
-          <RouterLink v-if="selectedId" :to="`/complaints/${selectedId}`" class="text-link">打开完整页面</RouterLink>
+          <div class="row-actions">
+            <RouterLink v-if="selectedId" :to="`/complaints/${selectedId}`" class="text-link">打开完整页面</RouterLink>
+            <SButton v-if="selectedId" size="sm" @click="closeDetail">关闭</SButton>
+          </div>
         </div>
         <p v-if="detailLoading" role="status">正在读取本人详情…</p>
         <SBanner v-if="detailError" type="error" :title="detailError"><SButton size="sm" @click="selectItem({id:selectedId})">重试详情</SButton></SBanner>

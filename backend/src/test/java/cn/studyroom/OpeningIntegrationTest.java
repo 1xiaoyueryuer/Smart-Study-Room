@@ -166,6 +166,6 @@ class OpeningIntegrationTest {
         assertEquals(List.of(new OpeningScheduleService.Window(480,1320)),opening.calendar(id).day(LocalDate.now(clock).plusDays(1),null).windows());
         TABLES.forEach(t->db.update("DELETE FROM "+t));
         transactions.executeWithoutResult(tx->new SeedData(db,clock,true,opening,usage).run(null));
-        assertEquals(3,db.count("SELECT count(*) FROM rooms"));assertEquals(21,db.count("SELECT count(*) FROM opening_schedules"));assertEquals(21,db.count("SELECT count(*) FROM opening_windows WHERE start_minute=480 AND end_minute=1320"));assertEquals(546,db.count("SELECT count(*) FROM reservations"));assertEquals(546,db.count("SELECT count(*) FROM usage_records WHERE origin='demo_seed' AND end_reason='demo_completed'"));assertEquals(0,db.count("SELECT count(*) FROM reservations WHERE checkin_at IS NOT NULL OR checkout_at IS NOT NULL"));
+        assertEquals(12,db.count("SELECT count(*) FROM rooms"));assertEquals(84,db.count("SELECT count(*) FROM opening_schedules"));assertEquals(84,db.count("SELECT count(*) FROM opening_windows WHERE start_minute=480 AND end_minute=1320"));assertEquals(336,db.count("SELECT count(*) FROM reservations"));assertEquals(336,db.count("SELECT count(*) FROM usage_records WHERE origin='demo_seed' AND end_reason='demo_completed'"));assertEquals(0,db.count("SELECT count(*) FROM reservations WHERE checkin_at IS NOT NULL OR checkout_at IS NOT NULL"));
     }
 }

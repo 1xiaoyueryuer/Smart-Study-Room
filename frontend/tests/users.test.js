@@ -19,7 +19,7 @@ test('campus identity policy is role-aware, year-bounded, and shared by new IDs 
   assert.match(campusIdentityError('202630001', 'student', 2026), /第5位/)
   assert.equal(campusIdentityError('202630001', 'admin', 2026), '')
   assert.equal(campusIdentityError('202630001', 'staff', 2026), '')
-  assert.equal(campusIdentityError('202600001', 'staff', 2026), '学生第5位须为0/1/2，教职工或管理员第5位须为3')
+  assert.equal(campusIdentityError('202600001', 'staff', 2026), '学生第5位须为0/1/2，教职工第5位须为3')
   assert.match(campusIdentityError('202800001', 'student', 2026), /年份/)
   assert.throws(() => userPayload({ ...valid(), campus_id: '202630001', role: 'student' }, true), /第5位/)
 })

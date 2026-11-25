@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { createComplaint, getComplaint, getComplaintPriorityOptions, uploadComplaintAttachment } from '../api/complaint'
+import { createComplaint, getComplaint, uploadComplaintAttachment } from '../api/complaint'
 import { getRooms } from '../api/room'
 import { getReservation, listMyReservations } from '../api/reservation'
 import { complaintTypes, complaintStatuses, reservationStatuses, positiveId, complaintNumber, complaintPayload, validateEvidenceFile, serviceKinds, faultTypes, impactScopes, safetyRisks, otherRequestTypes, repairPriority, repairPriorityText } from '../composables/complaintForm.js'
@@ -19,18 +19,18 @@ const props = defineProps({ initialType:{type:String,default:'service'}, initial
 const emit = defineEmits(['created'])
 const type=ref('service'), description=ref(''), useReservation=ref(false), reservationId=ref(null), roomId=ref(null), context=ref(null)
 const serviceKind=ref('facility'), repair=ref({faultType:'', impactScope:'', safetyRisk:''}), unsafeArea=ref(''), otherRequestType=ref(''), extensionNotice=ref('')
-const rooms=ref([]), priorityRules=ref([]), priorityOptionsError=ref(''), choices=choicesPager.items, roomsError=ref(''), choicesError=choicesPager.error, contextError=ref(''), contextLoading=ref(false), roomsLoading=ref(false), choicesLoading=choicesPager.loading
+const rooms=ref([]), choices=choicesPager.items, roomsError=ref(''), choicesError=choicesPager.error, contextError=ref(''), contextLoading=ref(false), roomsLoading=ref(false), choicesLoading=choicesPager.loading
 const submitting=ref(false), uncertain=ref(false), error=ref(''), receipt=ref(null), record=ref(null), reading=ref(false), readError=ref('')
 const locked=computed(()=>submitting.value || uncertain.value || !!receipt.value)
 defineExpose({targetReadBlocked:computed(()=>submitting.value||uncertain.value||reading.value||uploading.value)})
 const typeOptions=Object.entries(complaintTypes).map(([value,label])=>({value,label}))
 const serviceKindOptions=Object.entries(serviceKinds).map(([value,label])=>({value,label}))
-const faultTypeOptions=computed(()=>[...new Set([...faultTypes,...priorityRules.value.map(rule=>rule.fault_type)].filter(Boolean))].map(value=>({value,label:value})))
-const impactOptions=computed(()=>{const options=[...impactScopes];for(const value of priorityRules.value.map(rule=>rule.impact_scope).filter(Boolean))if(!options.some(item=>item.value===value))options.push({value,label:value});return options})
+const faultTypeOptions=faultTypes.map(value=>({value,label:value}))
+const impactOptions=impactScopes
 const safetyOptions=safetyRisks
 const unsafeAreaOptions=[{value:'',label:'请选择区域安全情况'},{value:'no',label:'区域仍可安全使用'},{value:'yes',label:'区域无法安全使用（直接按5级）'}]
 const otherRequestOptions=otherRequestTypes.map(value=>({value,label:value}))
-const priorityPreview=computed(()=>repairPriority({...repair.value,unsafeArea:unsafeArea.value,rules:priorityRules.value}))
+const priorityPreview=computed(()=>repairPriority({...repair.value,unsafeArea:unsafeArea.value}))
 const priorityPreviewText=computed(()=>repairPriorityText(priorityPreview.value))
 const roomOptions=computed(()=>[{value:null,label:'请选择关联空间'},...rooms.value.map(room=>({value:room.id,label:`${room.name} · ${room.building || '楼栋未登记'} · ${room.floor || '楼层未登记'}`}))])
 const reservationOptions=computed(()=>{
@@ -42,8 +42,7 @@ let alive=true, contextSequence=0, readSequence=0, scope=0, frozenBody=null, fin
 const queue=useEvidenceUploadQueue({uploadFile:uploadComplaintAttachment,isLocked:()=>locked.value,isActive:()=>alive,setError:text=>{error.value=text},validateFile:validateEvidenceFile,newKey:()=>crypto.randomUUID()})
 const {items,uploading,uploadItem,selectFiles,removeItem}=queue
 async function loadRooms() {roomsLoading.value=true;try{const response=await getRooms();if(alive){rooms.value=response.data;roomsError.value=''}}catch(failure){if(alive)roomsError.value=failure.message}finally{if(alive)roomsLoading.value=false}}
-async function loadPriorityOptions(){priorityOptionsError.value='';try{const {data}=await getComplaintPriorityOptions();if(!alive)return;if(!Number.isSafeInteger(data?.version)||!Array.isArray(data?.rules))throw new Error('分级映射返回不完整');priorityRules.value=data.rules}catch(failure){if(alive)priorityOptionsError.value=failure.message}}
-const loadChoices=()=>choicesPager.refresh()
+async function loadChoices() { return choicesPager.refresh() }
 async function selectReservation(value) {
   if(locked.value) return
   const ticket=++contextSequence
@@ -100,7 +99,7 @@ function applyInitial() {
   else {contextSequence++;reservationId.value=null;context.value=null;contextError.value='';contextLoading.value=false}
 }
 watch(()=>[props.initialType,props.initialReservationId],applyInitial,{immediate:true})
-onMounted(()=>{void loadRooms();void loadPriorityOptions()})
+onMounted(()=>{void loadRooms()})
 onBeforeUnmount(()=>{queue.dispose();alive=false;choicesPager.dispose();scope++;contextSequence++;readSequence++})
 </script>
 <template>
@@ -121,9 +120,8 @@ onBeforeUnmount(()=>{queue.dispose();alive=false;choicesPager.dispose();scope++;
             <div class="priority-preview">
               <div class="priority-head"><span>系统初始优先级</span><b>{{ priorityPreview ? priorityPreview + '级' : '待映射' }}</b></div>
               <p>{{ priorityPreviewText }}</p>
-              <small>安全风险或区域无法安全使用时按5级；非安全组合只在命中已配置映射时自动分级，未命中时由管理员受理核定。</small>
+              <small>系统根据影响范围和安全风险自动定级；存在安全风险时固定5级。</small>
             </div>
-            <p v-if="priorityOptionsError" class="muted">映射读取失败：{{ priorityOptionsError }}。仍可按事实提交，服务端不会猜测级别。</p>
           </template>
           <label v-else>诉求类型（可自定义）<SInput v-model="otherRequestType" maxlength="100" list="other-service-options" :disabled="locked" placeholder="按实际情况填写；下拉仅为示例" /><datalist id="other-service-options"><option v-for="option in otherRequestOptions" :key="option.value" :value="option.value" /></datalist></label>
         </template>

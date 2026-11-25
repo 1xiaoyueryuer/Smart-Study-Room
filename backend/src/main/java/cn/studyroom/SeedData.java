@@ -29,14 +29,16 @@ public class SeedData implements ApplicationRunner {
             String identity=String.format("%04d%1d%04d",admissionYear,0,i);
             studentIds.add(db.insert("INSERT INTO users(username,password_hash,real_name,campus_id) VALUES(?,?,?,?)",identity,studentHash,"模拟学生"+i,identity));
         }
-        int[][] layouts={{6,8},{8,10},{5,6}};String[] names={"1F-静音自习室","2F-综合学习区","3F-电脑研学区"};String[] zones={"quiet","regular","computer"};
-        for(int r=0;r<3;r++) {
-            long room=db.insert("INSERT INTO rooms(name,location,seat_rows,seat_cols,description) VALUES(?,?,?,?,?)",names[r],"示例图书馆 "+(r+1)+"楼",layouts[r][0],layouts[r][1],"课程演示用模拟空间");
+        String[] zoneLetters={"A","B","C","D"};String[] zoneTypes={"quiet","regular","discussion","computer"};
+        for(int floor=1;floor<=3;floor++) for(int zi=0;zi<4;zi++) {
+            String zoneLetter=zoneLetters[zi];
+            long room=db.insert("INSERT INTO rooms(name,location,seat_rows,seat_cols,description,building,floor) VALUES(?,?,?,?,?,?,?)",
+                    floor+"F-"+zoneLetter+"区",floor+"层",4,6,"课程演示用模拟空间","示例图书馆",String.valueOf(floor));
             opening.initializeDefaults(room);
-            for(int row=1;row<=layouts[r][0];row++) for(int col=1;col<=layouts[r][1];col++) {
-                long seat=db.insert("INSERT INTO seats(room_id,seat_no,row_no,col_no,zone,has_power,near_window) VALUES(?,?,?,?,?,?,?)",room,String.format("%02d-%02d",row,col),row,col,zones[r],col%2==0,col==1);
+            for(int row=1;row<=4;row++) for(int col=1;col<=6;col++) {
+                long seat=db.insert("INSERT INTO seats(room_id,seat_no,row_no,col_no,zone,has_power,near_window) VALUES(?,?,?,?,?,?,?)",room,String.format("%02d-%02d",row,col),row,col,zoneTypes[zi],col%2==0,col==1);
                 // 明确为模拟历史，随当天生成，不复制早期固定的过期日期。
-                if((row+col)%4==0) for(int d=1;d<=14;d++) {
+                if(floor==1&&(row+col)%4==0) for(int d=1;d<=14;d++) {
                     LocalDate day=LocalDate.now(clock).minusDays(d);int hour=9+(row+col+d)%8;
                     long user=studentIds.get((row*col+d)%40);
                     long reservation=db.insert("INSERT INTO reservations(user_id,seat_id,res_date,start_time,end_time,status,ended_at,termination_reason) VALUES(?,?,?,CAST(? AS TIME),CAST(? AS TIME),'completed',?,'demo_completed')",

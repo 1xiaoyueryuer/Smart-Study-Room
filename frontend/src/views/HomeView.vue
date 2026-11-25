@@ -161,7 +161,7 @@ const shortcuts = computed(() => auth.isAdmin
       { title: '个人中心', desc: '账户资料与联系方式', icon: 'profile', to: '/profile' }
     ]
   : [
-      { title: '座位预约', desc: '三种找座方案 · 图列表双视图', icon: 'booking', to: '/booking' },
+      { title: '座位预约', desc: '按楼层分区选座 · 图列表双视图', icon: 'booking', to: '/booking' },
       { title: '我的预约', desc: '扫码签到 · 提前签退 · 使用记录', icon: 'reservations', to: '/mine' },
       { title: '求助与投诉', desc: '预约问题 · 设施报修 · 服务反馈', icon: 'ticket', to: '/complaints' },
       { title: '消息中心', desc: unread.value > 0 ? `${unread.value} 条未读` : '预约与反馈通知', icon: 'notification', to: '/notifications' }
@@ -296,7 +296,7 @@ function statusText(row) {
           </ul>
           <ul v-else class="tips tips-list">
             <li>资源变更先预览影响清单，确认后管理取消受影响预约，不记用户违约。</li>
-            <li>投诉先受理再核实，未知身份不归责；设施报修按故障类型、影响范围和安全风险分级。</li>
+            <li>投诉先受理再核实，未知身份不归责；设施报修由系统按影响范围和安全风险自动分级，存在安全风险固定5级。</li>
             <li>统计快照每 10 秒刷新，失败保留上次成功值与时间。</li>
             <li>评价隐藏后本人修改不自动恢复公开，需管理员复核。</li>
           </ul>

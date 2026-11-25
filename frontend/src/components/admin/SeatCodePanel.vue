@@ -71,7 +71,7 @@ onBeforeUnmount(() => { disposed = true; sequence++; imageSequence++; releaseIma
     <template v-if="metadata && !loading">
       <p v-if="!metadata.configured">尚未生成座位码。首次生成后启用。</p>
       <template v-else><p>管理版本{{ metadata.version }} · {{ metadata.enabled ? '启用' : '停用（不能签到）' }}</p><p class="muted">创建：{{ metadata.created_at || '—' }}；更新：{{ metadata.updated_at || '—' }}</p><img v-if="imageUrl" :src="imageUrl" class="seat-code-image" alt="当前座位二维码" @load="imageReady=true" @error="imageReady=false;pngError='座位码图片无法显示，请重新读取'" /><p v-if="imageUrl && !imageReady" role="status">等待二维码图片加载…</p><SBanner v-if="pngError" type="error" :title="pngError"><SButton size="sm" :disabled="saving" @click="load">刷新码状态与图片</SButton></SBanner><SButton :disabled="!imageReady || saving || !!error" @click="printCode">打印当前座位码</SButton></template>
-      <p class="muted">轮换会立即使旧码失效；停用后当前码不能签到，重新启用沿用当前二维码内容，轮换前旧码不会恢复。请妥善保管打印件。</p>
+      <p class="muted">轮换后旧码失效；停用后不能签到。</p>
       <p v-if="formError" role="alert">{{ formError }}</p><label class="reason-field">操作理由<SInput v-model="reason" type="textarea" maxlength="1000" :disabled="saving" placeholder="首次生成、轮换或启停均需填写理由" /></label>
       <div class="row-actions"><SButton v-if="!metadata.configured" variant="primary" :loading="saving" :disabled="!!error" @click="mutate('create')">首次生成</SButton><template v-else><SButton :loading="saving" :disabled="!!error" @click="mutate('rotate')">轮换座位码</SButton><SButton :loading="saving" :disabled="!!error" @click="mutate('toggle')">{{ metadata.enabled ? '停用座位码' : '启用座位码' }}</SButton></template></div>
     </template>

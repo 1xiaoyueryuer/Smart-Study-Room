@@ -2,24 +2,23 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { complaintPayload, repairPriority } from '../src/composables/complaintForm.js'
 
-test('repair form uses exact server mappings and never invents a non-safety level', () => {
-  const input = { type: 'service', description: '实际报修情况', roomId: 8, items: [], serviceKind: 'facility', repair: { faultType: '灯具', impactScope: '局部影响', safetyRisk: 'none' }, unsafeArea: 'no' }
-  const unmapped = complaintPayload(input)
-  assert.equal(unmapped.service_kind, 'facility_repair')
-  assert.equal(unmapped.unsafe_area, false)
-  assert.match(unmapped.description, /未命中已配置映射/)
-  assert.equal(repairPriority({ ...input.repair, rules: [] }), null)
-  const mapped = complaintPayload(input)
-  assert.equal(mapped.description.includes('初始优先级：1级'), false)
-  assert.equal(repairPriority({ ...input.repair, rules: [{ fault_type: '灯具', impact_scope: '局部影响', priority: 3, enabled: true }] }), 3)
+test('repair form auto-grades by impact and safety without mapping rules', () => {
+  const input = { type: 'service', description: '实际报修情况', roomId: 8, items: [], serviceKind: 'facility', repair: { faultType: '灯具', impactScope: 'one_seat', safetyRisk: 'none' }, unsafeArea: 'no' }
+  const payload = complaintPayload(input)
+  assert.equal(payload.service_kind, 'facility_repair')
+  assert.equal(payload.unsafe_area, false)
+  assert.match(payload.description, /系统自动分级：3级/)
+  assert.equal(repairPriority({ impactScope: 'one_seat', safetyRisk: 'none', unsafeArea: 'no' }), 3)
+  assert.equal(repairPriority({ impactScope: 'minor', safetyRisk: 'none', unsafeArea: 'no' }), 1)
+  assert.equal(repairPriority({ impactScope: 'multiple', safetyRisk: 'none', unsafeArea: 'no' }), 4)
 })
 
 test('either safety condition forces level five and sends explicit booleans', () => {
-  const value = complaintPayload({ type: 'service', description: '安全风险事实', roomId: 9, items: [], serviceKind: 'facility', repair: { faultType: '插座', impactScope: '单座', safetyRisk: 'none' }, unsafeArea: 'yes' })
+  const value = complaintPayload({ type: 'service', description: '安全风险事实', roomId: 9, items: [], serviceKind: 'facility', repair: { faultType: '插座', impactScope: 'one_seat', safetyRisk: 'none' }, unsafeArea: 'yes' })
   assert.equal(value.safety_risk, false)
   assert.equal(value.unsafe_area, true)
-  assert.match(value.description, /安全规则初始优先级：5级/)
-  assert.equal(repairPriority({ safetyRisk: 'yes', rules: [] }), 5)
+  assert.match(value.description, /系统自动分级：5级/)
+  assert.equal(repairPriority({ impactScope: 'one_seat', safetyRisk: 'yes', unsafeArea: 'no' }), 5)
 })
 
 test('other-service alias maps to the backend service topic contract', () => {

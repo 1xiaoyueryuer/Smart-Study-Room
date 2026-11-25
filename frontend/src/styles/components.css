@@ -74,9 +74,16 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 14px;
+  gap: 18px;
+  margin-bottom: 16px;
   min-height: 30px;
+}
+
+.row-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .card-title-row h3 {
@@ -99,7 +106,7 @@
 .side-nav {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
 }
 
 .side-nav-item {
@@ -108,7 +115,7 @@
   grid-template-columns: 30px 1fr auto;
   gap: 6px;
   align-items: center;
-  padding: 8px 10px;
+  padding: 9px 12px;
   border-radius: var(--r-md);
   cursor: pointer;
   color: var(--text-3);
@@ -326,7 +333,7 @@ table.table {
 
 .table .row-actions {
   display: inline-flex;
-  gap: 6px;
+  gap: 12px;
   flex-wrap: wrap;
 }
 
@@ -546,4 +553,3 @@ table.table {
   from { opacity: 0; }
   to { opacity: 1; }
 }
-

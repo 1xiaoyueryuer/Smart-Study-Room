@@ -61,8 +61,11 @@ public class AvailabilityService {
                     var item=result(publicRoom,seat,day,left,right,snapshot,duration,suggested,candidate);windows.add(item);results.add(item);
                 }
             }
-            windows.sort(order);allWindows.sort(EARLIEST);var safe=copy(seat,SEAT_FIELDS);safe.put("opening_windows",legal.view());safe.put("closed_reasons",legal.closedReasons());safe.put("available_windows",windows);safe.put("matching_windows",windows);safe.put("all_windows",allWindows);seats.add(safe);
+            windows.sort(order);allWindows.sort(EARLIEST);
+            if(startTime!=null){String exactStart=Slot.format(requestedStart),exactEnd=Slot.format(requestedStart+suggested);windows.removeIf(item->!exactStart.equals(item.get("suggested_start"))||!exactEnd.equals(item.get("suggested_end")));}
+            var safe=copy(seat,SEAT_FIELDS);safe.put("opening_windows",legal.view());safe.put("closed_reasons",legal.closedReasons());safe.put("available_windows",windows);safe.put("matching_windows",windows);safe.put("all_windows",allWindows);seats.add(safe);
         }
+        if(startTime!=null){String exactStart=Slot.format(requestedStart),exactEnd=Slot.format(requestedStart+suggested);results.removeIf(item->!exactStart.equals(item.get("suggested_start"))||!exactEnd.equals(item.get("suggested_end")));}
         results.sort(order);
         var response=new LinkedHashMap<String,Object>();String now=snapshot.atZone(BookingPolicy.CAMPUS_ZONE).toOffsetDateTime().toString();
         response.put("room",publicRoom);response.put("date",day.toString());response.put("strategy",strategy);response.put("required_minutes",required);response.put("learning_minutes",learning);response.put("start_time",Slot.format(requestedStart));response.put("server_now",now);response.put("campus_today",snapshot.toLocalDate().toString());response.put("computed_at",now);response.put("campus_zone",BookingPolicy.CAMPUS_ZONE.getId());response.put("seats",seats);response.put("results",results);return response;

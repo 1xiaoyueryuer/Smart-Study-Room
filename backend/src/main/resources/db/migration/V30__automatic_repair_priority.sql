@@ -1,0 +1,15 @@
+-- Repair priority is system auto-graded 1-5; administrator triage is no longer required.
+-- Historical mapped/unconfigured rows and their recorded triage facts remain valid.
+ALTER TABLE complaints DROP CONSTRAINT IF EXISTS complaint_service_details_check;
+ALTER TABLE complaints DROP CONSTRAINT IF EXISTS complaint_service_fields_explicit_v26;
+ALTER TABLE complaints ADD CONSTRAINT complaint_service_fields_explicit_v30 CHECK(
+ (type='occupation' AND service_kind IS NULL AND service_topic IS NULL AND fault_type IS NULL AND impact_scope IS NULL AND safety_risk IS NULL AND unsafe_area IS NULL AND initial_priority IS NULL AND priority_status IS NULL AND priority_mapping_version IS NULL AND triaged_priority IS NULL AND triaged_safety_risk IS NULL AND triaged_unsafe_area IS NULL AND triaged_reason IS NULL AND triaged_at IS NULL) OR
+ (type='service' AND service_kind IS NULL AND service_topic IS NULL AND fault_type IS NULL AND impact_scope IS NULL AND safety_risk IS NULL AND unsafe_area IS NULL AND initial_priority IS NULL AND priority_status IS NULL AND priority_mapping_version IS NULL AND triaged_priority IS NULL AND triaged_safety_risk IS NULL AND triaged_unsafe_area IS NULL AND triaged_reason IS NULL AND triaged_at IS NULL) OR
+ (type='service' AND service_kind='facility_repair' AND room_id IS NOT NULL AND service_topic IS NULL AND fault_type IS NOT NULL AND char_length(trim(fault_type)) BETWEEN 1 AND 100 AND impact_scope IS NOT NULL AND char_length(trim(impact_scope)) BETWEEN 1 AND 100 AND safety_risk IS NOT NULL AND unsafe_area IS NOT NULL AND priority_mapping_version IS NOT NULL AND priority_status IS NOT NULL AND priority_status IN('mapped','safety_override','unconfigured','auto') AND
+   ((priority_status='auto' AND initial_priority BETWEEN 1 AND 5 AND (((safety_risk OR unsafe_area) AND initial_priority=5) OR (NOT safety_risk AND NOT unsafe_area AND initial_priority BETWEEN 1 AND 4))) OR
+    (priority_status='mapped' AND initial_priority BETWEEN 1 AND 4 AND NOT safety_risk AND NOT unsafe_area) OR
+    (priority_status='unconfigured' AND initial_priority IS NULL AND NOT safety_risk AND NOT unsafe_area) OR
+    (priority_status='safety_override' AND initial_priority=5 AND (safety_risk OR unsafe_area))) AND
+   ((triaged_priority IS NULL AND triaged_safety_risk IS NULL AND triaged_unsafe_area IS NULL AND triaged_reason IS NULL AND triaged_at IS NULL) OR
+    (triaged_priority BETWEEN 1 AND 5 AND triaged_safety_risk IS NOT NULL AND triaged_unsafe_area IS NOT NULL AND char_length(trim(triaged_reason)) BETWEEN 1 AND 1000 AND triaged_at IS NOT NULL))) OR
+ (type='service' AND service_kind='other_service' AND room_id IS NOT NULL AND service_topic IS NOT NULL AND char_length(trim(service_topic)) BETWEEN 1 AND 100 AND fault_type IS NULL AND impact_scope IS NULL AND safety_risk IS NULL AND unsafe_area IS NULL AND initial_priority IS NULL AND priority_status IS NULL AND priority_mapping_version IS NULL AND triaged_priority IS NULL AND triaged_safety_risk IS NULL AND triaged_unsafe_area IS NULL AND triaged_reason IS NULL AND triaged_at IS NULL));

@@ -102,12 +102,13 @@ test('actual typed summary renders room changes, full-day closure and original b
   const cancelHtml=await renderSummary(page);assert.match(cancelHtml,/A1 \/ 2026-11-01T08:00—12:00/);assert.match(cancelHtml,/其他重叠停用记录/)
 })
 
-test('management cancellation and user cancellation retain distinct exact server categories and full-owner counts',async()=>{
+test('management cancellation and user cancellation keep current notification categories',async()=>{
  const page=await component('../src/views/NotificationsView.vue',{
   vue:{ref,computed,onMounted(){}},'../components/ui/feedback':{message:{success(){}}},'../api/notification':{listNotifications:async()=>({data:[]}),markRead:async()=>{},markAllRead:async()=>({data:{marked:0}})},'../stores/notification':{useNotificationStore:()=>({refresh(){},beginUpdate(){},acceptUnread(){}})}
- },'list,filters,typeMeta,buckets,snapshot,typeNav')
+ },'list,category,visibleItems,typeMeta,snapshot')
  page.list.value=[{id:1,type:'management_cancelled',is_read:false}]
- page.snapshot.value={counts:{total:30,unread:8,by_type:{reservation_cancelled:4,management_cancelled:9,reservation_success:17}}}
- assert.equal(page.typeMeta.management_cancelled.text,'资源管理取消');assert.equal(page.buckets.value.reservation_cancelled,4);assert.equal(page.buckets.value.management_cancelled,9);assert.equal(page.buckets.value.all,30)
- page.filters.value={type:'reservation_cancelled'};assert.equal(page.list.value.length,1);assert.equal(page.list.value[0].type,'management_cancelled');assert.equal(page.typeNav.value.some(item=>item.key==='management_cancelled'),true);assert.equal(page.typeMeta.reservation_checkin.text,'预约签到成功')
+ page.category.value='reservation'
+ assert.equal(page.typeMeta.management_cancelled.text,'资源管理取消')
+ assert.equal(page.visibleItems.value.length,1)
+ assert.equal(page.typeMeta.reservation_checkin.text,'签到成功')
 })

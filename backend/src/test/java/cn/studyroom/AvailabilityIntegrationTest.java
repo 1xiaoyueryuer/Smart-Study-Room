@@ -163,4 +163,13 @@ class AvailabilityIntegrationTest {
         var updated=results(strategy("duration","120")).stream().filter(row->Store.id(row,"seat_id")==seat).findFirst().orElseThrow();assertEquals("10:00",updated.get("available_start"));assertEquals("22:00",updated.get("available_end"));assertEquals("12:00",updated.get("suggested_end"));
     }
 
+
+    @Test void exactStartAndLearningFilterLaterCandidatesWhenBothProvided() {
+        originalThreeSeats();
+        var exact=availability.find(student,room,day.toString(),"duration","60","60","15:00");
+        assertTrue(results(exact).isEmpty());
+        for(var seat:seats(exact)) assertEquals(List.of(),seat.get("available_windows"));
+        var legacy=strategy("duration","60");
+        assertFalse(results(legacy).isEmpty());
+    }
 }

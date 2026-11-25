@@ -129,7 +129,7 @@ defineExpose({ loadUsers, openCreate })
         <label>姓名<SInput v-model="form.real_name" required maxlength="50" /></label>
         <label v-if="form.role === 'admin'">管理员登录名<SInput v-model="form.username" required maxlength="50" /></label>
         <label>{{ form.role === 'admin' ? '校园编号（选填）' : '校园编号（学号/工号）' }}<SInput v-model="form.campus_id" :required="form.role !== 'admin'" :maxlength="form.role === 'admin' ? 20 : 9" :placeholder="form.role === 'admin' ? '管理员可不登记' : '如 202600001'" /></label>
-        <p class="muted full-width">学生与教职工使用9位校园编号登录：4位入学年份 + 1位身份类别（学生本科0、研究生1、博士2；教职工3）+ 4位序号。管理员使用独立登录名，校园编号可不登记；旧账号身份未变更时保留原值。</p>
+        <p class="muted full-width">校园编号 9 位：入学年份4 + 身份1 + 序号4。</p>
         <label>角色<SSelect v-model="form.role" :options="roles" :disabled="self" /></label>
         <label>状态<SSelect v-model="form.status" :options="statuses" :disabled="self" /></label>
         <label>联系电话<SInput v-model="form.phone" maxlength="30" type="tel" /></label>

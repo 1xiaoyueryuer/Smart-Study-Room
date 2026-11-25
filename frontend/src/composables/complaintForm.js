@@ -15,14 +15,16 @@ export const safetyRisks = [{ value: '', label: '请选择安全风险' }, { val
 export const otherRequestTypes = ['环境卫生', '噪音秩序', '服务态度', '其他服务问题']
 export const serviceTopics = { 环境卫生: '环境卫生', 噪音秩序: '噪音秩序' }
 
-export function repairPriority({ faultType, impactScope, safetyRisk, unsafeArea, rules = [] }) {
+export function repairPriority({ impactScope, safetyRisk, unsafeArea }) {
   if (safetyRisk === 'yes' || unsafeArea === 'yes') return 5
-  const fault = String(faultType || '').trim().normalize('NFC').toLocaleLowerCase()
-  const scope = String(impactScope || '').trim().normalize('NFC').toLocaleLowerCase()
-  const match = rules.find(rule => rule.enabled !== false && String(rule.fault_type || '').trim().normalize('NFC').toLocaleLowerCase() === fault && String(rule.impact_scope || '').trim().normalize('NFC').toLocaleLowerCase() === scope)
-  return Number.isInteger(match?.priority) && match.priority >= 1 && match.priority <= 4 ? match.priority : null
+  const scope = String(impactScope || '').trim().toLowerCase()
+  if (scope === 'minor') return 1
+  if (scope === 'inconvenient') return 2
+  if (scope === 'one_seat') return 3
+  if (scope === 'multiple') return 4
+  return null
 }
-export function repairPriorityText(level) { return level === 5 ? '5级 · 存在安全风险或区域无法安全使用' : Number.isInteger(level) ? `${level}级 · 当前映射命中` : '该组合映射未配置；由管理员受理时核定，不自动猜测级别' }
+export function repairPriorityText(level) { return ({1:'1级 · 外观或轻微异常，不影响使用',2:'2级 · 轻微不便，但仍可使用',3:'3级 · 一个座位或单台设施不可用',4:'4级 · 多个座位或较大区域受影响',5:'5级 · 存在安全风险或区域无法安全使用'})[level] || '请选择影响范围' }
 export function repairSummary({ faultType, impactScope, safetyRisk }) {
   const safety = safetyRisks.find(item => item.value === safetyRisk)?.label || '未选择安全风险'
   return `【设施报修】故障类型：${faultType || '未选择'}；影响范围：${impactScope || '未选择'}；安全风险：${safety}。`
@@ -55,7 +57,7 @@ export function complaintPayload({ type, description, reservationId, roomId, ite
   if (serviceKind === 'facility') {
     if (!String(repair?.faultType || '').trim() || String(repair.faultType).trim().length > 100 || !String(repair?.impactScope || '').trim() || String(repair.impactScope).trim().length > 100 || !['none','yes'].includes(repair?.safetyRisk) || !['yes','no'].includes(unsafeArea)) throw new Error('请完整填写设施报修字段')
     const priority = repairPriority({ ...repair, unsafeArea })
-    const note = priority === 5 ? `安全规则初始优先级：5级（${repairPriorityText(5)}）。` : '初始优先级以服务端返回为准；未命中已配置映射时由管理员受理核定。'
+    const note = `系统自动分级：${priority || '待选择'}级（${repairPriorityText(priority)}）。`
     const payloadDescription = `${repairSummary(repair)}${note}\n具体情况：\n${text}`
     if (payloadDescription.length > 2000) throw new Error('报修信息与说明总长度不能超过2000字')
     return { type, description: payloadDescription, attachment_ids, room_id, service_kind: 'facility_repair', fault_type: repair.faultType.trim(), impact_scope: repair.impactScope.trim(), safety_risk: repair.safetyRisk === 'yes', unsafe_area: unsafeArea === 'yes' }

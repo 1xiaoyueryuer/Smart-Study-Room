@@ -15,7 +15,7 @@ export function targetProjection(record, elapsedSeconds = 0) {
   return {
     remaining_seconds: remaining,
     awaiting_check: target.status === 'running' && remaining === 0,
-    overdue_seconds: target.status === 'overdue' && Number.isFinite(server) && Number.isFinite(due)
+    overdue_seconds: target.status === 'overdue' && target.basis !== 'service_open_hours_24' && Number.isFinite(server) && Number.isFinite(due)
       ? Math.max(0, (server - due) / 1000 + elapsed) : null,
   }
 }

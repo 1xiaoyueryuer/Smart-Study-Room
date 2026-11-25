@@ -12,6 +12,7 @@ import SEmpty from '../ui/SEmpty.vue'
 import {recordQuery,validRecordPage,recordFields} from '../../composables/recordPage.js'
 import RecordFilters from '../RecordFilters.vue'
 import RecordPageControls from '../RecordPageControls.vue'
+import SDialog from '../ui/SDialog.vue'
 const filters=ref({status:'submitted'}),appliedFilters=ref(null),snapshot=ref(null),snapshotQuery=ref(null),fields=recordFields('appeal',true)
 const items=ref([]),loaded=ref(false),loading=ref(false),error=ref(''),detail=ref(null),detailLoading=ref(false),detailError=ref(''),selectedId=ref(null);let alive=true,listSequence=0,detailSequence=0
 const blank=()=>({decision:'',reason:'',verification_note:'',facts_confirmed:false})
@@ -33,6 +34,7 @@ async function review(){if(reviewing.value||readPending.value||detailLoading.val
   finally{if(alive)reviewing.value=false}
 }
 function refreshDetail(){return openDetail(selectedId.value,{afterWrite:readPending.value})}
+function closeDetail(){if(reviewing.value||readPending.value)return;selectedId.value=null;detail.value=null;detailError.value='';reviewError.value='';receipt.value=null}
 onMounted(loadList);onBeforeUnmount(()=>{drafts.clear();alive=false;listSequence++;detailSequence++});defineExpose({loadList})
 </script>
 <template>
@@ -55,8 +57,7 @@ onMounted(loadList);onBeforeUnmount(()=>{drafts.clear();alive=false;listSequence
       </div>
       <RecordPageControls :snapshot="snapshot" :query="snapshotQuery" :fields="fields" :disabled="loading||reviewing||readPending" @page="loadList(true,$event)"/>
     </section>
-    <section v-if="selectedId" class="card">
-      <div class="card-title-row"><h3>管理申诉详情#{{selectedId}}</h3><SButton :loading="detailLoading" :disabled="reviewing" @click="refreshDetail">刷新原件</SButton></div>
+    <SDialog :model-value="!!selectedId" :title="selectedId?`管理申诉详情#${selectedId}`:'申诉详情'" width="960px" :show-close="!reviewing&&!readPending" :close-on-click-modal="!reviewing&&!readPending" :close-on-escape="!reviewing&&!readPending" @update:model-value="value=>{if(!value)closeDetail()}">
       <p v-if="detailLoading" role="status">正在鉴权读取原申诉与材料…</p>
       <SBanner v-else-if="detailError" type="error" :title="detailError"/>
       <template v-if="detail&&!detailLoading&&!detailError">
@@ -68,11 +69,11 @@ onMounted(loadList);onBeforeUnmount(()=>{drafts.clear();alive=false;listSequence
             <p>发生：{{detail.management_context.violation.occurred_at}}；登记：{{detail.management_context.violation.registered_at}}</p>
             <p class="source-reason">当前公开事实依据：{{detail.management_context.violation.reason}}</p>
             <p>原关联预约：<span v-if="detail.management_context.violation.reservation_id">#{{detail.management_context.violation.reservation_id}}</span><span v-else>未关联</span>；源核实事件：<span v-if="detail.management_context.violation.source_event_id">#{{detail.management_context.violation.source_event_id}}</span><span v-else>无已关联源核实事件</span>；登记人账号：<span v-if="detail.management_context.violation.registrant_id">#{{detail.management_context.violation.registrant_id}}</span><span v-else>无已关联登记人账号</span></p>
-            <p v-if="detail.management_context.source_complaint_id">来源投诉#{{detail.management_context.source_complaint_id}}；可切换投诉管理，按该投诉编号和源核实事件核查。</p>
+            <p v-if="detail.management_context.source_complaint_id">来源投诉#{{detail.management_context.source_complaint_id}}。</p>
             <p v-else>无已关联来源投诉。</p>
-            <p>此区是管理当前事实，与下方提交时快照分开保留，不代表已完成审核。</p>
+            <p>管理事实与提交快照分开保留。</p>
           </template>
-          <p v-else>管理核查来源尚未返回，请刷新核对；不以本人安全快照代替管理来源。</p>
+          <p v-else>管理来源未返回，请刷新。</p>
         </section>
         <AppealRecord :record="detail"/>
         <section v-if="detail.review">
@@ -84,12 +85,16 @@ onMounted(loadList);onBeforeUnmount(()=>{drafts.clear();alive=false;listSequence
           <p>7天是申请提交期，已经及时提交的待审记录不因此失效。公开理由供本人查看，私有核实依据单独保留。</p>
           <label>审核决定<SSelect v-model="reviewForm.decision" :options="[{value:'approved',label:'同意申诉'},{value:'rejected',label:'驳回申诉'}]" :disabled="reviewing||readPending"/></label>
           <label>公开审核理由<SInput v-model="reviewForm.reason" type="textarea" maxlength="1000" :disabled="reviewing||readPending"/></label>
-          <label>管理私有核实依据<SInput v-model="reviewForm.verification_note" type="textarea" maxlength="2000" :disabled="reviewing||readPending" placeholder="据实填写；工程模拟请明确说明，不冒充真人核实"/></label>
+          <label>管理私有核实依据<SInput v-model="reviewForm.verification_note" type="textarea" maxlength="2000" :disabled="reviewing||readPending" placeholder="填写核实依据"/></label>
           <label><span><input v-model="reviewForm.facts_confirmed" type="checkbox" :disabled="reviewing||readPending"/> 管理员自报已核实审核依据</span></label>
           <SButton type="submit" variant="primary" :disabled="reviewing||readPending">只读预览审核影响</SButton>
         </form>
       </template>
-    </section>
+      <template #footer>
+        <SButton :loading="detailLoading" :disabled="reviewing" @click="refreshDetail">刷新原件</SButton>
+        <SButton :disabled="reviewing||readPending" @click="closeDetail">关闭</SButton>
+      </template>
+    </SDialog>
     <SBanner v-if="reviewError" type="error" :title="reviewError"/>
     <section v-if="receipt&&receipt.appeal.id===selectedId" class="card">
       <p>申诉#{{receipt.appeal.id}}审核已保存：{{appealStatuses[receipt.appeal.status]||receipt.appeal.status}}；以真实结果和当前资格为准，不恢复原预约。</p>
@@ -102,9 +107,9 @@ onMounted(loadList);onBeforeUnmount(()=>{drafts.clear();alive=false;listSequence
 <style scoped>
 .record-box{border:1px solid var(--border);border-radius:var(--r-lg);padding:16px;display:grid;gap:12px;min-height:120px;min-width:0}
 .appeal-management,.appeal-management>.card{display:grid;gap:16px;min-width:0;overflow-wrap:anywhere}
-.review-form{display:grid;gap:12px}
-.review-form label{display:grid;gap:7px}
-.management-context{display:grid;gap:8px;padding:12px;background:var(--surface-2);border-radius:var(--r-md)}
+.review-form{display:grid;gap:16px}
+.review-form label{display:grid;gap:8px}
+.management-context{display:grid;gap:12px;padding:14px;background:var(--surface-2);border-radius:var(--r-md)}
 .source-reason{white-space:pre-wrap}
 .appeal-list{display:grid;gap:12px;padding:0;margin:0;list-style:none}
 .appeal-list li{display:grid;gap:6px;padding-bottom:10px;border-bottom:1px solid var(--hairline)}

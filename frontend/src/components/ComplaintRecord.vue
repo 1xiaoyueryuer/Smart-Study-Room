@@ -58,7 +58,7 @@ function eventLabel(event) {
         <div><span>故障类型</span><b>{{ record.fault_type || '未填写' }}</b></div>
         <div><span>影响范围</span><b>{{ impactScopeText(record.impact_scope) }}</b></div>
         <div><span>安全风险</span><b>{{ record.safety_risk ? '存在' : '无' }}<template v-if="record.unsafe_area"> · 区域暂不可安全使用</template></b></div>
-        <div><span>当前优先级</span><b>{{ record.triaged_priority ? `${record.triaged_priority}级（管理员核定）` : record.initial_priority ? `${record.initial_priority}级` : '待管理员核定' }}</b></div>
+        <div><span>当前优先级</span><b>{{ record.initial_priority ? `${record.initial_priority}级` : '待定级' }}<template v-if="record.initial_priority">（系统自动）</template></b></div>
       </div>
       <p v-if="record.triaged_reason" class="muted">核定说明：{{ record.triaged_reason }}</p>
       <p class="muted">等级用于处理排序，不代表维修期限或完成承诺。</p>
@@ -87,7 +87,7 @@ function eventLabel(event) {
       </p>
     </section>
 
-    <details class="record-section attachments-section">
+    <details v-if="record.attachment_count" class="record-section attachments-section">
       <summary>照片材料（{{ record.attachment_count }}张）</summary>
       <p v-if="!record.attachments?.length" class="muted">本次未附照片。</p>
       <div v-else class="attachments">

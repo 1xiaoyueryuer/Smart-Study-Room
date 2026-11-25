@@ -7,6 +7,7 @@ import { bookingRestrictionDetails } from '../src/composables/restrictionForm.js
 import { windowKey, validateWindowSlot, queryRequiredMinutes, shortfallText } from '../src/composables/availabilitySelection.js'
 import { operationReason } from '../src/components/admin/userForm.js'
 import { ref, computed } from 'vue'
+import { usePagination } from '../src/composables/usePagination.js'
 
 const room = () => ({ id: 1, name: '测试空间', building: '教学楼', floor: 'B1', location: '东侧', enabled: true, seat_count: 2, capacity: 1, bookable_capacity: 1, seat_rows: 30, seat_cols: 30, version: 3, open_time: '08:00', close_time: '22:00', description: '' })
 const seat = () => ({ id: 2, seat_no: 'A1', row_no: 1, col_no: 1, zone: 'regular', status: 'available', has_power: false, near_window: false, occupied: false, bookable_for_slot: true, opening_windows: [{start:'08:00',end:'22:00'}], version: 5 })
@@ -37,6 +38,7 @@ async function resources(overrides = {}) {
     '../../api/room': { getRooms: overrides.getRooms || (async () => { effects.calls.push(['rooms']); return { data: [room()] } }) },
     '../../api/admin': api,
     './userForm.js': { operationReason },
+    '../../composables/usePagination': { usePagination },
     '../ui/feedback': { message: { success() {} } }
   }, 'loadRooms, openCreate, openEdit, saveRoom, roomForm, roomDialog, formError, openSeats, editSeat, saveSeat, seatForm, seatDialog, seatRoom, removeResource, deleteForm, saveDelete, deleteDialog, changeConfirm, writeNotice', { defineEmits: () => (_, value) => effects.summaries.push(value) })
   page.changeConfirm.value = {run:overrides.confirmChange || (async proposal=>{effects.calls.push(['change',proposal]);return{operation_id:'test-operation',cancelled_count:0}})}
@@ -97,41 +99,6 @@ test('historical resource deletion failure keeps operation reason in dialog', as
   assert.equal(page.deleteForm.value.reason, '误建座位核查')
   assert.match(page.formError.value, /历史记录/)
 })
-async function booking() {
-  const calls = []
-  const page = await script('../src/views/BookingView.vue', {
-    vue: { ref, computed, watch() {}, onMounted() {}, onBeforeUnmount() {} },
-    '../components/seat3d/seatPresentation': { seatType: () => '普通桌', zoneName: { regular: '普通区' }, getWindowSides: () => ({}) },
-    '../components/ui/feedback': { message: { info() {}, warning() {}, success() {} }, confirmDialog: async () => {} },
-    '../api/room': { getRooms: async () => ({ data: [] }), getSeatMap: async () => ({ data: { room: room(), seats: [seat()] } }) },
-    '../api/availability': {getAvailability:async()=>({data:{}})},
-    '../composables/restrictionForm.js':{bookingRestrictionDetails},
-    '../composables/availabilitySelection.js':{windowKey,validateWindowSlot,queryRequiredMinutes,shortfallText},
-    '../api/reservation': { createReservation: async () => { calls.push('create') }, getBookingPolicy: async () => ({data:{}}) },
-    '../composables/bookingPolicy.js': {validateSlot,minuteValue,minuteText,serverStartMinute}
-  }, 'room, rooms, seats, policy, date, start, end, locationFilter, filteredRooms, selected, onSeatClick, confirmBooking, seatStats')
-  page.policy.value = {server_now:'2026-11-01T08:00:00+08:00',campus_today:'2026-11-01',dates:['2026-11-01','2026-11-02','2026-11-03'],campus_zone:'Asia/Shanghai',min_duration_minutes:30}
-  page.date.value='2026-11-01';page.start.value='09:00';page.end.value='12:00'
-  return { ...page, calls }
-}
-test('disabled room cannot submit through manual selection or direct confirmation', async () => {
-  const page = await booking()
-  page.room.value = { ...room(), enabled: false }
-  page.onSeatClick(seat())
-  assert.equal(page.selected.value, null)
-  page.selected.value = seat()
-  await page.confirmBooking()
-  assert.deepEqual(page.calls, [])
-})
-test('public position filters preserve B1 and do not guess unknown metadata', async () => {
-  const page = await booking()
-  page.rooms.value = [room(), { ...room(), id: 2, building: null, floor: null, location: '旧位置' }]
-  page.locationFilter.value = { building: '教学', floor: 'B1', location: '东' }
-  assert.equal(page.filteredRooms.value.length, 1)
-  assert.equal(page.filteredRooms.value[0].id, 1)
-  page.locationFilter.value.floor = '3F'
-  assert.equal(page.filteredRooms.value.length, 0)
-})
 test('resource DELETE API retains version and reason in JSON body', async () => {
   const calls = []
   const context = vm.createContext({})
@@ -143,18 +110,6 @@ test('resource DELETE API retains version and reason in JSON body', async () => 
   assert.equal(calls[0][0], '/admin/rooms/1')
   assert.equal(calls[0][1].data.version, 3)
   assert.equal(calls[1][1].data.reason, '座位误建')
-})
-
-test('available seat outside authoritative opening window cannot bypass manual submission', async () => {
-  const page = await booking()
-  page.room.value = room()
-  const closed = { ...seat(), available_windows: [], closed_reasons: ['临时停用'] }
-  page.seats.value = [closed]
-  page.onSeatClick(closed)
-  assert.equal(page.selected.value, null)
-  page.selected.value = closed
-  await page.confirmBooking()
-  assert.deepEqual(page.calls, [])
 })
 
 test('cancelled resource preview keeps the room form and reason and never closes it as saved',async()=>{

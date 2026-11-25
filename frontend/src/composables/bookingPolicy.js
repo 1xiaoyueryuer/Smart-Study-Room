@@ -19,3 +19,14 @@ export function validateSlot(policy, date, start, end) {
   if (date === policy.campus_today && begin < serverStartMinute(policy)) throw new Error('起点早于当前服务端时刻，请调整开始时间后重新查询')
   return finish - begin
 }
+
+export function validateOpeningWindow(windows, start, minutes) {
+  if (!Array.isArray(windows) || !windows.length || !Number.isSafeInteger(minutes) || minutes < 1) return minuteValue(start) + minutes
+  const begin = minuteValue(start), finish = begin + minutes
+  const covered = windows.some(window => begin >= minuteValue(window.start) && finish <= minuteValue(window.end, true))
+  if (!covered) {
+    const ranges = windows.map(window => `${window.start}–${window.end}`).join('、')
+    throw new Error(`结束时间 ${minuteText(finish)} 超出该空间开放时段 ${ranges}，请缩短学习时长或调整开始时间`)
+  }
+  return finish
+}

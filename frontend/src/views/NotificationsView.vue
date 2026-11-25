@@ -25,6 +25,8 @@ const pager=createRecordPager(async query=>{
  return response
 },{blocked:()=>markingId.value!==null||markingAll.value})
 const {items:list,loading,error,snapshot,snapshotQuery}=pager
+const buckets=computed(()=>({all:snapshot.value?.counts?.total??0,unread:snapshot.value?.counts?.unread??0,...(snapshot.value?.counts?.by_type||{})}))
+const typeNav=computed(()=>Object.entries(typeMeta).map(([key,meta])=>({key,label:meta.text})))
 const category=ref('all'),selected=ref(null)
 
 const typeMeta = {
@@ -112,6 +114,7 @@ function selectItem(item){
   selected.value=item
   if(!item.is_read)void onMarkRead(item)
 }
+function closeDetail(){selected.value=null;actionError.value='';writeNotice.value=''}
 
 
 
@@ -170,6 +173,7 @@ onMounted(pager.refresh);onBeforeUnmount(()=>{alive=false;pager.dispose()})
           <header class="detail-head">
             <span class="pill" :style="{color:typeMeta[selected.type]?.color,background:typeMeta[selected.type]?.bg}">{{ typeMeta[selected.type]?.text || '历史消息' }}</span>
             <time>{{ fmtTime(selected.created_at) }}</time>
+            <SButton size="sm" @click="closeDetail">关闭</SButton>
           </header>
           <h3>{{ selected.title }}</h3>
           <p class="detail-content">{{ selected.content }}</p>
