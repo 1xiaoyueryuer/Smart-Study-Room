@@ -535,16 +535,17 @@ onMounted(async () => {
               <button v-if="preferences.length" type="button" class="pref-chip pref-chip--clear" :disabled="submitting" @click="preferences = []">不限</button>
             </div>
           </div>
-          <SButton variant="primary" :disabled="submitting || loading || !policy || !roomId || eligibilityLoading || restricted" @click="loadAvailability()">筛选座位</SButton>
+          <SButton variant="secondary" :disabled="submitting || loading || !policy || !roomId || eligibilityLoading || restricted" @click="loadAvailability()">筛选座位</SButton>
           <SBanner v-if="shortfall" type="warning" :title="shortfall" />
+        </div>
+        <!-- 提交预约固定在卡片底部（与参考图一致） -->
+        <div class="panel-submit">
+          <SButton variant="primary" :disabled="eligibilityLoading || restricted || !policy || policyLoading || !room?.enabled || !selected || !selectedWindow || loading || mapError || queryDirty" :loading="submitting" @click="confirmBooking">提交预约</SButton>
         </div>
       </section>
       <SBanner v-if="bookingError" type="error" :title="bookingError" />
       <SBanner v-if="eligibilityError" type="warning" :title="`未能提前核对预约资格：${eligibilityError}；提交时仍会复核`"><SButton size="sm" :disabled="eligibilityLoading" @click="loadEligibility">重试资格核对</SButton></SBanner>
       <section v-if="restricted" class="card"><h4>预约限制</h4><p role="status">当前存在有效预约限制，暂时不能发起新预约；服务端会在提交时再次复核。</p><RestrictionRecord v-for="record in activeRestrictions" :key="record.id" :record="record" /><RouterLink to="/profile#restrictions">查看当前资格</RouterLink></section>
-      <section class="card submit-card">
-        <SButton variant="primary" size="lg" :disabled="eligibilityLoading || restricted || !policy || policyLoading || !room?.enabled || !selected || !selectedWindow || loading || mapError || queryDirty" :loading="submitting" @click="confirmBooking">提交预约</SButton>
-      </section>
     </div>
 
     <!-- 右栏：座位平面图 -->
@@ -692,13 +693,17 @@ onMounted(async () => {
 .booking-split {
   position: relative;
 }
-/* 左列卡片：与顶部功能行、选座卡一致的深色透明玻璃（30% 不透明度），文字改浅色 */
+/* 左列：浅色磨砂卡片（含提交预约），约 80% 白色 + 模糊，深色文字 */
 .booking-split .split-left .card.responsive-compact {
-  border-color: rgba(255, 255, 255, .14);
-  background: rgba(21, 32, 40, .3);
-  backdrop-filter: blur(10px);
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  border-color: rgba(255, 255, 255, .55);
+  background: rgba(255, 255, 255, .62);
+  backdrop-filter: blur(18px);
+  color: #2c3833;
 }
-.booking-split .split-left .card.responsive-compact .card-title-row h3 { color: rgba(248, 246, 240, .95); }
+.booking-split .split-left .card.responsive-compact .card-title-row h3 { color: #1e2a26; }
 /* 座位偏好标签：字体样式与「学习时长（分钟）」一致（同字号/字重/颜色/字距） */
 .booking-split .split-left .card.responsive-compact .filter-row > label {
   font-size: inherit;
@@ -706,25 +711,22 @@ onMounted(async () => {
   letter-spacing: inherit;
   color: inherit;
 }
-.booking-split .split-left .card.responsive-compact .filter-row { color: rgba(244, 242, 236, .85); }
-.booking-split .split-left .card.responsive-compact p[role='status'] { color: rgba(240, 244, 242, .75); }
-.booking-split .split-left .submit-card {
-  border-color: rgba(255, 255, 255, .14);
-  background: rgba(21, 32, 40, .3);
-  backdrop-filter: blur(10px);
-}
-.booking-split{grid-template-columns:360px minmax(0,1fr)}
+.booking-split .split-left .card.responsive-compact .filter-row { color: #3a4642; }
+.booking-split .split-left .card.responsive-compact p[role='status'] { color: #5c6862; }
+.booking-split .split-left .card.responsive-compact .card-title-row { margin-bottom: 4px; }
+/* 提交预约固定在卡片底部 */
+.booking-split .split-left .panel-submit { margin-top: auto; padding-top: 32px; }
+.booking-split .split-left .panel-submit :deep(.s-btn) { width: 100%; }
+.booking-split{grid-template-columns:360px minmax(0,1fr);align-items:stretch}
 .booking-split .filter-group{display:grid;grid-template-columns:1fr;gap:14px}
 .booking-split .split-left{display:flex;flex-direction:column;gap:14px;min-width:0}
-.booking-split .submit-card{display:block}
-.booking-split .submit-card :deep(.s-btn){width:100%}
 .time-range{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);gap:10px;align-items:end}
 .time-range label{display:grid;gap:6px;font-size:var(--fs-caption)}
 .time-sep{padding-bottom:10px;color:var(--text-3);font-size:var(--fs-body-sm)}
 .time-duration{margin:0;color:var(--text-2);font-size:var(--fs-body-sm)}
 .time-picker{position:relative;display:flex;align-items:center;gap:8px;width:100%}
 .time-picker :deep(.s-input){flex:1;min-width:0}
-.time-picker__toggle{display:grid;place-items:center;flex:0 0 42px;width:42px;height:38px;padding:0;border:1px solid var(--border);border-radius:var(--r-md);background:var(--surface);color:var(--text-2);cursor:pointer;transition:background var(--dur-1) var(--ease),border-color var(--dur-1) var(--ease),color var(--dur-1) var(--ease)}
+.time-picker__toggle{display:grid;place-items:center;flex:0 0 38px;width:38px;height:34px;padding:0;border:0;border-radius:var(--r-md);background:transparent;color:#4f5b55;cursor:pointer;transition:background var(--dur-1) var(--ease),border-color var(--dur-1) var(--ease),color var(--dur-1) var(--ease)}
 .time-picker__toggle:hover:not(:disabled){background:var(--primary-faint);border-color:var(--primary);color:var(--primary)}
 .time-picker__toggle:disabled{opacity:.55;cursor:not-allowed}
 .time-picker__toggle svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
@@ -1112,18 +1114,10 @@ onMounted(async () => {
   background: var(--seat-tip-bg);
 }
 
-/* 提交预约 */
-.submit-card {
-  display: block;
-  background: var(--primary-faint);
-  border-color: var(--border-strong);
-}
-
 @media (max-width: 720px) {
   .seat-grid-wrap { padding: 10px; min-width: max-content; }
   .seat-grid { padding: 8px; }
   .seat { border-radius: var(--r-sm); font-size: 10px; }
-  .submit-card :deep(.s-btn) { width: 100%; }
   .seat-card { overflow: hidden; }
 }
 </style>
