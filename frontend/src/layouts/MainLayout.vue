@@ -342,9 +342,10 @@ onUnmounted(() => {
   top: 0;
   z-index: var(--z-nav);
   flex: 0 0 auto;
-  background: color-mix(in srgb, var(--canvas) 92%, transparent);
+  /* 深色透明玻璃（30% 不透明度，比页面背景更深），与预约页透明卡一致 */
+  background: rgba(21, 32, 40, .3);
   backdrop-filter: blur(10px);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid rgba(255, 255, 255, .14);
 }
 .topnav-inner {
   width: 100%;
@@ -362,16 +363,17 @@ onUnmounted(() => {
   align-items: center;
   gap: 10px;
   cursor: pointer;
-  color: var(--text-1);
+  color: rgba(248, 246, 240, .95);
   flex: 0 0 auto;
 }
-.brand-mark { color: var(--primary); display: grid; place-items: center; }
+.brand-mark { color: #a9d8bb; display: grid; place-items: center; }
 .brand-name {
   font-family: var(--font-display);
   font-size: 22px;
   font-weight: 600;
   letter-spacing: .06em;
   white-space: nowrap;
+  color: rgba(248, 246, 240, .95);
 }
 .topnav-links {
   flex: 1;
@@ -386,14 +388,14 @@ onUnmounted(() => {
   position: relative;
   padding: 10px 18px;
   border-radius: var(--r-md);
-  color: var(--text-2);
+  color: rgba(244, 242, 236, .85);
   font-size: 15px;
   cursor: pointer;
   white-space: nowrap;
   transition: color var(--dur-1) var(--ease), background var(--dur-1) var(--ease);
 }
-.nav-link:hover { color: var(--text-1); background: var(--surface-2); }
-.nav-link.active { color: var(--primary); font-weight: 600; }
+.nav-link:hover { color: #ffffff; background: rgba(255, 255, 255, .12); }
+.nav-link.active { color: #a9d8bb; font-weight: 600; }
 .nav-link.active::after {
   content: '';
   position: absolute;
@@ -402,7 +404,7 @@ onUnmounted(() => {
   bottom: 2px;
   height: 2px;
   border-radius: var(--r-full);
-  background: var(--primary);
+  background: #a9d8bb;
 }
 .nav-unread {
   display: inline-grid;
@@ -412,8 +414,8 @@ onUnmounted(() => {
   margin-left: 6px;
   padding: 0 5px;
   border-radius: var(--r-full);
-  background: var(--primary);
-  color: var(--text-inverse);
+  background: #a9d8bb;
+  color: #1c3328;
   font-size: 11px;
   line-height: 1;
   vertical-align: 2px;
@@ -426,12 +428,12 @@ onUnmounted(() => {
   border-radius: var(--r-full);
   display: grid;
   place-items: center;
-  color: var(--text-2);
+  color: rgba(244, 242, 236, .85);
   cursor: pointer;
   position: relative;
   transition: background var(--dur-1) var(--ease), color var(--dur-1) var(--ease);
 }
-.icon-btn:hover { background: var(--surface-2); color: var(--text-1); }
+.icon-btn:hover { background: rgba(255, 255, 255, .12); color: #ffffff; }
 .bell-dot {
   position: absolute;
   top: 8px;
@@ -451,10 +453,10 @@ onUnmounted(() => {
   padding: 4px 10px 4px 4px;
   border-radius: var(--r-full);
   cursor: pointer;
-  color: var(--text-1);
+  color: rgba(248, 246, 240, .95);
   transition: background var(--dur-1) var(--ease);
 }
-.user-chip:hover { background: var(--surface-2); }
+.user-chip:hover { background: rgba(255, 255, 255, .12); }
 .avatar {
   width: 34px;
   height: 34px;
@@ -471,7 +473,7 @@ onUnmounted(() => {
 }
 .avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .user-chip-name { font-size: 14px; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.caret { color: var(--text-3); font-size: 11px; }
+.caret { color: rgba(240, 242, 238, .6); font-size: 11px; }
 .user-pop {
   position: absolute;
   right: 0;
