@@ -399,23 +399,22 @@ function timeText(row) {
   position: relative;
   /* 冲出版心 padding，左右铺到视口边缘 */
   margin: -28px calc(50% - 50vw) 0;
-  /* 与照片同比例铺满，背景 100% 100% 不裁切，黑板面板可按百分比与照片位置精确对齐 */
-  aspect-ratio: 1487 / 469;
+  min-height: clamp(430px, 56vh, 640px);
   padding: 0;
-  background: #24322e url('/images/home-hero-room.jpg') 0 0 / 100% 100% no-repeat;
+  background: #24322e url('/images/home-hero-room.jpg') center / cover no-repeat;
   overflow: hidden;
   display: flex;
   flex-direction: column;
   justify-content: center;
 }
-/* 左侧压暗 + 右下压暗：保证文字与统计在照片上的可读性 */
+/* 左侧压暗 + 底部压暗：保证文字、按钮与统计在照片上的可读性 */
 .hero-full::before {
   content: '';
   position: absolute;
   inset: 0;
   background:
-    linear-gradient(95deg, rgba(8, 16, 18, .62) 0%, rgba(8, 16, 18, .34) 36%, rgba(8, 16, 18, .06) 62%, transparent 76%),
-    radial-gradient(120% 130% at 100% 100%, rgba(6, 12, 10, .55), transparent 58%);
+    linear-gradient(100deg, rgba(6, 14, 16, .72) 0%, rgba(6, 14, 16, .5) 26%, rgba(6, 14, 16, .2) 48%, rgba(6, 14, 16, .04) 66%, transparent 80%),
+    linear-gradient(to top, rgba(6, 12, 14, .5) 0%, rgba(6, 12, 14, .16) 22%, transparent 42%);
   pointer-events: none;
 }
 .hero-inner {
@@ -486,8 +485,8 @@ function timeText(row) {
 .hero-kpi b { display: block; font-family: var(--font-display); font-size: 34px; font-weight: 600; line-height: 1.1; color: #ffffff; font-variant-numeric: tabular-nums; text-shadow: 0 2px 16px rgba(4, 10, 12, .5); }
 .hero-kpi span { display: block; margin-top: 8px; font-size: 13px; color: rgba(255, 255, 255, .85); }
 
-/* 右上角黑板面板：我的学习安排（位置/尺寸按照片比例，完整覆盖背景中的面板区域） */
-.board { position: absolute; top: 14.5%; right: 4.2%; width: 26.9%; min-height: 44%; z-index: 3; }
+/* 右上角黑板面板：我的学习安排（浮在照片上，与照片内容无关） */
+.board { position: absolute; top: 46px; right: max(40px, calc((100% - 1560px) / 2 + 40px)); width: 372px; z-index: 3; }
 .board-surface {
   padding: 22px 24px;
   border-radius: 16px;
@@ -538,31 +537,16 @@ function timeText(row) {
 .zone-cta:hover { background: #17705b; }
 .zone-cta:focus-visible { outline: 2px solid #135e4d; outline-offset: 3px; }
 
-@media (max-width: 1200px) and (min-width: 901px) {
-  .hero-inner { padding: 32px 28px 10px; }
-  .hero-bottom { padding: 0 28px 28px; }
-  .hero-title { font-size: clamp(24px, 3.9vw, 44px); }
-  .hero-bottom .hero-btn { height: 50px; padding: 0 28px; font-size: 16px; }
-  .hero-kpi { min-width: 64px; padding: 0 14px; }
-  .hero-kpi b { font-size: 26px; }
-  .hero-kpi span { font-size: 12px; margin-top: 6px; }
-  .board-surface { padding: 16px 18px; }
-  .board-head h3 { font-size: 16px; gap: 7px; }
-  .board-icon { width: 17px; height: 17px; }
-  .board-link { font-size: 11.5px; }
-  .board-hint { margin-top: 10px; font-size: 12.5px; }
-  .board-cta { margin-top: 10px; padding: 6px 14px; font-size: 12px; }
+@media (max-width: 1200px) {
   .zone-grid { grid-template-columns: repeat(2, 1fr); }
+  .hero-inner { padding: 44px 28px 18px; }
+  .hero-bottom { padding: 0 28px 32px; }
+  .hero-kpi { padding: 0 20px; }
+  .board { position: static; width: auto; max-width: 420px; margin: 18px 0 0 auto; }
 }
-@media (max-width: 900px) {
+@media (max-width: 760px) {
   .zone-grid { grid-template-columns: 1fr; }
-  .hero-full {
-    aspect-ratio: auto;
-    min-height: clamp(420px, 62vh, 560px);
-    background-image: url('/images/home-hero-room-m.jpg');
-    background-size: cover;
-    background-position: center;
-  }
+  .hero-full { margin: -20px calc(50% - 50vw) 0; min-height: clamp(420px, 62vh, 560px); }
   .hero-inner { padding: 30px 20px 16px; }
   .hero-title { font-size: clamp(26px, 8.2vw, 42px); }
   .hero-bottom { padding: 0 20px 24px; flex-direction: column; align-items: flex-start; gap: 16px; }
@@ -571,7 +555,6 @@ function timeText(row) {
   .hero-kpis { width: 100%; }
   .hero-kpi { flex: 1 1 0; min-width: 0; padding: 0 10px; }
   .hero-kpi b { font-size: 26px; }
-  .board { position: static; width: auto; max-width: 420px; min-height: 0; margin: 18px 0 0 auto; }
   .zone-head h3 { font-size: 22px; }
   .home-hello h1 { font-size: 28px; }
   .quick-grid { grid-template-columns: 1fr; }
