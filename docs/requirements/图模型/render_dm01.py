@@ -78,7 +78,7 @@ def render():
     image = Image.new("RGB", SIZE, "#F8FAFC"); draw = ImageDraw.Draw(image)
     navy, ink, line, teal = "#17324D", "#233D56", "#6B829B", "#0F766E"
     draw.text((100, 58), "DM-01 核心领域类图", fill=navy, font=font(64, True))
-    draw.text((100, 148), "配套规格 v0.30 · 信誉分、违规与预约限制", fill="#536C83", font=font(31))
+    draw.text((100, 148), "配套规格 v0.31 · 信誉分、违规与预约限制", fill="#536C83", font=font(31))
     labels = []
     for a, left, right, b, caption in edges:
         p, q = point_on_box(a, b), point_on_box(b, a)

@@ -38,6 +38,11 @@ class LanNetworkTest {
         var ipv6=LanNetwork.links("fe80::1",8080);
         assertEquals(1,ipv6.size());
         assertEquals("http://[fe80::1]:8080",ipv6.get(0).url());
+        List<LanNetwork.Link> secure=LanNetwork.links("192.168.1.50",8443,"https");
+        assertEquals(1,secure.size());
+        assertEquals("https://192.168.1.50:8443",secure.get(0).url());
+        var secureIpv6=LanNetwork.links("fe80::1",8443,"https");
+        assertEquals("https://[fe80::1]:8443",secureIpv6.get(0).url());
     }
 
     @Test void deviceLabelAndAddressMaskKeepOnlyNeededDetail() {

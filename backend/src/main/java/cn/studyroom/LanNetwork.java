@@ -53,11 +53,16 @@ public final class LanNetwork {
     }
     /** 按网卡枚举本机可用的局域网地址；回环监听时返回空列表。 */
     public static List<Link> links(String bindAddress,int port) {
+        return links(bindAddress,port,"http");
+    }
+    /** scheme 只接受 http/https；HTTPS 模式用于手机浏览器的安全上下文与摄像头权限。 */
+    public static List<Link> links(String bindAddress,int port,String scheme) {
+        String protocol="https".equalsIgnoreCase(scheme)?"https":"http";
         String bind=normalizeBind(bindAddress);
         var links=new ArrayList<Link>();
         if(!lanBind(bind)) return links;
         if(!bind.isEmpty()&&!bind.equals("0.0.0.0")&&!bind.equals("::")) {
-            links.add(new Link("配置的监听地址",bind,url(bind,port)));
+            links.add(new Link("配置的监听地址",bind,url(bind,port,protocol)));
             return links;
         }
         Set<String> seen=new LinkedHashSet<>();
@@ -76,7 +81,7 @@ public final class LanNetwork {
                     if(!address.isSiteLocalAddress()&&!isUniqueLocalIpv6(address)) continue;
                     String host=address.getHostAddress();
                     if(host==null||host.isBlank()||!seen.add(host)) continue;
-                    target.add(new Link(name,host,url(host,port)));
+                    target.add(new Link(name,host,url(host,port,protocol)));
                 }
             }
         } catch(SocketException e) { return List.of(); }
@@ -89,8 +94,8 @@ public final class LanNetwork {
         String normalized=name==null?"":name.toLowerCase(java.util.Locale.ROOT);
         return normalized.matches(".*(vmware|virtualbox|hyper-v|vethernet|virtual|docker|wsl|loopback|tap|tun|vpn|tailscale|zerotier|bluetooth|npcap).*");
     }
-    private static String url(String address,int port) {
-        return "http://"+(address.contains(":")?"["+address+"]":address)+":"+port;
+    private static String url(String address,int port,String scheme) {
+        return scheme+"://"+(address.contains(":")?"["+address+"]":address)+":"+port;
     }
     public static String deviceLabel(String userAgent) {
         if(userAgent==null||userAgent.isBlank()) return "未知设备";

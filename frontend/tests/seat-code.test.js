@@ -13,6 +13,7 @@ const scannerModule=new vm.SourceTextModule(await readFile(new URL('../src/compo
 await scannerModule.link(specifier=>{
   if(specifier==='@zxing/browser')return new vm.SyntheticModule(['BrowserQRCodeReader'],function(){this.setExport('BrowserQRCodeReader',BrowserQRCodeReader)},{context:scannerContext})
   if(specifier==='@zxing/library')return new vm.SyntheticModule(['DecodeHintType'],function(){this.setExport('DecodeHintType',DecodeHintType)},{context:scannerContext})
+  if(specifier==='qr-scanner')return new vm.SyntheticModule(['default'],function(){this.setExport('default',class {})},{context:scannerContext})
   return null
 })
 await scannerModule.evaluate()
@@ -51,25 +52,42 @@ test('invalid image type, size, dimensions and decoding errors stay visible, val
   class HugeImage {naturalWidth=4097;naturalHeight=1;set src(value){queueMicrotask(()=>this.onload())}}
   const huge=scanner({ImageClass:HugeImage});await huge.instance.file({type:'image/png',size:100});assert.match(huge.errors[0],/4096/)
 })
-test('leaving while camera permission is pending stops late stream and never starts decoding',async()=>{
-  const pending=deferred();let stopped=0,started=0
-  const page=scanner({mediaDevices:{getUserMedia:()=>pending.promise},reader:{decodeFromStream:async()=>{started++;return{stop(){}}}}})
-  const active=page.instance.camera({});page.instance.stop()
-  pending.resolve({getTracks:()=>[{stop(){stopped++}}]});await active
-  assert.equal(stopped,1);assert.equal(started,0)
+test('leaving while camera permission is pending destroys late scanner and never delivers',async()=>{
+  const pending=deferred();let destroyed=0,delivered=0
+  class FakeQrScanner {
+    constructor(video){this.video=video}
+    start(){return pending.promise}
+    destroy(){destroyed++;this.video.srcObject=null}
+  }
+  const page=scanner({QrScannerClass:FakeQrScanner,onCode:async()=>{delivered++}})
+  const video={srcObject:null};const active=page.instance.camera(video);page.instance.stop()
+  pending.resolve();await active
+  assert.ok(destroyed>=1);assert.equal(delivered,0);assert.equal(video.srcObject,null)
 })
-test('camera duplicate callbacks submit once and release stream plus late decoder controls',async()=>{
-  const hold=deferred();let callback,tracks=0,controls=0,submits=0
-  const page=scanner({onCode:async()=>{submits++;await hold.promise},mediaDevices:{getUserMedia:async()=>({getTracks:()=>[{stop(){tracks++}}]})},reader:{decodeFromStream:async(stream,video,handler)=>{callback=handler;handler({getText:()=>code});handler({getText:()=>code});return{stop(){controls++}}}}})
+test('camera duplicate callbacks submit once and destroy camera',async()=>{
+  const hold=deferred();let callback,destroyed=0,submits=0
+  class FakeQrScanner {
+    constructor(video,resultCallback,options){assert.equal(options.preferredCamera,'environment');assert.equal(options.returnDetailedScanResult,true);const region=options.calculateScanRegion({videoWidth:1080,videoHeight:1920});assert.equal(region.x,0);assert.equal(region.y,0);assert.equal(region.width,1080);assert.equal(region.height,1920);assert.equal(region.downScaledWidth,800);assert.equal(region.downScaledHeight,1422);this.video=video;callback=resultCallback}
+    async start(){}
+    destroy(){destroyed++;this.video.srcObject=null}
+  }
+  const page=scanner({QrScannerClass:FakeQrScanner,onCode:async()=>{submits++;await hold.promise}})
   const video={srcObject:null};await page.instance.camera(video)
-  callback({getText:()=>code});hold.resolve();await tick()
-  assert.equal(submits,1);assert.equal(tracks,1);assert.equal(controls,1);assert.equal(video.srcObject,null)
+  callback({data:code});callback({data:code});await tick()
+  assert.equal(submits,1);assert.equal(destroyed,1);assert.equal(video.srcObject,null)
+  hold.resolve();await tick()
 })
-test('camera permission errors persist and explicit retry can start camera and then stop owned controls',async()=>{
-  let denied=true,stopped=0
-  const page=scanner({mediaDevices:{getUserMedia:async()=>{if(denied)throw{name:'NotAllowedError'};return{getTracks:()=>[{stop(){stopped++}}]}}},reader:{decodeFromStream:async()=>({stop(){stopped++}})}})
-  await page.instance.camera({});assert.match(page.errors[0],/权限被拒绝/)
-  denied=false;await page.instance.camera({});page.instance.stop();assert.equal(stopped,2)
+test('camera permission errors persist and explicit retry can start camera',async()=>{
+  let denied=true,destroyed=0
+  class FakeQrScanner {
+    constructor(video){this.video=video}
+    async start(){if(denied)throw{name:'NotAllowedError'}}
+    destroy(){destroyed++;this.video.srcObject=null}
+  }
+  const page=scanner({QrScannerClass:FakeQrScanner})
+  const video={srcObject:null}
+  await page.instance.camera(video);assert.match(page.errors[0],/权限被拒绝/)
+  denied=false;await page.instance.camera(video);page.instance.stop();assert.ok(destroyed>=1)
   assert.match(scanFailure({name:'NotFoundError'}),/未找到摄像头/)
   assert.match(scanFailure({name:'NotReadableError'}),/占用/)
 })
