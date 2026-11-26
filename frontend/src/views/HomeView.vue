@@ -136,10 +136,10 @@ const shortcuts = computed(() => auth.isAdmin
 
 // 自习室种类卡片：四个分区（与设计稿一致），入口统一去预约页。
 const zones = [
-  { key: 'A', name: '1F-A 区', location: '示例图书馆 · 1层', hours: '08:00—22:00', img: '/images/zone-a.jpg' },
-  { key: 'B', name: '1F-B 区', location: '示例图书馆 · 1层', hours: '08:00—22:00', img: '/images/zone-b.jpg' },
-  { key: 'C', name: '1F-C 区', location: '示例图书馆 · 1层', hours: '08:00—22:00', img: '/images/zone-c.jpg' },
-  { key: 'D', name: '1F-D 区', location: '示例图书馆 · 1层', hours: '08:00—22:00', img: '/images/zone-d.jpg' }
+  { key: 'A', name: 'A区', img: '/images/zone-a.jpg' },
+  { key: 'B', name: 'B区', img: '/images/zone-b.jpg' },
+  { key: 'C', name: 'C区', img: '/images/zone-c.jpg' },
+  { key: 'D', name: 'D区', img: '/images/zone-d.jpg' }
 ]
 
 function statusText(row) {
@@ -273,20 +273,24 @@ function timeText(row) {
                 <span class="eyebrow-dash" aria-hidden="true" />
                 <span>静阅 · 专注空间</span>
               </p>
-              <h1 class="hero-title">今日宜专注<br />让每一次坐下都<span class="hero-title-gold">算数</span></h1>
+              <h1 class="hero-title">
+                <span class="hero-title-line">今日宜专注</span>
+                <span class="hero-title-line">让每一次坐下都<span class="hero-title-gold">算数</span></span>
+              </h1>
               <p class="hero-sub">预约属于你的专属座位，找到一段不被打扰的学习时光</p>
-              <div class="hero-actions">
-                <button type="button" class="hero-btn hero-btn--solid" @click="router.push('/booking')">立即预约</button>
-                <button type="button" class="hero-btn hero-btn--glass" @click="router.push('/mine')">我的预约</button>
-              </div>
-              <p class="hero-meta">开放时间 08:00—22:00 · 全场静音 · 独立台灯与插座</p>
             </div>
           </div>
-          <div class="hero-kpis">
-            <div class="hero-kpi"><b>{{ pendingCount }}</b><span>待签到</span></div>
-            <div class="hero-kpi"><b>{{ checkedInCount }}</b><span>使用中</span></div>
-            <div class="hero-kpi"><b>{{ completedCount }}</b><span>已结束</span></div>
-            <div class="hero-kpi"><b>{{ totalCount }}</b><span>累计预约</span></div>
+          <div class="hero-bottom">
+            <div class="hero-actions">
+              <button type="button" class="hero-btn hero-btn--solid" @click="router.push('/booking')">立即预约</button>
+              <button type="button" class="hero-btn hero-btn--glass" @click="router.push('/mine')">我的预约</button>
+            </div>
+            <div class="hero-kpis">
+              <div class="hero-kpi"><b>{{ pendingCount }}</b><span>待签到</span></div>
+              <div class="hero-kpi"><b>{{ checkedInCount }}</b><span>使用中</span></div>
+              <div class="hero-kpi"><b>{{ completedCount }}</b><span>已结束</span></div>
+              <div class="hero-kpi"><b>{{ totalCount }}</b><span>累计预约</span></div>
+            </div>
           </div>
         </section>
 
@@ -335,8 +339,6 @@ function timeText(row) {
             <img class="zone-photo" :src="z.img" alt="" aria-hidden="true" />
             <div class="zone-body">
               <h4>{{ z.name }}</h4>
-              <p>{{ z.location }}</p>
-              <p>{{ z.hours }}</p>
               <SButton variant="primary" size="sm" @click="router.push('/booking')">去预约</SButton>
             </div>
           </article>
@@ -400,7 +402,8 @@ function timeText(row) {
   background: #2b3a45 url('/images/home-top.jpg') center / cover no-repeat;
   overflow: hidden;
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  justify-content: center;
 }
 /* 左侧压暗，保证文字可读 */
 .hero-full::before {
@@ -416,24 +419,41 @@ function timeText(row) {
   width: 100%;
   max-width: 1560px;
   margin: 0 auto;
-  padding: 64px 40px 96px;
+  padding: 56px 40px 24px;
 }
-.hero-copy { max-width: 760px; }
-.hero-eyebrow { display: flex; align-items: center; gap: 14px; color: rgba(240, 235, 225, .86); font-size: 15px; letter-spacing: .28em; }
-.eyebrow-dash { width: 46px; height: 1px; background: rgba(240, 235, 225, .7); }
+.hero-copy { max-width: 100%; }
+.hero-full .hero-eyebrow { display: flex; align-items: center; gap: 14px; color: rgba(240, 235, 225, .88); font-size: 15px; letter-spacing: .28em; }
+.eyebrow-dash { width: 46px; height: 1px; background: rgba(240, 235, 225, .7); flex: 0 0 auto; }
 .hero-title {
-  margin: 18px 0 20px;
+  margin: 18px 0 18px;
   font-family: var(--font-display);
-  font-size: clamp(38px, 5.4vw, 82px);
+  font-size: clamp(28px, 4.3vw, 66px);
   font-weight: 700;
-  line-height: 1.12;
+  line-height: 1.16;
   letter-spacing: .03em;
   color: #fbf8f2;
   text-shadow: 0 6px 30px rgba(6, 14, 20, .45);
 }
+.hero-title-line { display: block; white-space: nowrap; }
 .hero-title-gold { color: #dcbd7a; }
-.hero-sub { max-width: 620px; color: rgba(238, 236, 230, .9); font-size: clamp(15px, 1.15vw, 18px); line-height: 1.7; }
-.hero-actions { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 30px; }
+/* 提高优先级，避免被管理员 hero 的同名规则覆盖 */
+.hero-full .hero-sub { max-width: 620px; color: #ffffff; font-size: clamp(15px, 1.15vw, 18px); line-height: 1.7; text-shadow: 0 2px 14px rgba(6, 14, 20, .5); }
+
+/* 底部一行：按钮（左）与统计卡（右）同一水平线 */
+.hero-bottom {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 1560px;
+  margin: 0 auto;
+  padding: 0 40px 44px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 28px;
+  flex-wrap: wrap;
+}
+.hero-actions { display: flex; flex-wrap: wrap; gap: 14px; }
 .hero-btn {
   all: unset;
   display: inline-flex;
@@ -453,10 +473,9 @@ function timeText(row) {
 .hero-btn--solid:hover { background: #365c57; transform: translateY(-1px); }
 .hero-btn--glass { background: rgba(255, 255, 255, .28); color: #2a312e; backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, .55); }
 .hero-btn--glass:hover { background: rgba(255, 255, 255, .4); transform: translateY(-1px); }
-.hero-meta { margin-top: 22px; color: rgba(226, 224, 218, .78); font-size: 14px; letter-spacing: .02em; }
 
-/* 右下角四个玻璃统计卡 */
-.hero-kpis { position: absolute; right: max(40px, calc((100% - 1560px) / 2 + 40px)); bottom: 34px; z-index: 2; display: flex; gap: 14px; }
+/* 四个玻璃统计卡 */
+.hero-kpis { display: flex; gap: 14px; flex-wrap: wrap; justify-content: flex-end; }
 .hero-kpi {
   min-width: 112px;
   padding: 20px 16px 16px;
@@ -471,19 +490,20 @@ function timeText(row) {
 .hero-kpi span { display: block; margin-top: 10px; font-size: 13px; color: rgba(250, 250, 246, .82); }
 
 /* 右上角悬挂小黑板 */
-.board { position: absolute; top: 0; right: max(40px, calc((100% - 1560px) / 2 + 40px)); z-index: 3; width: 300px; transform-origin: 50% -30px; transform: rotate(-1.4deg); }
-.board-string { position: absolute; top: -14px; width: 1px; height: 22px; background: rgba(235, 232, 224, .75); }
-.board-string--left { left: 34px; }
-.board-string--right { right: 34px; }
+.board { position: absolute; top: 30px; right: max(40px, calc((100% - 1560px) / 2 + 40px)); z-index: 3; width: 384px; transform-origin: 50% -30px; transform: rotate(-1.4deg); }
+.board-string { position: absolute; top: -30px; width: 1px; height: 30px; background: rgba(235, 232, 224, .75); }
+.board-string--left { left: 40px; }
+.board-string--right { right: 40px; }
 .board-frame {
-  padding: 9px;
+  padding: 10px;
   border-radius: 10px;
   background: linear-gradient(160deg, #9a7a52, #6f5537 55%, #8b6c48);
   box-shadow: 0 18px 34px rgba(6, 14, 18, .45), inset 0 1px 0 rgba(255, 255, 255, .25);
 }
 .board-surface {
+  min-height: 196px;
   border-radius: 5px;
-  padding: 16px 18px 18px;
+  padding: 20px 22px 22px;
   background:
     radial-gradient(120% 80% at 20% 0%, rgba(255, 255, 255, .07), transparent 60%),
     #25322c;
@@ -491,25 +511,25 @@ function timeText(row) {
   color: #e9efe7;
 }
 .board-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
-.board-head h3 { margin: 0; font-family: var(--font-display); font-size: 17px; letter-spacing: .06em; color: #f2f6ef; }
-.board-link { color: #b9cbb9; font-size: 12px; text-decoration: none; border-bottom: 1px dashed rgba(185, 203, 185, .5); }
+.board-head h3 { margin: 0; font-family: var(--font-display); font-size: 19px; letter-spacing: .06em; color: #f2f6ef; }
+.board-link { color: #b9cbb9; font-size: 12.5px; text-decoration: none; border-bottom: 1px dashed rgba(185, 203, 185, .5); white-space: nowrap; }
 .board-link:hover { color: #e3ecdf; }
-.board-hint { margin: 12px 0 0; color: #b3c1b4; font-size: 13px; }
-.board-list { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 8px; }
+.board-hint { margin: 14px 0 0; color: #b3c1b4; font-size: 13.5px; }
+.board-list { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 9px; }
 .board-item {
   display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 2px 10px;
-  padding: 9px 10px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 3px 10px;
+  padding: 10px 12px;
   border-radius: 6px;
   background: rgba(255, 255, 255, .05);
   color: #e6ede3;
   text-decoration: none;
 }
 .board-item:hover { background: rgba(255, 255, 255, .1); }
-.board-item b { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.board-item em { font-style: normal; font-size: 11px; color: #cfe0c6; }
-.board-item small { grid-column: 1 / -1; font-size: 11.5px; color: #a9b8a9; font-variant-numeric: tabular-nums; }
+.board-item b { font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.board-item em { font-style: normal; font-size: 11.5px; color: #cfe0c6; white-space: nowrap; }
+.board-item small { grid-column: 1 / -1; font-size: 12px; color: #a9b8a9; font-variant-numeric: tabular-nums; }
 .board-cta { display: inline-block; margin-top: 12px; padding: 7px 14px; border-radius: 999px; background: rgba(240, 238, 225, .92); color: #26332c; font-size: 12.5px; text-decoration: none; }
 .board-cta:hover { background: #fff; }
 
@@ -523,28 +543,25 @@ function timeText(row) {
 .zone-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-xl); overflow: hidden; box-shadow: var(--shadow-1); transition: transform var(--dur-2) var(--ease), box-shadow var(--dur-2) var(--ease); }
 .zone-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-2); }
 .zone-photo { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; }
-.zone-body { padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 4px; }
-.zone-body h4 { margin: 0; font-size: 19px; color: var(--text-1); font-family: var(--font-display); }
-.zone-body p { margin: 0; color: var(--text-3); font-size: 12.5px; }
-.zone-body .s-btn { margin-top: 8px; align-self: flex-start; }
+.zone-body { padding: 12px 16px; display: flex; flex-direction: row; align-items: center; justify-content: space-between; gap: 12px; }
+.zone-body h4 { margin: 0; font-size: 20px; color: var(--text-1); font-family: var(--font-display); }
 
 @media (max-width: 1200px) {
   .zone-grid { grid-template-columns: repeat(2, 1fr); }
-  .hero-inner { padding: 52px 28px 96px; }
-  .hero-copy { max-width: 100%; padding-right: 0; }
-  .hero-kpis { position: static; margin: 0; padding: 0 28px 34px; justify-content: flex-end; flex-wrap: wrap; }
-  .hero-full { flex-direction: column; align-items: stretch; justify-content: space-between; }
-  .board { position: static; transform: none; width: auto; max-width: 360px; margin: 16px 0 0 auto; }
+  .hero-inner { padding: 48px 28px 20px; }
+  .hero-bottom { padding: 0 28px 32px; }
+  .board { position: static; transform: none; width: auto; max-width: 420px; margin: 16px 0 0 auto; }
   .board-string { display: none; }
 }
 @media (max-width: 760px) {
   .zone-grid { grid-template-columns: 1fr; }
   .hero-full { margin: -20px calc(50% - 50vw) 0; min-height: 0; }
-  .hero-inner { padding: 34px 20px 28px; }
-  .hero-title { font-size: clamp(30px, 9vw, 44px); }
+  .hero-inner { padding: 30px 20px 16px; }
+  .hero-title { font-size: clamp(26px, 8.2vw, 42px); }
+  .hero-bottom { padding: 0 20px 24px; flex-direction: column; align-items: flex-start; gap: 16px; }
   .hero-actions { gap: 10px; }
   .hero-btn { height: 48px; padding: 0 26px; font-size: 16px; }
-  .hero-kpis { padding: 0 20px 24px; gap: 8px; }
+  .hero-kpis { width: 100%; gap: 8px; justify-content: space-between; }
   .hero-kpi { min-width: 0; flex: 1 1 0; padding: 14px 8px 12px; }
   .hero-kpi b { font-size: 26px; }
   .home-hello h1 { font-size: 28px; }
