@@ -749,11 +749,11 @@ onMounted(async () => {
 .seat-free.seat-preferred{box-shadow:inset 0 0 0 2px var(--amber-strong),0 2px 3px #0000000a}
 .room-brief{color:var(--text-3);font-size:var(--fs-caption);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 @media(max-width:1100px){.booking-split{grid-template-columns:minmax(0,1fr)}}
-/* 顶部功能行：深色透明卡（30% 不透明度，比页面背景更深），与选座卡片一致 */
-.booking-top{display:block;margin-bottom:20px;padding:18px 20px 20px;border:1px solid rgba(255,255,255,.14);border-radius:var(--r-xl);background:rgba(21,32,40,.3);backdrop-filter:blur(10px)}
+/* 顶部功能行：白磨砂卡（与左侧「预约条件」一致） */
+.booking-top{display:block;margin-bottom:20px;padding:18px 20px 20px;border:1px solid rgba(255,255,255,.55);border-radius:var(--r-xl);background:rgba(255,255,255,.62);backdrop-filter:blur(18px)}
 .picker-row{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,.7fr) minmax(0,.7fr) minmax(0,1.2fr);gap:14px;align-items:end}
 .picker-field{display:grid;gap:6px;min-width:0}
-.picker-label{font-size:var(--fs-caption);color:rgba(248,246,240,.9)}
+.picker-label{font-size:var(--fs-caption);color:#3a4642}
 @media(max-width:1000px){.picker-row{grid-template-columns:1fr 1fr}}
 @media(max-width:640px){.picker-row{grid-template-columns:1fr}}
 .shortfall-warning{color:var(--amber-strong)}.availability-table{min-width:680px}.earliest-row{background:var(--primary-weak)}.chosen-row{outline:1px solid var(--primary)}.seat-preference{font-size:11px;color:var(--text-2)}
@@ -891,16 +891,15 @@ onMounted(async () => {
 /* 座位图 */
 .seat-card {
   min-height: 0;
-  /* 选座卡片：与顶部功能行一致的深色透明卡（30% 不透明度，比页面背景更深） */
-  border-color: rgba(255, 255, 255, .14);
-  background: rgba(21, 32, 40, .3);
-  backdrop-filter: blur(10px);
+  /* 选座卡片：与左侧「预约条件」一致的白磨砂卡 */
+  border-color: rgba(255, 255, 255, .55);
+  background: rgba(255, 255, 255, .62);
+  backdrop-filter: blur(18px);
 }
-/* 透明卡上的文字改为浅色，保证可读 */
 .seat-card .seat-heading h3,
-.seat-card .card-title-row h3 { color: rgba(248, 246, 240, .95); }
-.seat-card .room-brief { color: rgba(240, 244, 242, .75); }
-.seat-card p[role='status'] { color: rgba(240, 244, 242, .85); }
+.seat-card .card-title-row h3 { color: #1e2a26; }
+.seat-card .room-brief { color: #5c6862; }
+.seat-card p[role='status'] { color: #5c6862; }
 .booking-split > .split-right { align-self: start; }
 .booking-split > .split-right > .seat-card:first-child { flex: 0 0 auto; }
 .seat-grid-wrap {
