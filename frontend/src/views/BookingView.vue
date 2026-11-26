@@ -481,27 +481,6 @@ onMounted(async () => {
       </ol>
     </header>
 
-    <section v-if="policy" class="booking-top">
-      <div class="picker-row">
-        <div class="picker-field">
-          <span class="picker-label">图书馆</span>
-          <SSelect :model-value="selectedBuilding" :options="buildingOptions" size="lg" placeholder="请选择图书馆" :disabled="submitting || roomsLoading" @update:model-value="pickBuilding" />
-        </div>
-        <div class="picker-field">
-          <span class="picker-label">楼层</span>
-          <SSelect :model-value="selectedFloor" :options="floorOptions" size="lg" placeholder="请选择楼层" :disabled="submitting || roomsLoading" @update:model-value="pickFloor" />
-        </div>
-        <div class="picker-field">
-          <span class="picker-label">区域</span>
-          <SSelect :model-value="roomId" :options="zoneOptions" size="lg" placeholder="请选择区域" :disabled="submitting || roomsLoading" @update:model-value="pickRoom" />
-        </div>
-        <div class="picker-field">
-          <span class="picker-label">时间选择</span>
-          <SSelect :model-value="date" :options="dateSelectOptions" size="lg" placeholder="请选择日期" :disabled="submitting" @update:model-value="pickDate" />
-        </div>
-      </div>
-    </section>
-
     <!-- 预约条件、紧凑信息条、座位图 -->
     <div class="split booking-split">
     <!-- 筛选与统计操作区 -->
@@ -516,6 +495,24 @@ onMounted(async () => {
         <p v-if="roomsLoading" role="status">正在加载空间…</p>
         <SBanner v-if="roomsError" type="error" :title="roomsError"><SButton size="sm" :disabled="submitting" @click="loadRooms">重试</SButton></SBanner>
         <div class="filter-group">
+          <template v-if="policy">
+            <div class="filter-row">
+              <span>图书馆</span>
+              <SSelect :model-value="selectedBuilding" :options="buildingOptions" placeholder="请选择图书馆" :disabled="submitting || roomsLoading" @update:model-value="pickBuilding" />
+            </div>
+            <div class="filter-row">
+              <span>楼层</span>
+              <SSelect :model-value="selectedFloor" :options="floorOptions" placeholder="请选择楼层" :disabled="submitting || roomsLoading" @update:model-value="pickFloor" />
+            </div>
+            <div class="filter-row">
+              <span>区域</span>
+              <SSelect :model-value="roomId" :options="zoneOptions" placeholder="请选择区域" :disabled="submitting || roomsLoading" @update:model-value="pickRoom" />
+            </div>
+            <div class="filter-row">
+              <span>时间选择</span>
+              <SSelect :model-value="date" :options="dateSelectOptions" placeholder="请选择日期" :disabled="submitting" @update:model-value="pickDate" />
+            </div>
+          </template>
           <label class="filter-row">开始时间（08:00—22:00，24小时制）
             <div ref="timePicker" class="time-picker" @keydown.esc="timeMenuOpen = false">
               <SInput :model-value="searchStart" inputmode="text" maxlength="5" placeholder="9、9:00 或 09:00" aria-label="开始时间，可输入9或9:00，24小时制08:00至22:00" :disabled="submitting || !policy" @update:model-value="changeSearchStart" />
@@ -536,7 +533,6 @@ onMounted(async () => {
             </div>
           </div>
           <SButton variant="primary" :disabled="submitting || loading || !policy || !roomId || eligibilityLoading || restricted" @click="loadAvailability()">筛选座位</SButton>
-          <p v-if="queryDirty && !loading && !mapError" role="status">设置开始时间和学习时长后，点击“筛选座位”。</p>
           <SBanner v-if="shortfall" type="warning" :title="shortfall" />
         </div>
       </section>
@@ -674,6 +670,11 @@ onMounted(async () => {
 @media (max-width: 640px) {
   .step-sep { flex-basis: 18px; }
 }
+/* 副标题在照片背景上改白色并加柔影，保证清晰可读 */
+.view-heading .heading-sub {
+  color: #ffffff;
+  text-shadow: 0 1px 12px rgba(10, 20, 28, .55);
+}
 .booking-bg {
   position: fixed;
   inset: 0;
@@ -684,7 +685,6 @@ onMounted(async () => {
 }
 /* 背景层是 z-index:0 的定位元素，正文块同样进入定位层以绘制在其上 */
 .view-heading,
-.booking-top,
 .booking-split {
   position: relative;
 }
@@ -695,6 +695,13 @@ onMounted(async () => {
   backdrop-filter: blur(10px);
 }
 .booking-split .split-left .card.responsive-compact .card-title-row h3 { color: rgba(248, 246, 240, .95); }
+/* 座位偏好标签：字体样式与「学习时长（分钟）」一致（同字号/字重/颜色/字距） */
+.booking-split .split-left .card.responsive-compact .filter-row > label {
+  font-size: inherit;
+  font-weight: inherit;
+  letter-spacing: inherit;
+  color: inherit;
+}
 .booking-split .split-left .card.responsive-compact .filter-row { color: rgba(244, 242, 236, .85); }
 .booking-split .split-left .card.responsive-compact p[role='status'] { color: rgba(240, 244, 242, .75); }
 .booking-split .split-left .submit-card {
@@ -735,12 +742,8 @@ onMounted(async () => {
 .room-brief{color:var(--text-3);font-size:var(--fs-caption);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 @media(max-width:1100px){.booking-split{grid-template-columns:minmax(0,1fr)}}
 /* 顶部功能行：深色透明卡（30% 不透明度，比页面背景更深），与选座卡片一致 */
-.booking-top{display:block;margin-bottom:20px;padding:18px 20px 20px;border:1px solid rgba(255,255,255,.14);border-radius:var(--r-xl);background:rgba(21,32,40,.3);backdrop-filter:blur(10px)}
-.picker-row{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,.7fr) minmax(0,.7fr) minmax(0,1.2fr);gap:14px;align-items:end}
-.picker-field{display:grid;gap:6px;min-width:0}
-.picker-label{font-size:var(--fs-caption);color:rgba(248,246,240,.9)}
-@media(max-width:1000px){.picker-row{grid-template-columns:1fr 1fr}}
-@media(max-width:640px){.picker-row{grid-template-columns:1fr}}
+/* 卡片内下拉框：与「开始时间/学习时长」行同宽同距，标签沿用 filter-row 的字体 */
+.booking-split .filter-row > span { font-size: inherit; color: inherit; }
 .shortfall-warning{color:var(--amber-strong)}.availability-table{min-width:680px}.earliest-row{background:var(--primary-weak)}.chosen-row{outline:1px solid var(--primary)}.seat-preference{font-size:11px;color:var(--text-2)}
 .resource-summary { font-size:var(--fs-caption); color:var(--text-3); line-height:1.7; overflow-wrap:anywhere; margin-bottom:12px; }
 .seat-card .seat-heading { width: 100%; display: flex; align-items: center; gap: 10px 16px; flex-wrap: wrap; }
