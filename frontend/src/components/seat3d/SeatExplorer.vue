@@ -1,4 +1,5 @@
 <script setup>
+import { formatCampusDateTime } from '../../composables/campusDateTime.js'
 import { ref, shallowRef, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { gsap } from 'gsap'
 import RestrictionRecord from '../RestrictionRecord.vue'
@@ -170,7 +171,7 @@ onBeforeUnmount(() => {
             <div v-if="ready && !error" class="scene-hint">{{ view === 'firstPerson' ? '拖动 / 方向键环视 · 点击总览退出体验' : '拖动旋转 · 滚轮 / 双指缩放 · 点击桌椅选座' }}</div>
           </div>
           <p v-if="shortfall" role="status" class="explorer-shortfall">{{ shortfall }}；本次预约已短于筛选时长。</p><p v-if="requiredMinutes" class="explorer-required">筛选条件：从{{ requestedStart }}开始，连续学习{{ requiredMinutes }}分钟。</p>
-          <p v-if="submitError" role="alert" class="explorer-submit-error">{{ submitError }}</p><details v-if="restrictionFailure" class="explorer-restrictions"><summary>查看服务端确认的{{restrictionFailure.active_restrictions.length}}条有效预约限制</summary><div><p>核对时刻：{{restrictionFailure.server_now}}（{{restrictionFailure.campus_zone}}），解除一条不代表其他记录也已解除。</p><RestrictionRecord v-for="record in restrictionFailure.active_restrictions" :key="record.id" :record="record" /><RouterLink to="/profile#restrictions">查看本人限制与当前资格</RouterLink></div></details>
+          <p v-if="submitError" role="alert" class="explorer-submit-error">{{ submitError }}</p><details v-if="restrictionFailure" class="explorer-restrictions"><summary>查看服务端确认的{{restrictionFailure.active_restrictions.length}}条有效预约限制</summary><div><p>核对时刻：{{ formatCampusDateTime(restrictionFailure.server_now) }}（{{restrictionFailure.campus_zone}}），解除一条不代表其他记录也已解除。</p><RestrictionRecord v-for="record in restrictionFailure.active_restrictions" :key="record.id" :record="record" /><RouterLink to="/profile#restrictions">查看本人限制与当前资格</RouterLink></div></details>
           <footer class="explorer-footer">
             <label class="seat-list"><span class="sr-only">按编号选择座位</span><select :value="selectedId ?? ''" :disabled="busy || !!error" @change="chooseFromList"><option value="" disabled>按编号选座</option><option v-for="s in rankedSeats" :key="s.id" :value="s.id" :disabled="s.status !== 'available' || !s.matching_windows?.length">{{ s.seat_no }} · {{ stateLabels[seatState(s, selectedId, preferences)] }}{{ matchesSeatPreferences(s, preferences) ? ' · 偏好' : '' }}</option></select></label>
             <SButton variant="primary" size="lg" :disabled="!policyReady || !room?.enabled || !selected || !selectedWindow || busy || !!error" :loading="submitting" @click="emit('submit')">提交预约</SButton>

@@ -7,6 +7,11 @@ export function minuteValue(value, end = false) {
 export function minuteText(value) {
   return `${String(Math.floor(value / 60)).padStart(2,'0')}:${String(value % 60).padStart(2,'0')}`
 }
+export function normalizeStartTime(value) {
+  const match = String(value || '').trim().match(/^(0?[0-9]|1[0-9]|2[0-3])(?::([0-5][0-9]))?$/)
+  if (!match) throw new Error('请输入有效的24小时制开始时间，例如9或9:00')
+  return `${String(Number(match[1])).padStart(2,'0')}:${match[2] || '00'}`
+}
 export function serverStartMinute(policy) {
   const match = policy.server_now?.match(/T([01][0-9]|2[0-3]):([0-5][0-9])(?::([0-5][0-9])(?:\.([0-9]+))?)?\+08:00$/)
   if (!match || policy.campus_zone !== 'Asia/Shanghai') throw new Error('服务端校园时间格式无效，请重新读取预约政策')

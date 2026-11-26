@@ -1,4 +1,5 @@
 <script setup>
+import { formatCampusDateTime } from '../composables/campusDateTime.js'
 import {ref,onMounted,onBeforeUnmount} from 'vue'
 import {getRooms} from '../api/room'
 import {listRoomReviews} from '../api/review'
@@ -32,8 +33,8 @@ onMounted(loadRooms)
           <article v-for="item in snapshot.items" :key="item.id">
             <h3>匿名评价 · {{item.rating}}星</h3>
             <p class="content">{{item.content}}</p>
-            <p>评价更新：{{item.updated_at}}</p>
-            <template v-if="item.admin_reply"><h4>管理回复</h4><p class="content">{{item.admin_reply}}</p><p>回复登记：{{item.replied_at}}</p></template>
+            <p>评价更新：{{ formatCampusDateTime(item.updated_at) }}</p>
+            <template v-if="item.admin_reply"><h4>管理回复</h4><p class="content">{{item.admin_reply}}</p><p>回复登记：{{ formatCampusDateTime(item.replied_at) }}</p></template>
           </article>
         </div>
         <SEmpty v-else-if="snapshot" icon="ticket" description="该次查询暂无公开评价" />

@@ -1,4 +1,5 @@
 <script setup>
+import { formatCampusDateTime } from '../composables/campusDateTime.js'
 import PageHelp from '../components/PageHelp.vue'
 import {ref,computed,onMounted,onBeforeUnmount,watch} from 'vue'
 import {message} from '../components/ui/feedback'
@@ -74,8 +75,6 @@ const unreadCount = computed(() => list.value.filter(item => !item.is_read).leng
 const busy=computed(()=>markingId.value!==null||markingAll.value)
 
 function selectCategory(key){if(busy.value)return;category.value=key}
-function fmtTime(value){return new Date(value).toLocaleString('zh-CN',{hour12:false})}
-function shortTime(value){const date=new Date(value);return Number.isNaN(date.getTime())?String(value):date.toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false})}
 function linked(item){return hasNotificationTarget(item,reviewNotificationTarget)}
 
 async function afterRead(){await Promise.all([pager.refresh(true),notifStore.refresh()])}
@@ -159,7 +158,7 @@ onMounted(pager.refresh);onBeforeUnmount(()=>{alive=false;pager.dispose()})
                 <b>{{ item.title }}</b>
                 <small>{{ item.content }}</small>
               </span>
-              <span class="msg-side"><time>{{ shortTime(item.created_at) }}</time><i v-if="!item.is_read" class="dot" aria-label="未读"/></span>
+              <span class="msg-side"><time>{{ formatCampusDateTime(item.created_at) }}</time><i v-if="!item.is_read" class="dot" aria-label="未读"/></span>
             </button>
           </li>
         </ul>
@@ -172,7 +171,7 @@ onMounted(pager.refresh);onBeforeUnmount(()=>{alive=false;pager.dispose()})
         <template v-if="selected">
           <header class="detail-head">
             <span class="pill" :style="{color:typeMeta[selected.type]?.color,background:typeMeta[selected.type]?.bg}">{{ typeMeta[selected.type]?.text || '历史消息' }}</span>
-            <time>{{ fmtTime(selected.created_at) }}</time>
+            <time>{{ formatCampusDateTime(selected.created_at) }}</time>
             <SButton size="sm" @click="closeDetail">关闭</SButton>
           </header>
           <h3>{{ selected.title }}</h3>
@@ -181,7 +180,7 @@ onMounted(pager.refresh);onBeforeUnmount(()=>{alive=false;pager.dispose()})
           <section v-if="selected.type==='management_cancelled'" class="cancel-card">
             <h4>资源管理取消</h4>
             <p>原因：{{ selected.cancel_reason || selected.content || '未提供' }}</p>
-            <p v-if="selected.expected_reopen_at">预计恢复：{{ selected.expected_reopen_at }}</p>
+            <p v-if="selected.expected_reopen_at">预计恢复：{{ formatCampusDateTime(selected.expected_reopen_at) }}</p>
             <p v-else>预计恢复时间：待定，请以系统可预约状态为准。</p>
             <p>本次管理取消不记本人违规；无需专程到场确认，已到场或需要帮助可点“需要协助”。</p>
             <div class="row-actions">

@@ -1,4 +1,5 @@
 <script setup>
+import { formatCampusDateTime } from '../../composables/campusDateTime.js'
 import {ref,onMounted,onBeforeUnmount} from 'vue'
 import {listAdminReservations,getAdminReservation} from '../../api/reservation'
 import {listAdminViolations} from '../../api/violation'
@@ -39,9 +40,9 @@ onMounted(()=>pager.refresh());onBeforeUnmount(()=>{alive=false;ticket++;pager.d
           <template v-else>
             <h4>违规#{{item.id}} · {{violationLabels[item.type]||item.type}} · {{violationStatuses[item.status]||item.status}}</h4>
             <p>主体#{{item.subject?.id}} {{item.subject?.real_name||item.subject?.username}} / {{item.subject?.username}} / {{item.subject?.campus_id||'校园编号未登记'}}</p>
-            <p>发生：{{item.occurred_at}}；登记：{{item.registered_at}}</p>
+            <p>发生：{{ formatCampusDateTime(item.occurred_at) }}；登记：{{ formatCampusDateTime(item.registered_at) }}</p>
             <p class="content">{{item.reason}}</p>
-            <p v-if="item.revocation">撤销：{{item.revocation.reason}} · {{item.revocation.revoked_at}}</p>
+            <p v-if="item.revocation">撤销：{{item.revocation.reason}} · {{ formatCampusDateTime(item.revocation.revoked_at) }}</p>
           </template>
         </article>
         <SEmpty v-if="snapshot&&!items.length&&!loading&&!error" description="该次查询无记录"/>
@@ -56,7 +57,7 @@ onMounted(()=>pager.refresh());onBeforeUnmount(()=>{alive=false;ticket++;pager.d
         <p>{{detail.reservation.room_name}} / {{detail.reservation.seat_no}} · {{reservationStatuses[detail.reservation.status]||detail.reservation.status}}</p>
         <p>{{detail.reservation.res_date}} {{detail.reservation.start_time}}—{{detail.reservation.end_time}}</p>
         <UsageRecordSummary :record="detail.reservation.usage_record"/>
-        <p>补签条件：{{detail.can_correct?'当前允许申请核实补签':detail.blocked_reason}} · 核对{{detail.server_now}}</p>
+        <p>补签条件：{{detail.can_correct?'当前允许申请核实补签':detail.blocked_reason}} · 签到截止{{ formatCampusDateTime(detail.deadline) }} · 核对{{ formatCampusDateTime(detail.server_now) }}</p>
       </template>
       <template #footer>
         <SButton @click="closeDetail">关闭</SButton>

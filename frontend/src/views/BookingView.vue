@@ -18,7 +18,7 @@ import SSelect from '../components/ui/SSelect.vue'
 import STag from '../components/ui/STag.vue'
 import SInput from '../components/ui/SInput.vue'
 import SBanner from '../components/ui/SBanner.vue'
-import { minuteValue, minuteText, serverStartMinute, validateAvailabilitySnapshot } from '../composables/bookingPolicy.js'
+import { minuteValue, minuteText, normalizeStartTime, serverStartMinute, validateAvailabilitySnapshot } from '../composables/bookingPolicy.js'
 
 // ---- 条件区状态 ----
 const rooms = ref([])
@@ -213,12 +213,13 @@ function chooseWindow(window) {
 }
 function showWindows(windows) { return windows?.length ? windows.map(window => `${window.start}–${window.end}`).join('、') : '无开放时段' }
 function validateSearchCriteria() {
-  if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(searchStart.value)) throw new Error('请填写24小时制开始时间（HH:mm）')
-  const startMinute = minuteValue(searchStart.value)
+  const startTime = normalizeStartTime(searchStart.value)
+  searchStart.value = startTime
+  const startMinute = minuteValue(startTime)
   if (startMinute < 8 * 60 || startMinute > 22 * 60) throw new Error('开始时间须在08:00—22:00之间')
   if (!/^[0-9]+$/.test(String(requiredDraft.value)) || !Number.isSafeInteger(Number(requiredDraft.value)) || Number(requiredDraft.value) < 30) throw new Error('学习时长须为至少30分钟的整数')
   const learningMinutes = Number(requiredDraft.value)
-  return { startTime: searchStart.value, learningMinutes }
+  return { startTime, learningMinutes }
 }
 
 const seatCard = ref(null)
@@ -505,7 +506,7 @@ onMounted(async () => {
         <div class="filter-group">
           <label class="filter-row">开始时间（08:00—22:00，24小时制）
             <div ref="timePicker" class="time-picker" @keydown.esc="timeMenuOpen = false">
-              <SInput :model-value="searchStart" inputmode="numeric" maxlength="5" placeholder="HH:mm，可手动输入" aria-label="开始时间，24小时制08:00至22:00" :disabled="submitting || !policy" @update:model-value="changeSearchStart" />
+              <SInput :model-value="searchStart" inputmode="text" maxlength="5" placeholder="9、9:00 或 09:00" aria-label="开始时间，可输入9或9:00，24小时制08:00至22:00" :disabled="submitting || !policy" @update:model-value="changeSearchStart" />
               <button class="time-picker__toggle" type="button" :disabled="submitting || !policy" :aria-expanded="timeMenuOpen" aria-label="展开开始时间选项" aria-controls="booking-start-time-options" @click="toggleTimeMenu">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
               </button>
@@ -581,7 +582,7 @@ onMounted(async () => {
                 @click="onSeatClick(s)"
               >
                 <SeatPlanDesk :computer="s.zone === 'computer'" :power="s.has_power" />
-                <span class="seat-no">{{ s.seat_no }}<span v-if="rankedResults[0]?.seat_id === s.id"> · 首选</span></span><span v-if="s.matching_windows?.length" class="window-count">{{ isPreferredSeat(s) ? '偏好 · ' : '' }}{{ s.matching_windows.length }}段</span>
+                <span class="seat-no">{{ s.seat_no }}<span v-if="rankedResults[0]?.seat_id === s.id"> · 首选</span></span><span v-if="s.matching_windows?.length && isPreferredSeat(s)" class="seat-preference">偏好</span>
               </button>
             </div>
             <!-- 右：窗或墙 -->
@@ -659,7 +660,7 @@ onMounted(async () => {
 .picker-label{font-size:var(--fs-caption);color:var(--text-2)}
 @media(max-width:1000px){.picker-row{grid-template-columns:1fr 1fr}}
 @media(max-width:640px){.picker-row{grid-template-columns:1fr}}
-.shortfall-warning{color:var(--amber-strong)}.availability-table{min-width:680px}.earliest-row{background:var(--primary-weak)}.chosen-row{outline:1px solid var(--primary)}.window-count{font-size:11px;color:var(--text-2)}
+.shortfall-warning{color:var(--amber-strong)}.availability-table{min-width:680px}.earliest-row{background:var(--primary-weak)}.chosen-row{outline:1px solid var(--primary)}.seat-preference{font-size:11px;color:var(--text-2)}
 .resource-summary { font-size:var(--fs-caption); color:var(--text-3); line-height:1.7; overflow-wrap:anywhere; margin-bottom:12px; }
 .seat-card .seat-heading { width: 100%; display: flex; align-items: center; gap: 10px 16px; flex-wrap: wrap; }
 .seat-heading h3 { flex: 0 0 auto; }

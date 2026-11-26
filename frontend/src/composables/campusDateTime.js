@@ -10,7 +10,7 @@ export function formatCampusDateTime(value) {
   // Backend timestamps without an explicit offset are campus-local values.
   const campusLocal = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/.test(input)
   const date = new Date(campusLocal ? `${input.replace(' ', 'T')}+08:00` : input)
-  if (!Number.isFinite(date.getTime())) return value
+  if (!Number.isFinite(date.getTime())) return '—'
   const parts = Object.fromEntries(campusDateTime.formatToParts(date).map(part => [part.type, part.value]))
   return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second}`
 }

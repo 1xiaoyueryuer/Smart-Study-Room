@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
-import { minuteValue, minuteText, serverStartMinute, validateSlot, validateOpeningWindow, validateAvailabilitySnapshot } from '../src/composables/bookingPolicy.js'
+import { minuteValue, minuteText, normalizeStartTime, serverStartMinute, validateSlot, validateOpeningWindow, validateAvailabilitySnapshot } from '../src/composables/bookingPolicy.js'
 import { activeBookingRestrictions, isBookingRestricted } from '../src/composables/restrictionForm.js'
 import { windowKey, validateWindowSlot, shortfallText } from '../src/composables/availabilitySelection.js'
 
@@ -13,6 +13,17 @@ test('minute values preserve 24:00 as the right-open end boundary', () => {
   assert.throws(() => minuteValue('24:00'), /24:00/)
   assert.equal(minuteText(1440), '24:00')
   assert.equal(minuteText(8 * 60 + 5), '08:05')
+})
+
+test('booking start input accepts hour-only and single-digit hour forms', () => {
+  assert.equal(normalizeStartTime('9'), '09:00')
+  assert.equal(normalizeStartTime('9:00'), '09:00')
+  assert.equal(normalizeStartTime('09:00'), '09:00')
+  assert.equal(normalizeStartTime(' 8:05 '), '08:05')
+  assert.equal(normalizeStartTime('7'), '07:00')
+  assert.throws(() => normalizeStartTime('9:60'), /有效的24小时制/)
+  assert.throws(() => normalizeStartTime('9:'), /有效的24小时制/)
+  assert.throws(() => normalizeStartTime('24:00'), /有效的24小时制/)
 })
 
 test('date range is D, D+1 and D+2 only', () => {
@@ -76,6 +87,10 @@ test('BookingView uses fixed start + duration + optional preference and no strat
   assert.match(source, /restricted \|\| !policy/)
   assert.doesNotMatch(source, /找座方案/)
   assert.doesNotMatch(source, /strategyOptions/)
+  assert.match(source, /normalizeStartTime\(searchStart\.value\)/)
+  assert.match(source, /inputmode="text" maxlength="5" placeholder="9、9:00 或 09:00"/)
+  assert.match(source, /startMinute < 8 \* 60 \|\| startMinute > 22 \* 60/)
+  assert.doesNotMatch(source, /formatCampusDateTime\(window\.(?:available|suggested)_/)
 })
 
 test('availability snapshot supplies the current server time and room opening schedule', () => {

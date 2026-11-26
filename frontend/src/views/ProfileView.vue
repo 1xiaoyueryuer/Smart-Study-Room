@@ -17,6 +17,7 @@ import AppealsPanel from '../components/AppealsPanel.vue'
 import RestrictionsPanel from '../components/RestrictionsPanel.vue'
 import ViolationsPanel from '../components/ViolationsPanel.vue'
 import SBanner from '../components/ui/SBanner.vue'
+import { formatCampusDateTime } from '../composables/campusDateTime.js'
 
 const auth = useAuthStore()
 const overview = ref(null)
@@ -198,6 +199,7 @@ function selectProfileTab(key) {
                 <SButton size="sm" variant="ghost" :loading="creditLoading" @click="loadCredit">刷新</SButton>
               </span>
             </div>
+            <p v-if="auth.isOrdinary" class="credit-note">历史信用分和信用流水为只读数据，当前预约资格按有效预约限制核对。</p>
             <p v-if="creditError" class="credit-error">历史信用读取失败；不影响当前预约资格。</p>
           </div>
 
@@ -249,7 +251,7 @@ function selectProfileTab(key) {
               </thead>
               <tbody>
                 <tr v-for="row in pageItems" :key="row.id">
-                  <td class="num">{{ row.created_at }}</td>
+                  <td class="num">{{ formatCampusDateTime(row.created_at) }}</td>
                   <td>
                     <span :class="row.delta > 0 ? 'up' : 'down'">
                       {{ row.delta > 0 ? '+' + row.delta : row.delta }}
@@ -348,6 +350,7 @@ function selectProfileTab(key) {
 .avatar-error { color: var(--red-strong); font-size: var(--fs-caption); margin-top: 8px; }
 .credit-inline { display: inline-flex; align-items: center; gap: 8px; }
 .credit-error { color: var(--red-strong); font-size: var(--fs-caption); margin-top: 6px; }
+.credit-note { color: var(--text-3); font-size: var(--fs-caption); margin: 4px 0 0; }
 .profile-name {
   font-size: 20px;
   font-weight: 650;
