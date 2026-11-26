@@ -464,8 +464,6 @@ onMounted(async () => {
 
 <template>
   <div v-reveal class="page-view">
-    <!-- 页面背景：用户提供的场景图铺满视口，60% 不透明度，置于全部内容之下 -->
-    <div class="booking-bg" aria-hidden="true"></div>
     <header class="view-heading" data-page-title>
       <h1>座位预约</h1>
       <p class="heading-sub">设置开始时间和学习时长，选择座位后确认本次预约</p>
@@ -678,14 +676,6 @@ onMounted(async () => {
 .view-heading .heading-sub {
   color: #ffffff;
   text-shadow: 0 1px 12px rgba(10, 20, 28, .55);
-}
-.booking-bg {
-  position: fixed;
-  inset: 0;
-  z-index: 0;
-  background: url('/images/booking-bg.jpg') center / cover no-repeat;
-  opacity: .6;
-  pointer-events: none;
 }
 /* 背景层是 z-index:0 的定位元素，正文块同样进入定位层以绘制在其上 */
 .view-heading,

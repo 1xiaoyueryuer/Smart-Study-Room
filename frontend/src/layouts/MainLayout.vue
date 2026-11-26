@@ -208,6 +208,8 @@ onUnmounted(() => {
 
 <template>
   <div class="shell">
+    <!-- 全站背景：与座位预约页同一张阅览室照片，70% 不透明度 -->
+    <div class="app-bg" aria-hidden="true"></div>
     <MobileTopbar
       v-if="isNarrowScreen"
       :sidebar-collapsed="isSidebarCollapsed"
@@ -330,10 +332,20 @@ onUnmounted(() => {
 
 <style scoped>
 .shell {
+  position: relative;
   height: 100%;
   display: flex;
   flex-direction: column;
   background: var(--canvas);
+}
+/* 全站页面背景：阅览室照片固定铺满视口，70% 不透明度 */
+.app-bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  background: url('/images/booking-bg.jpg') center / cover no-repeat;
+  opacity: .7;
+  pointer-events: none;
 }
 
 /* ============ 桌面顶部导航 ============ */
@@ -537,6 +549,8 @@ onUnmounted(() => {
 
 /* ============ 内容区 ============ */
 .content {
+  position: relative;
+  z-index: 1;
   flex: 1;
   min-height: 0;
   overflow-y: auto;

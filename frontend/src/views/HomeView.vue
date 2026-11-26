@@ -321,7 +321,7 @@ function timeText(row) {
 .home-page { padding-top: 22px; }
 
 /* 管理员端：与用户端同款底色与信息层级（无我的学习安排） */
-.home-page--admin { background: #eef5f4; box-shadow: 0 0 0 100vmax #eef5f4; padding-top: 28px; }
+.home-page--admin { padding-top: 28px; }
 /* 管理员 hero：文字块整体上移、按钮与统计下移（居中布局下用间距拉开两组） */
 .home-page--admin .hero-full { gap: clamp(28px, 5vh, 56px); }
 
@@ -346,7 +346,7 @@ function timeText(row) {
 
 /* ============ 用户端新版首页（按参考图） ============ */
 /* 整页底色：浅薄荷白 */
-.home-page--user { background: #eef5f4; box-shadow: 0 0 0 100vmax #eef5f4; padding-top: 28px; }
+.home-page--user { padding-top: 28px; }
 
 /* 顶部区：照片整幅铺满上半屏，文字/按钮/统计由 HTML 渲染 */
 .hero-zone { position: relative; margin-bottom: 34px; }
