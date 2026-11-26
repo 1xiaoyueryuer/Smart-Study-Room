@@ -469,6 +469,16 @@ onMounted(async () => {
     <header class="view-heading" data-page-title>
       <h1>座位预约</h1>
       <p class="heading-sub">设置开始时间和学习时长，选择座位后确认本次预约</p>
+      <!-- 预约线性流程：选空间 → 选时段 → 选座位 → 确认预约 -->
+      <ol class="booking-steps" aria-label="预约流程">
+        <li><span class="step-dot" aria-hidden="true">1</span><span>选空间</span></li>
+        <li class="step-sep" aria-hidden="true"></li>
+        <li><span class="step-dot" aria-hidden="true">2</span><span>选时段</span></li>
+        <li class="step-sep" aria-hidden="true"></li>
+        <li><span class="step-dot" aria-hidden="true">3</span><span>选座位</span></li>
+        <li class="step-sep" aria-hidden="true"></li>
+        <li><span class="step-dot" aria-hidden="true">4</span><span>确认预约</span></li>
+      </ol>
     </header>
 
     <section v-if="policy" class="booking-top">
@@ -624,7 +634,46 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-/* 页面背景：用户提供的场景图铺满视口，60% 不透明度，置于全部内容之下 */
+/* 预约线性流程：四步指示，深绿圆点与页面主题一致 */
+.booking-steps {
+  list-style: none;
+  margin: 16px 2px 0;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.booking-steps li {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #28563c;
+  font-size: var(--fs-body-sm);
+  font-weight: 600;
+  letter-spacing: .02em;
+}
+.step-dot {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #28563c;
+  color: #f7f4ec;
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.step-sep {
+  flex: 0 0 36px;
+  height: 2px;
+  border-radius: var(--r-full);
+  background: linear-gradient(90deg, rgba(40, 86, 60, .55), rgba(40, 86, 60, .2));
+}
+@media (max-width: 640px) {
+  .step-sep { flex-basis: 18px; }
+}
 .booking-bg {
   position: fixed;
   inset: 0;
@@ -671,10 +720,11 @@ onMounted(async () => {
 .seat-free.seat-preferred{box-shadow:inset 0 0 0 2px var(--amber-strong),0 2px 3px #0000000a}
 .room-brief{color:var(--text-3);font-size:var(--fs-caption);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 @media(max-width:1100px){.booking-split{grid-template-columns:minmax(0,1fr)}}
-.booking-top{display:block;margin-bottom:20px}
+/* 顶部功能行：深色透明卡（30% 不透明度，比页面背景更深），与选座卡片一致 */
+.booking-top{display:block;margin-bottom:20px;padding:18px 20px 20px;border:1px solid rgba(255,255,255,.14);border-radius:var(--r-xl);background:rgba(21,32,40,.3);backdrop-filter:blur(10px)}
 .picker-row{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,.7fr) minmax(0,.7fr) minmax(0,1.2fr);gap:14px;align-items:end}
 .picker-field{display:grid;gap:6px;min-width:0}
-.picker-label{font-size:var(--fs-caption);color:var(--text-2)}
+.picker-label{font-size:var(--fs-caption);color:rgba(248,246,240,.9)}
 @media(max-width:1000px){.picker-row{grid-template-columns:1fr 1fr}}
 @media(max-width:640px){.picker-row{grid-template-columns:1fr}}
 .shortfall-warning{color:var(--amber-strong)}.availability-table{min-width:680px}.earliest-row{background:var(--primary-weak)}.chosen-row{outline:1px solid var(--primary)}.seat-preference{font-size:11px;color:var(--text-2)}
@@ -812,7 +862,16 @@ onMounted(async () => {
 /* 座位图 */
 .seat-card {
   min-height: 0;
+  /* 选座卡片：与顶部功能行一致的深色透明卡（30% 不透明度，比页面背景更深） */
+  border-color: rgba(255, 255, 255, .14);
+  background: rgba(21, 32, 40, .3);
+  backdrop-filter: blur(10px);
 }
+/* 透明卡上的文字改为浅色，保证可读 */
+.seat-card .seat-heading h3,
+.seat-card .card-title-row h3 { color: rgba(248, 246, 240, .95); }
+.seat-card .room-brief { color: rgba(240, 244, 242, .75); }
+.seat-card p[role='status'] { color: rgba(240, 244, 242, .85); }
 .booking-split > .split-right { align-self: start; }
 .booking-split > .split-right > .seat-card:first-child { flex: 0 0 auto; }
 .seat-grid-wrap {
