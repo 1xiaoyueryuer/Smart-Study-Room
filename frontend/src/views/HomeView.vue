@@ -5,7 +5,6 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { useNotificationStore } from '../stores/notification'
-import { getRooms, getOpeningWindows } from '../api/room'
 import { listMyReservations } from '../api/reservation'
 import { getOverview } from '../api/stats'
 import { listNotifications } from '../api/notification'
@@ -34,29 +33,6 @@ const greeting = computed(() => {
   return '晚上好'
 })
 
-const rooms = ref([])
-const todayOpenings = ref({})
-const campusDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year:'numeric', month:'2-digit', day:'2-digit' }).format(new Date())
-function roomOpeningText(room) {
-  const value = todayOpenings.value[room.id]
-  if (!value) return '开放信息尚未加载'
-  if (value.error) return `开放信息读取失败：${value.error}`
-  return value.windows.length ? value.windows.map(window => `${window.start}–${window.end}`).join('、') : `当日闭馆：${value.closed_reasons?.join('；') || '无开放时段'}`
-}
-function roomOpenNow(room) {
-  const value = todayOpenings.value[room.id]
-  if (!value || value.error || !value.windows?.length) return false
-  const now = new Date()
-  const minutes = now.getHours() * 60 + now.getMinutes()
-  return value.windows.some(window => {
-    const [sh, sm] = window.start.split(':').map(Number)
-    const [eh, em] = window.end.split(':').map(Number)
-    return minutes >= sh * 60 + sm && minutes < eh * 60 + em
-  })
-}
-const roomsError = ref('')
-const roomsLoading = ref(false)
-
 const statsOverview = ref(null)
 const statsError = ref('')
 const statsLoading = ref(false)
@@ -67,6 +43,7 @@ let disposed = false
 
 const openAvailableSeats = computed(() => statsOverview.value?.current.open_available_seats ?? null)
 const inUseNow = computed(() => statsOverview.value?.current.in_use_now ?? null)
+const complaintTodoCount = computed(() => statsOverview.value?.current.complaint_todo_count ?? null)
 const currentUsageText = computed(() => statsOverview.value ? ratioText(statsOverview.value.current.usage_ratio) : '尚未读取')
 const statsSnapshotText = computed(() => statsOverview.value ? formatCampusDateTime(statsOverview.value.snapshot_at) : '')
 
@@ -75,8 +52,12 @@ const reservations = ref([])
 const reservationsLoading = ref(false)
 const reservationsError = ref('')
 const activeReservations = computed(() => reservations.value.filter(row => ['pending','checked_in'].includes(row.status)))
-const nextReservation = computed(() => activeReservations.value[0] || null)
-const nextDeadline = computed(() => nextReservation.value ? checkinDeadlineOf(nextReservation.value) : null)
+
+// 学生个人概览指标
+const pendingCount = computed(() => reservations.value.filter(row => row.status === 'pending').length)
+const checkedInCount = computed(() => reservations.value.filter(row => row.status === 'checked_in').length)
+const completedCount = computed(() => reservations.value.filter(row => row.status === 'completed').length)
+const totalCount = computed(() => reservations.value.length)
 
 // 管理取消登录提示卡：只展示服务端真实通知，不伪造确认状态。
 const cancellations = ref([])
@@ -90,21 +71,6 @@ async function loadCancellations() {
 
 function refreshUnread() {
   notifStore.refresh()
-}
-
-async function loadRooms() {
-  roomsLoading.value = true
-  roomsError.value = ''
-  try {
-    const roomResp = await getRooms()
-    rooms.value = roomResp.data || []
-    const openings = await Promise.allSettled(rooms.value.map(room => getOpeningWindows(room.id, campusDate)))
-    todayOpenings.value = Object.fromEntries(openings.map((result,index) => [rooms.value[index].id, result.status === 'fulfilled' ? result.value.data : { error: result.reason.message }]))
-  } catch (error) {
-    roomsError.value = error.message
-  } finally {
-    roomsLoading.value = false
-  }
 }
 
 async function loadReservations() {
@@ -140,7 +106,7 @@ function loadStats(){if(auth.isAdmin)return statsRefresh.refresh('overview')}
 
 onMounted(async () => {
   if(auth.isAdmin){statsRefresh.select('overview',{});statsRefresh.start()}
-  await Promise.all([loadRooms(), loadReservations(), loadCancellations()])
+  await Promise.all([loadReservations(), loadCancellations()])
   if (disposed) return
   refreshUnread()
   unreadTimer = setInterval(refreshUnread, 30000)
@@ -169,7 +135,15 @@ const shortcuts = computed(() => auth.isAdmin
     ])
 
 function statusText(row) {
-  return ({ pending: '待签到', checked_in: '使用中' })[row.status] || row.status
+  return ({ pending: '待签到', checked_in: '使用中', completed: '已结束' })[row.status] || row.status
+}
+function statusPillClass(row) {
+  return ({ pending: 'pill-warning', checked_in: 'pill-success', completed: 'pill-neutral' })[row.status] || 'pill-plain'
+}
+function timeText(row) {
+  const start = (row.start_time || '').slice(0, 5)
+  const end = (row.end_time || '').slice(0, 5)
+  return `${row.res_date} ${start}—${end}`
 }
 </script>
 
@@ -224,84 +198,87 @@ function statusText(row) {
           </div>
         </section>
 
-        <section class="section-head">
-          <h2>自习室列表</h2>
-          <span>按开放时间选择你的学习空间</span>
-        </section>
-
-        <div v-if="roomsLoading" class="room-cards"><div v-for="n in 4" :key="n" class="room-card skeleton" /></div>
-        <SBanner v-else-if="roomsError" type="error" :title="roomsError"><SButton size="sm" @click="loadRooms">重试</SButton></SBanner>
-        <p v-else-if="!rooms.length" class="muted">暂无自习室信息。</p>
-        <div v-else class="room-cards">
-          <article v-for="room in rooms" :key="room.id" class="room-card">
-            <div class="room-card-top">
-              <h3>{{ room.name }}</h3>
-              <span class="room-status" :class="roomOpenNow(room) ? 'open' : 'closed'">{{ roomOpenNow(room) ? '开放中' : '未开放' }}</span>
-            </div>
-            <p class="room-location">{{ room.building || '楼栋未登记' }}<template v-if="room.floor"> · {{ room.floor }}</template><template v-if="room.location"> · {{ room.location }}</template></p>
-            <p class="room-open">{{ roomOpeningText(room) }}</p>
-            <SButton :disabled="!room.enabled" variant="soft" block @click="router.push(auth.isAdmin ? '/admin' : '/booking')">{{ auth.isAdmin ? '管理空间' : '去预约' }}</SButton>
-          </article>
-        </div>
-      </div>
-
-      <aside class="home-side">
-        <section v-if="auth.isOrdinary" class="card next-card">
-          <div class="card-title-row"><h3>我的预约</h3><RouterLink to="/mine" class="text-link">全部记录</RouterLink></div>
-          <p v-if="reservationsLoading" class="muted">正在读取本人预约…</p>
-          <SBanner v-else-if="reservationsError" type="error" :title="reservationsError"><SButton size="sm" @click="loadReservations">重试</SButton></SBanner>
-          <template v-else-if="nextReservation">
-            <span class="pill" :class="nextReservation.status === 'pending' ? 'pill-warning' : 'pill-success'">{{ statusText(nextReservation) }}</span>
-            <h4>{{ nextReservation.room_name }} · {{ nextReservation.seat_no }}</h4>
-            <p class="next-time">{{ nextReservation.res_date }} {{ nextReservation.start_time }}—{{ nextReservation.end_time }}</p>
-            <p v-if="nextDeadline" class="next-deadline">签到截止 <b>{{ deadlineLabel(nextDeadline) }}</b></p>
-            <SButton variant="primary" block @click="router.push(`/mine/${nextReservation.id}/checkin`)">去签到</SButton>
-            <SButton variant="soft" block @click="router.push('/mine')">查看我的预约</SButton>
-          </template>
-          <div v-else class="empty-next">
-            <p>今天还没有安排学习。</p>
-            <SButton variant="primary" block @click="router.push('/booking')">去选座</SButton>
-          </div>
-        </section>
-
-        <section v-else class="card next-card">
-          <div class="card-title-row"><h3>今日概览</h3><RouterLink to="/analytics" class="text-link">详细统计</RouterLink></div>
-          <p v-if="statsLoading" class="muted">正在加载统计…</p>
-          <p class="muted" role="status">{{ statsVisible ? '页面可见时每 10 秒刷新。' : '页面已隐藏，刷新暂停。' }}</p>
-          <SBanner v-if="statsError" type="error" :title="statsError"><SButton size="sm" @click="loadStats">重试统计</SButton></SBanner>
-          <div class="mini-kpis">
-            <div><SAnimatedNumber v-if="inUseNow !== null" :value="inUseNow" /><span v-else>—</span><small>使用中</small></div>
-            <div><SAnimatedNumber v-if="openAvailableSeats !== null" :value="openAvailableSeats" /><span v-else>—</span><small>开放可用</small></div>
-            <div><span>{{ currentUsageText }}</span><small>使用比例</small></div>
-          </div>
-          <p v-if="statsOverview" class="snapshot">快照 {{ statsSnapshotText }}</p>
-        </section>
-
         <section class="card quick-card">
-          <div class="card-title-row"><h3>快速入口</h3></div>
-          <div class="quick-list">
+          <div class="card-title-row"><h3>常用功能</h3><span class="muted">快速进入对应业务</span></div>
+          <div class="quick-grid">
             <button v-for="s in shortcuts" :key="s.to" type="button" class="quick-item" @click="router.push(s.to)">
-              <span class="quick-icon"><AppIcon :name="s.icon" :size="20" /></span>
+              <span class="quick-icon"><AppIcon :name="s.icon" :size="22" /></span>
               <span class="quick-copy"><b>{{ s.title }}</b><small>{{ s.desc }}</small></span>
-              <AppIcon name="chevron-right" :size="16" />
+              <AppIcon class="quick-arrow" name="chevron-right" :size="16" />
             </button>
           </div>
         </section>
 
-        <StudyTips :title="auth.isOrdinary ? '使用须知' : '管理提示'">
-          <ul v-if="auth.isOrdinary" class="tips tips-list">
-            <li>可预约当天至后天，单次至少 30 分钟，起止在开放空档内自选。</li>
-            <li>开始前取消不记违规；开始后未签到放弃记一次违约。</li>
-            <li>签到窗口为开始时刻起至开始后 15 分钟；本系统当前不提供签到延期。</li>
-            <li>短暂离开不延长原结束时间；提前签退释放剩余时段。</li>
-          </ul>
-          <ul v-else class="tips tips-list">
-            <li>资源变更先预览影响清单，确认后管理取消受影响预约，不记用户违约。</li>
-            <li>投诉先受理再核实，未知身份不归责；设施报修由系统按影响范围和安全风险自动分级，存在安全风险固定5级。</li>
-            <li>统计快照每 10 秒刷新，失败保留上次成功值与时间。</li>
-            <li>评价隐藏后本人修改不自动恢复公开，需管理员复核。</li>
-          </ul>
-        </StudyTips>
+        <div class="tips-anchor">
+          <StudyTips :title="auth.isOrdinary ? '使用须知' : '管理提示'">
+            <ul v-if="auth.isOrdinary" class="tips tips-list">
+              <li>可预约当天至后天，单次至少 30 分钟，起止在开放空档内自选。</li>
+              <li>开始前取消不记违规；开始后未签到放弃记一次违约。</li>
+              <li>签到窗口为开始时刻起至开始后 15 分钟；本系统当前不提供签到延期。</li>
+              <li>短暂离开不延长原结束时间；提前签退释放剩余时段。</li>
+            </ul>
+            <ul v-else class="tips tips-list">
+              <li>资源变更先预览影响清单，确认后管理取消受影响预约，不记用户违约。</li>
+              <li>投诉先受理再核实，未知身份不归责；设施报修由系统按影响范围和安全风险自动分级，存在安全风险固定5级。</li>
+              <li>统计快照每 10 秒刷新，失败保留上次成功值与时间。</li>
+              <li>评价隐藏后本人修改不自动恢复公开，需管理员复核。</li>
+            </ul>
+          </StudyTips>
+        </div>
+      </div>
+
+      <aside class="home-side">
+        <section class="card overview-card">
+          <div class="card-title-row">
+            <h3>{{ auth.isAdmin ? '今日概览' : '我的概览' }}</h3>
+            <RouterLink v-if="auth.isAdmin" to="/analytics" class="text-link">详细统计</RouterLink>
+          </div>
+          <p v-if="auth.isAdmin && statsLoading" class="muted">正在加载统计…</p>
+          <p v-if="auth.isAdmin" class="muted" role="status">{{ statsVisible ? '页面可见时每 10 秒刷新。' : '页面已隐藏，刷新暂停。' }}</p>
+          <SBanner v-if="auth.isAdmin && statsError" type="error" :title="statsError"><SButton size="sm" @click="loadStats">重试统计</SButton></SBanner>
+
+          <div v-if="auth.isAdmin" class="mini-kpis">
+            <div><SAnimatedNumber v-if="inUseNow !== null" :value="inUseNow" /><span v-else>—</span><small>使用中</small></div>
+            <div><SAnimatedNumber v-if="openAvailableSeats !== null" :value="openAvailableSeats" /><span v-else>—</span><small>开放可用</small></div>
+            <div><span>{{ currentUsageText }}</span><small>使用比例</small></div>
+            <div><SAnimatedNumber v-if="complaintTodoCount !== null" :value="complaintTodoCount" /><span v-else>—</span><small>投诉待办</small></div>
+          </div>
+          <div v-else class="mini-kpis">
+            <div><span>{{ pendingCount }}</span><small>待签到</small></div>
+            <div><span>{{ checkedInCount }}</span><small>使用中</small></div>
+            <div><span>{{ completedCount }}</span><small>已结束</small></div>
+            <div><span>{{ totalCount }}</span><small>累计预约</small></div>
+          </div>
+          <p v-if="auth.isAdmin && statsOverview" class="snapshot">快照 {{ statsSnapshotText }}</p>
+        </section>
+
+        <section class="card schedule-card">
+          <div class="card-title-row">
+            <h3>我的学习安排</h3>
+            <RouterLink to="/mine" class="text-link">全部记录</RouterLink>
+          </div>
+          <p v-if="reservationsLoading" class="muted">正在读取本人预约…</p>
+          <SBanner v-else-if="reservationsError" type="error" :title="reservationsError"><SButton size="sm" @click="loadReservations">重试</SButton></SBanner>
+          <div v-else-if="activeReservations.length" class="schedule-list">
+            <article v-for="row in activeReservations" :key="row.id" class="schedule-item">
+              <div class="schedule-head">
+                <h4>{{ row.room_name }} · {{ row.seat_no }}</h4>
+                <span class="pill" :class="statusPillClass(row)">{{ statusText(row) }}</span>
+              </div>
+              <p class="schedule-time">{{ timeText(row) }}</p>
+              <p v-if="checkinDeadlineOf(row)" class="schedule-deadline">签到截止 <b>{{ deadlineLabel(checkinDeadlineOf(row)) }}</b></p>
+              <div class="schedule-actions">
+                <SButton v-if="row.status === 'pending'" variant="primary" size="sm" @click="router.push(`/mine/${row.id}/checkin`)">去签到</SButton>
+                <SButton variant="soft" size="sm" @click="router.push('/mine')">查看详情</SButton>
+              </div>
+            </article>
+          </div>
+          <div v-else class="empty-schedule">
+            <AppIcon name="desk-book" :size="30" class="empty-icon" />
+            <p>今天还没有安排学习，挑一个合适的座位开始吧。</p>
+            <SButton variant="primary" block @click="router.push('/booking')">去选座</SButton>
+          </div>
+        </section>
       </aside>
     </div>
   </div>
@@ -312,7 +289,7 @@ function statusText(row) {
 .home-hello { margin: 0 2px 22px; }
 .hello-date { color: var(--text-3); font-size: var(--fs-body-sm); letter-spacing: .04em; }
 .home-hello h1 { margin-top: 6px; font-size: 34px; color: var(--text-1); }
-.home-layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 24px; align-items: start; }
+.home-layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 24px; }
 .cancel-notice {
   display: flex;
   align-items: center;
@@ -330,8 +307,10 @@ function statusText(row) {
 .cancel-meta { color: var(--text-3) !important; font-size: 11px !important; margin-top: 6px; }
 .cancel-actions { display: flex; flex-wrap: wrap; gap: 8px; flex: 0 0 auto; }
 @media (max-width: 760px) { .cancel-notice { flex-direction: column; align-items: flex-start; } }
-.home-main { min-width: 0; }
+.home-main { min-width: 0; display: flex; flex-direction: column; gap: 20px; }
 .home-side { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+.tips-anchor { margin-top: auto; min-width: 0; }
+.home-side .schedule-card { flex: 1 1 auto; }
 
 .hero {
   position: relative;
@@ -362,76 +341,69 @@ function statusText(row) {
 .hero-art { display: flex; align-items: center; justify-content: center; min-width: 0; }
 .hero-art svg { width: 100%; max-width: 520px; height: auto; }
 
-.section-head { display: flex; align-items: baseline; gap: 12px; margin: 30px 2px 16px; }
-.section-head h2 { font-size: 28px; color: var(--text-1); }
-.section-head span { color: var(--text-3); font-size: var(--fs-body-sm); }
-
-.room-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; }
-.room-card {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  min-height: 186px;
-  padding: 18px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--r-xl);
-  box-shadow: var(--shadow-1);
-  transition: transform var(--dur-2) var(--ease), box-shadow var(--dur-2) var(--ease);
-}
-.room-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-2); }
-.room-card h3 { font-size: 20px; color: var(--text-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.room-card-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
-.room-status { flex: 0 0 auto; padding: 3px 10px; border-radius: var(--r-full); font-size: 12px; }
-.room-status.open { background: var(--green-weak); color: var(--green-strong); }
-.room-status.closed { background: var(--surface-3); color: var(--text-3); }
-.room-location { color: var(--text-3); font-size: var(--fs-caption); }
-.room-open { color: var(--text-2); font-size: var(--fs-body-sm); line-height: 1.6; flex: 1; }
-.room-card .s-btn { margin-top: auto; }
-.skeleton { background: linear-gradient(90deg, var(--surface-2), var(--surface-3), var(--surface-2)); background-size: 200% 100%; animation: shimmer 1.4s infinite; }
-@keyframes shimmer { to { background-position: -200% 0; } }
-
-.next-card h4 { margin: 12px 0 4px; font-family: var(--font-display); font-size: 21px; color: var(--text-1); }
-.next-time { color: var(--text-2); font-size: var(--fs-body-sm); }
-.next-deadline { margin-top: 8px; color: var(--text-3); font-size: var(--fs-body-sm); }
-.next-deadline b { color: var(--amber-strong); font-variant-numeric: tabular-nums; }
-.next-card .s-btn { margin-top: 12px; }
-.empty-next { display: grid; gap: 14px; padding: 8px 0 2px; color: var(--text-3); }
-.text-link { color: var(--primary); font-size: var(--fs-caption); text-decoration: none; }
-.text-link:hover { text-decoration: underline; }
-
-.mini-kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 14px 0 6px; }
-.mini-kpis > div { background: var(--surface-2); border-radius: var(--r-md); padding: 12px 10px; text-align: center; }
-.mini-kpis span { display: block; font-family: var(--font-display); font-size: 24px; color: var(--text-1); }
-.mini-kpis small { display: block; margin-top: 4px; color: var(--text-3); font-size: 11px; }
-.snapshot { color: var(--text-4); font-size: 11px; margin-top: 6px; }
-
-.quick-list { display: flex; flex-direction: column; gap: 6px; }
+/* 常用功能网格：放大入口，两两一行 */
+.quick-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
 .quick-item {
   all: unset;
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 11px 12px;
-  border-radius: var(--r-md);
+  gap: 16px;
+  padding: 24px 22px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-xl);
+  background: var(--surface);
   cursor: pointer;
-  color: var(--text-2);
-  transition: background var(--dur-1) var(--ease);
+  transition: transform var(--dur-2) var(--ease), box-shadow var(--dur-2) var(--ease), border-color var(--dur-2) var(--ease);
 }
-.quick-item:hover { background: var(--surface-2); }
-.quick-icon { width: 38px; height: 38px; flex: 0 0 38px; border-radius: 50%; display: grid; place-items: center; background: var(--primary-weak); color: var(--primary); }
+.quick-item:hover { transform: translateY(-2px); box-shadow: var(--shadow-2); border-color: var(--primary-weak); }
+.quick-icon { width: 58px; height: 58px; flex: 0 0 58px; border-radius: 50%; display: grid; place-items: center; background: var(--primary-weak); color: var(--primary); }
 .quick-copy { flex: 1; min-width: 0; }
-.quick-copy b { display: block; font-size: 14px; color: var(--text-1); font-weight: 600; }
-.quick-copy small { display: block; margin-top: 2px; color: var(--text-3); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.quick-copy b { display: block; font-size: 17px; color: var(--text-1); font-weight: 600; }
+.quick-copy small { display: block; margin-top: 4px; color: var(--text-3); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.quick-arrow { color: var(--text-3); flex: 0 0 auto; }
+
+/* 我的学习安排：四行竖排，条目填满卡片 */
+.schedule-card { display: flex; flex-direction: column; }
+.schedule-list { flex: 1; display: flex; flex-direction: column; gap: 14px; }
+.schedule-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  text-align: center;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-xl);
+  background: var(--surface-2);
+}
+.schedule-head { display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap; }
+.schedule-head h4 { margin: 0; font-family: var(--font-display); font-size: 18px; color: var(--text-1); }
+.schedule-time { margin: 10px 0 0; color: var(--text-2); font-size: var(--fs-body-sm); font-variant-numeric: tabular-nums; }
+.schedule-deadline { margin: 8px 0 0; color: var(--text-3); font-size: var(--fs-body-sm); }
+.schedule-deadline b { color: var(--amber-strong); font-variant-numeric: tabular-nums; }
+.schedule-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; justify-content: center; }
+.empty-schedule { display: grid; gap: 14px; justify-items: center; text-align: center; padding: 18px 0 6px; color: var(--text-3); }
+.empty-icon { color: var(--primary-weak); }
+.empty-schedule p { margin: 0; }
+
+/* 概览 KPI */
+.mini-kpis { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin: 14px 0 6px; }
+.mini-kpis > div { background: var(--surface-2); border-radius: var(--r-md); padding: 14px 12px; text-align: center; }
+.mini-kpis span { display: block; font-family: var(--font-display); font-size: 26px; color: var(--text-1); }
+.mini-kpis small { display: block; margin-top: 4px; color: var(--text-3); font-size: 12px; }
+.snapshot { color: var(--text-4); font-size: 11px; margin-top: 6px; }
+.text-link { color: var(--primary); font-size: var(--fs-caption); text-decoration: none; }
+.text-link:hover { text-decoration: underline; }
 
 @media (max-width: 1200px) {
   .home-layout { grid-template-columns: minmax(0, 1fr); }
   .home-side { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+  .tips-anchor { margin-top: 0; }
 }
 @media (max-width: 760px) {
   .hero { grid-template-columns: 1fr; padding: 26px 22px; }
   .hero-art { display: none; }
   .home-hello h1 { font-size: 28px; }
-  .room-cards { grid-template-columns: 1fr; }
+  .quick-grid { grid-template-columns: 1fr; }
 }
 </style>
