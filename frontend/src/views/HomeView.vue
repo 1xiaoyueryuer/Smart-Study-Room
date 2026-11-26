@@ -134,6 +134,14 @@ const shortcuts = computed(() => auth.isAdmin
       { title: '消息中心', desc: unread.value > 0 ? `${unread.value} 条未读` : '预约与反馈通知', icon: 'notification', to: '/notifications' }
     ])
 
+// 自习室种类卡片：四个分区（与设计稿一致），入口统一去预约页。
+const zones = [
+  { key: 'A', name: '1F-A 区', location: '示例图书馆 · 1层', hours: '08:00—22:00', img: '/images/zone-a.jpg' },
+  { key: 'B', name: '1F-B 区', location: '示例图书馆 · 1层', hours: '08:00—22:00', img: '/images/zone-b.jpg' },
+  { key: 'C', name: '1F-C 区', location: '示例图书馆 · 1层', hours: '08:00—22:00', img: '/images/zone-c.jpg' },
+  { key: 'D', name: '1F-D 区', location: '示例图书馆 · 1层', hours: '08:00—22:00', img: '/images/zone-d.jpg' }
+]
+
 function statusText(row) {
   return ({ pending: '待签到', checked_in: '使用中', completed: '已结束' })[row.status] || row.status
 }
@@ -148,123 +156,193 @@ function timeText(row) {
 </script>
 
 <template>
-  <div v-reveal class="page-view home-page">
-    <header class="home-hello" data-page-title>
-      <p class="hello-date">{{ todayText }}</p>
-      <h1>{{ greeting }}，{{ who }}</h1>
-    </header>
+  <div v-reveal class="page-view home-page" :class="{ 'home-page--user': auth.isOrdinary }">
+    <!-- ===== 管理员端：维持原布局不变 ===== -->
+    <template v-if="auth.isAdmin">
+      <header class="home-hello" data-page-title>
+        <p class="hello-date">{{ todayText }}</p>
+        <h1>{{ greeting }}，{{ who }}</h1>
+      </header>
 
-    <section v-if="cancellations.length" class="cancel-notice">
-      <div class="cancel-copy">
-        <span class="pill pill-warning">资源管理取消</span>
-        <h3>{{ cancellations[0].title }}</h3>
-        <p>{{ cancellations[0].content }}</p>
-        <p class="cancel-meta">本次管理取消不记本人违规；预计恢复时间以系统可预约状态为准。无需专程到场确认，已到场或需要帮助可点“需要协助”。</p>
-      </div>
-      <div class="cancel-actions">
-        <SButton variant="primary" @click="router.push('/notifications')">查看通知</SButton>
-        <SButton variant="soft" @click="router.push('/booking')">重新选座</SButton>
-        <SButton variant="soft" @click="router.push({name:'complaints',query:{type:'service'}})">需要协助</SButton>
-      </div>
-    </section>
+      <div class="home-layout">
+        <div class="home-main">
+          <section class="hero">
+            <div class="hero-copy">
+              <p class="hero-eyebrow">静阅 · 专注空间</p>
+              <h2 class="hero-title-admin">今日运营，一目了然</h2>
+              <p class="hero-sub">查看真实使用统计与待办，安排今天的开放资源</p>
+              <SButton variant="primary" size="lg" class="hero-cta" @click="router.push('/analytics')">查看统计</SButton>
+            </div>
+            <img class="hero-photo" src="/images/home-hero.jpg" alt="" aria-hidden="true" />
+          </section>
 
-    <div class="home-layout">
-      <div class="home-main">
-        <section class="hero">
-          <div class="hero-copy">
-            <p class="hero-eyebrow">静阅 · 专注空间</p>
-            <h2 :class="{ 'hero-title-admin': auth.isAdmin }">{{ auth.isAdmin ? '今日运营，一目了然' : '今日宜专注' }}</h2>
-            <p class="hero-sub">{{ auth.isAdmin ? '查看真实使用统计与待办，安排今天的开放资源' : '预约你的专属座位，让每一次坐下都算数' }}</p>
-            <SButton variant="primary" size="lg" class="hero-cta" @click="router.push(auth.isAdmin ? '/analytics' : '/booking')">
-              {{ auth.isAdmin ? '查看统计' : '立即预约' }}
-            </SButton>
+          <section class="card quick-card">
+            <div class="card-title-row"><h3>常用功能</h3><span class="muted">快速进入对应业务</span></div>
+            <div class="quick-grid">
+              <button v-for="s in shortcuts" :key="s.to" type="button" class="quick-item" @click="router.push(s.to)">
+                <span class="quick-icon"><AppIcon :name="s.icon" :size="22" /></span>
+                <span class="quick-copy"><b>{{ s.title }}</b><small>{{ s.desc }}</small></span>
+                <AppIcon class="quick-arrow" name="chevron-right" :size="16" />
+              </button>
+            </div>
+          </section>
+
+          <div class="tips-anchor">
+            <StudyTips title="管理提示">
+              <ul class="tips tips-list">
+                <li>资源变更先预览影响清单，确认后管理取消受影响预约，不记用户违约。</li>
+                <li>投诉先受理再核实，未知身份不归责；设施报修由系统按影响范围和安全风险自动分级，存在安全风险固定5级。</li>
+                <li>统计快照每 10 秒刷新，失败保留上次成功值与时间。</li>
+                <li>评价隐藏后本人修改不自动恢复公开，需管理员复核。</li>
+              </ul>
+            </StudyTips>
           </div>
-          <img class="hero-photo" src="/images/home-hero.jpg" alt="" aria-hidden="true" />
-        </section>
-
-        <section class="card quick-card">
-          <div class="card-title-row"><h3>常用功能</h3><span class="muted">快速进入对应业务</span></div>
-          <div class="quick-grid">
-            <button v-for="s in shortcuts" :key="s.to" type="button" class="quick-item" @click="router.push(s.to)">
-              <span class="quick-icon"><AppIcon :name="s.icon" :size="22" /></span>
-              <span class="quick-copy"><b>{{ s.title }}</b><small>{{ s.desc }}</small></span>
-              <AppIcon class="quick-arrow" name="chevron-right" :size="16" />
-            </button>
-          </div>
-        </section>
-
-        <div class="tips-anchor">
-          <StudyTips :title="auth.isOrdinary ? '使用须知' : '管理提示'">
-            <ul v-if="auth.isOrdinary" class="tips tips-list">
-              <li>可预约当天至后天，单次至少 30 分钟，起止在开放空档内自选。</li>
-              <li>开始前取消不记违规；开始后未签到放弃记一次违约。</li>
-              <li>签到窗口为开始时刻起至开始后 15 分钟；本系统当前不提供签到延期。</li>
-              <li>短暂离开不延长原结束时间；提前签退释放剩余时段。</li>
-            </ul>
-            <ul v-else class="tips tips-list">
-              <li>资源变更先预览影响清单，确认后管理取消受影响预约，不记用户违约。</li>
-              <li>投诉先受理再核实，未知身份不归责；设施报修由系统按影响范围和安全风险自动分级，存在安全风险固定5级。</li>
-              <li>统计快照每 10 秒刷新，失败保留上次成功值与时间。</li>
-              <li>评价隐藏后本人修改不自动恢复公开，需管理员复核。</li>
-            </ul>
-          </StudyTips>
         </div>
+
+        <aside class="home-side">
+          <section class="card overview-card">
+            <div class="card-title-row">
+              <h3>今日概览</h3>
+              <RouterLink to="/analytics" class="text-link">详细统计</RouterLink>
+            </div>
+            <p v-if="statsLoading" class="muted">正在加载统计…</p>
+            <p class="muted" role="status">{{ statsVisible ? '页面可见时每 10 秒刷新。' : '页面已隐藏，刷新暂停。' }}</p>
+            <SBanner v-if="statsError" type="error" :title="statsError"><SButton size="sm" @click="loadStats">重试统计</SButton></SBanner>
+
+            <div class="mini-kpis">
+              <div><SAnimatedNumber v-if="inUseNow !== null" :value="inUseNow" /><span v-else>—</span><small>使用中</small></div>
+              <div><SAnimatedNumber v-if="openAvailableSeats !== null" :value="openAvailableSeats" /><span v-else>—</span><small>开放可用</small></div>
+              <div><span>{{ currentUsageText }}</span><small>使用比例</small></div>
+              <div><SAnimatedNumber v-if="complaintTodoCount !== null" :value="complaintTodoCount" /><span v-else>—</span><small>投诉待办</small></div>
+            </div>
+            <p v-if="statsOverview" class="snapshot">快照 {{ statsSnapshotText }}</p>
+          </section>
+
+          <section class="card schedule-card">
+            <div class="card-title-row">
+              <h3>我的学习安排</h3>
+              <RouterLink to="/mine" class="text-link">全部记录</RouterLink>
+            </div>
+            <p v-if="reservationsLoading" class="muted">正在读取本人预约…</p>
+            <SBanner v-else-if="reservationsError" type="error" :title="reservationsError"><SButton size="sm" @click="loadReservations">重试</SButton></SBanner>
+            <div v-else-if="activeReservations.length" class="schedule-list">
+              <article v-for="row in activeReservations" :key="row.id" class="schedule-item">
+                <div class="schedule-head">
+                  <h4>{{ row.room_name }} · {{ row.seat_no }}</h4>
+                  <span class="pill" :class="statusPillClass(row)">{{ statusText(row) }}</span>
+                </div>
+                <p class="schedule-time">{{ timeText(row) }}</p>
+                <p v-if="checkinDeadlineOf(row)" class="schedule-deadline">签到截止 <b>{{ deadlineLabel(checkinDeadlineOf(row)) }}</b></p>
+                <div class="schedule-actions">
+                  <SButton v-if="row.status === 'pending'" variant="primary" size="sm" @click="router.push(`/mine/${row.id}/checkin`)">去签到</SButton>
+                  <SButton variant="soft" size="sm" @click="router.push('/mine')">查看详情</SButton>
+                </div>
+              </article>
+            </div>
+            <div v-else class="empty-schedule">
+              <AppIcon name="desk-book" :size="30" class="empty-icon" />
+              <p>今天还没有安排学习，挑一个合适的座位开始吧。</p>
+              <SButton variant="primary" block @click="router.push('/booking')">去选座</SButton>
+            </div>
+          </section>
+        </aside>
       </div>
+    </template>
 
-      <aside class="home-side">
-        <section class="card overview-card">
-          <div class="card-title-row">
-            <h3>{{ auth.isAdmin ? '今日概览' : '我的概览' }}</h3>
-            <RouterLink v-if="auth.isAdmin" to="/analytics" class="text-link">详细统计</RouterLink>
-          </div>
-          <p v-if="auth.isAdmin && statsLoading" class="muted">正在加载统计…</p>
-          <p v-if="auth.isAdmin" class="muted" role="status">{{ statsVisible ? '页面可见时每 10 秒刷新。' : '页面已隐藏，刷新暂停。' }}</p>
-          <SBanner v-if="auth.isAdmin && statsError" type="error" :title="statsError"><SButton size="sm" @click="loadStats">重试统计</SButton></SBanner>
+    <!-- ===== 用户端：新版首页（设计稿） ===== -->
+    <template v-else>
+      <section v-if="cancellations.length" class="cancel-notice">
+        <div class="cancel-copy">
+          <span class="pill pill-warning">资源管理取消</span>
+          <h3>{{ cancellations[0].title }}</h3>
+          <p>{{ cancellations[0].content }}</p>
+          <p class="cancel-meta">本次管理取消不记本人违规；预计恢复时间以系统可预约状态为准。无需专程到场确认，已到场或需要帮助可点“需要协助”。</p>
+        </div>
+        <div class="cancel-actions">
+          <SButton variant="primary" @click="router.push('/notifications')">查看通知</SButton>
+          <SButton variant="soft" @click="router.push('/booking')">重新选座</SButton>
+          <SButton variant="soft" @click="router.push({name:'complaints',query:{type:'service'}})">需要协助</SButton>
+        </div>
+      </section>
 
-          <div v-if="auth.isAdmin" class="mini-kpis">
-            <div><SAnimatedNumber v-if="inUseNow !== null" :value="inUseNow" /><span v-else>—</span><small>使用中</small></div>
-            <div><SAnimatedNumber v-if="openAvailableSeats !== null" :value="openAvailableSeats" /><span v-else>—</span><small>开放可用</small></div>
-            <div><span>{{ currentUsageText }}</span><small>使用比例</small></div>
-            <div><SAnimatedNumber v-if="complaintTodoCount !== null" :value="complaintTodoCount" /><span v-else>—</span><small>投诉待办</small></div>
+      <section class="home-top">
+        <img class="home-top-img" src="/images/home-top.jpg" alt="静阅自习室 · 今日宜专注" />
+        <div class="home-stats">
+          <div class="home-stats-head">
+            <h3>我的预约</h3>
+            <div class="home-stats-kpis">
+              <div><span>{{ pendingCount }}</span><small>待签到</small></div>
+              <div><span>{{ checkedInCount }}</span><small>使用中</small></div>
+              <div><span>{{ completedCount }}</span><small>已结束</small></div>
+              <div><span>{{ totalCount }}</span><small>累计预约</small></div>
+            </div>
           </div>
-          <div v-else class="mini-kpis">
-            <div><span>{{ pendingCount }}</span><small>待签到</small></div>
-            <div><span>{{ checkedInCount }}</span><small>使用中</small></div>
-            <div><span>{{ completedCount }}</span><small>已结束</small></div>
-            <div><span>{{ totalCount }}</span><small>累计预约</small></div>
-          </div>
-          <p v-if="auth.isAdmin && statsOverview" class="snapshot">快照 {{ statsSnapshotText }}</p>
-        </section>
+          <p class="home-stats-info">开放时间 08:00—22:00 · 全场静音 · 独立台灯与插座</p>
+        </div>
+      </section>
 
-        <section class="card schedule-card">
-          <div class="card-title-row">
-            <h3>我的学习安排</h3>
-            <RouterLink to="/mine" class="text-link">全部记录</RouterLink>
+      <section class="zone-section">
+        <div class="zone-head">
+          <h3>自习室列表</h3>
+          <span class="muted">按开放时间选择你的学习空间</span>
+        </div>
+        <div class="zone-grid">
+          <article v-for="z in zones" :key="z.key" class="zone-card">
+            <img class="zone-photo" :src="z.img" alt="" aria-hidden="true" />
+            <div class="zone-body">
+              <h4>{{ z.name }}</h4>
+              <p>{{ z.location }}</p>
+              <p>{{ z.hours }}</p>
+              <SButton variant="primary" size="sm" @click="router.push('/booking')">去预约</SButton>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <div class="home-layout">
+        <div class="home-main">
+          <div class="tips-anchor">
+            <StudyTips title="使用须知">
+              <ul class="tips tips-list">
+                <li>可预约当天至后天，单次至少 30 分钟，起止在开放空档内自选。</li>
+                <li>开始前取消不记违规；开始后未签到放弃记一次违约。</li>
+                <li>签到窗口为开始时刻起至开始后 15 分钟；本系统当前不提供签到延期。</li>
+                <li>短暂离开不延长原结束时间；提前签退释放剩余时段。</li>
+              </ul>
+            </StudyTips>
           </div>
-          <p v-if="reservationsLoading" class="muted">正在读取本人预约…</p>
-          <SBanner v-else-if="reservationsError" type="error" :title="reservationsError"><SButton size="sm" @click="loadReservations">重试</SButton></SBanner>
-          <div v-else-if="activeReservations.length" class="schedule-list">
-            <article v-for="row in activeReservations" :key="row.id" class="schedule-item">
-              <div class="schedule-head">
-                <h4>{{ row.room_name }} · {{ row.seat_no }}</h4>
-                <span class="pill" :class="statusPillClass(row)">{{ statusText(row) }}</span>
-              </div>
-              <p class="schedule-time">{{ timeText(row) }}</p>
-              <p v-if="checkinDeadlineOf(row)" class="schedule-deadline">签到截止 <b>{{ deadlineLabel(checkinDeadlineOf(row)) }}</b></p>
-              <div class="schedule-actions">
-                <SButton v-if="row.status === 'pending'" variant="primary" size="sm" @click="router.push(`/mine/${row.id}/checkin`)">去签到</SButton>
-                <SButton variant="soft" size="sm" @click="router.push('/mine')">查看详情</SButton>
-              </div>
-            </article>
-          </div>
-          <div v-else class="empty-schedule">
-            <AppIcon name="desk-book" :size="30" class="empty-icon" />
-            <p>今天还没有安排学习，挑一个合适的座位开始吧。</p>
-            <SButton variant="primary" block @click="router.push('/booking')">去选座</SButton>
-          </div>
-        </section>
-      </aside>
-    </div>
+        </div>
+        <aside class="home-side">
+          <section class="card schedule-card">
+            <div class="card-title-row">
+              <h3>我的学习安排</h3>
+              <RouterLink to="/mine" class="text-link">全部记录</RouterLink>
+            </div>
+            <p v-if="reservationsLoading" class="muted">正在读取本人预约…</p>
+            <SBanner v-else-if="reservationsError" type="error" :title="reservationsError"><SButton size="sm" @click="loadReservations">重试</SButton></SBanner>
+            <div v-else-if="activeReservations.length" class="schedule-list">
+              <article v-for="row in activeReservations" :key="row.id" class="schedule-item">
+                <div class="schedule-head">
+                  <h4>{{ row.room_name }} · {{ row.seat_no }}</h4>
+                  <span class="pill" :class="statusPillClass(row)">{{ statusText(row) }}</span>
+                </div>
+                <p class="schedule-time">{{ timeText(row) }}</p>
+                <p v-if="checkinDeadlineOf(row)" class="schedule-deadline">签到截止 <b>{{ deadlineLabel(checkinDeadlineOf(row)) }}</b></p>
+                <div class="schedule-actions">
+                  <SButton v-if="row.status === 'pending'" variant="primary" size="sm" @click="router.push(`/mine/${row.id}/checkin`)">去签到</SButton>
+                  <SButton variant="soft" size="sm" @click="router.push('/mine')">查看详情</SButton>
+                </div>
+              </article>
+            </div>
+            <div v-else class="empty-schedule">
+              <AppIcon name="desk-book" :size="30" class="empty-icon" />
+              <p>今天还没有安排学习，挑一个合适的座位开始吧。</p>
+              <SButton variant="primary" block @click="router.push('/booking')">去选座</SButton>
+            </div>
+          </section>
+        </aside>
+      </div>
+    </template>
   </div>
 </template>
 
@@ -295,6 +373,52 @@ function timeText(row) {
 .home-side { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
 .tips-anchor { margin-top: auto; min-width: 0; }
 .home-side .schedule-card { flex: 1 1 auto; }
+
+/* ============ 用户端新版首页 ============ */
+/* 整页底色：取自设计稿第三张图（冰蓝），仅用户端首页 */
+.home-page--user { background: #e0f0f0; box-shadow: 0 0 0 100vmax #e0f0f0; padding-top: 28px; }
+
+/* 顶部区：设计稿第一张图的上半部（不含烘焙统计区）+ 真实统计条 */
+.home-top { margin-bottom: 22px; border-radius: var(--r-2xl); overflow: hidden; background: #476467; box-shadow: var(--shadow-2); }
+.home-top-img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1636 / 720;
+  object-fit: cover;
+  /* 底部淡出与统计条底色衔接 */
+  -webkit-mask-image: linear-gradient(to bottom, #000 93%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 93%, transparent 100%);
+}
+.home-stats { padding: 18px 26px 20px; }
+.home-stats-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
+.home-stats-head h3 { margin: 0; font-size: 19px; color: #f4f1ea; font-family: var(--font-display); }
+.home-stats-kpis { display: flex; gap: 36px; flex-wrap: wrap; }
+.home-stats-kpis > div { text-align: center; min-width: 56px; }
+.home-stats-kpis span { display: block; font-family: var(--font-display); font-size: 28px; line-height: 1.1; color: #ffffff; font-variant-numeric: tabular-nums; }
+.home-stats-kpis small { color: #cfd9d4; font-size: 12px; }
+.home-stats-info { margin: 10px 0 0; color: #cfd9d4; font-size: 12.5px; }
+
+/* 自习室种类卡片 */
+.zone-section { margin-bottom: 22px; }
+.zone-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 0 2px 16px; }
+.zone-head h3 { margin: 0; font-size: 22px; color: var(--text-1); font-family: var(--font-display); }
+.zone-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+.zone-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-xl); overflow: hidden; box-shadow: var(--shadow-1); transition: transform var(--dur-2) var(--ease), box-shadow var(--dur-2) var(--ease); }
+.zone-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-2); }
+.zone-photo { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; }
+.zone-body { padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 4px; }
+.zone-body h4 { margin: 0; font-size: 19px; color: var(--text-1); font-family: var(--font-display); }
+.zone-body p { margin: 0; color: var(--text-3); font-size: 12.5px; }
+.zone-body .s-btn { margin-top: 8px; align-self: flex-start; }
+
+@media (max-width: 1200px) {
+  .zone-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 760px) {
+  .zone-grid { grid-template-columns: 1fr; }
+  .home-stats-head { flex-direction: column; align-items: flex-start; }
+  .home-stats-kpis { width: 100%; justify-content: space-between; gap: 8px; }
+}
 
 .hero {
   position: relative;
