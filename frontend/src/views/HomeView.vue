@@ -175,27 +175,11 @@ function timeText(row) {
             <p class="hero-eyebrow">静阅 · 专注空间</p>
             <h2 :class="{ 'hero-title-admin': auth.isAdmin }">{{ auth.isAdmin ? '今日运营，一目了然' : '今日宜专注' }}</h2>
             <p class="hero-sub">{{ auth.isAdmin ? '查看真实使用统计与待办，安排今天的开放资源' : '预约你的专属座位，让每一次坐下都算数' }}</p>
-            <SButton variant="primary" size="lg" @click="router.push(auth.isAdmin ? '/analytics' : '/booking')">
+            <SButton variant="primary" size="lg" class="hero-cta" @click="router.push(auth.isAdmin ? '/analytics' : '/booking')">
               {{ auth.isAdmin ? '查看统计' : '立即预约' }}
             </SButton>
           </div>
-          <div class="hero-art" aria-hidden="true">
-            <svg viewBox="0 0 520 300" fill="none">
-              <rect x="24" y="52" width="472" height="210" rx="18" fill="var(--primary-weak)" opacity=".45" />
-              <path d="M60 210h400v18H60z" fill="#b98d5f" opacity=".55" />
-              <path d="M60 228h400v10H60z" fill="#a97c4e" opacity=".35" />
-              <path d="M120 88h120v104H120z" fill="#fffdf8" stroke="#cfc2a9" stroke-width="3" />
-              <path d="M120 120h120M120 152h120" stroke="#e0d6c2" stroke-width="2" />
-              <path d="M132 100h44M132 112h66M132 132h58M132 144h40M132 164h64M132 176h48" stroke="#c9bda6" stroke-width="5" stroke-linecap="round" />
-              <path d="M300 92c0-16 12-28 28-28h4v122h-32z" fill="#e3d6bd" />
-              <path d="M345 136c0-10 8-18 18-18s18 8 18 18" stroke="#8a6a44" stroke-width="5" stroke-linecap="round" />
-              <path d="M363 136v46" stroke="#8a6a44" stroke-width="5" stroke-linecap="round" />
-              <path d="M336 182h56" stroke="#8a6a44" stroke-width="5" stroke-linecap="round" />
-              <path d="M392 172c10-22 28-34 52-34" stroke="#4c7a5c" stroke-width="4" stroke-linecap="round" />
-              <path d="M404 158c-2-14 4-26 16-32M414 148c10 0 18 6 22 16" stroke="#4c7a5c" stroke-width="4" stroke-linecap="round" />
-              <circle cx="452" cy="92" r="22" fill="#f2d8a8" opacity=".7" />
-            </svg>
-          </div>
+          <img class="hero-photo" src="/images/home-hero.jpg" alt="" aria-hidden="true" />
         </section>
 
         <section class="card quick-card">
@@ -315,31 +299,54 @@ function timeText(row) {
 .hero {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 38%;
+  grid-template-columns: minmax(0, 1fr) 42%;
   gap: 12px;
-  min-height: 280px;
-  padding: 34px 36px;
+  min-height: 320px;
+  padding: 40px 36px;
   border: 1px solid var(--border);
   border-radius: var(--r-2xl);
   background:
-    radial-gradient(120% 130% at 92% 12%, rgba(47, 93, 70, .10), transparent 55%),
-    linear-gradient(135deg, #fbf7ec 0%, #f3ecdc 100%);
+    radial-gradient(120% 130% at 10% 0%, rgba(251, 245, 229, .95), transparent 58%),
+    linear-gradient(100deg, #fbf5e5 0%, #f7f0de 52%, #efe7d4 100%);
   overflow: hidden;
 }
-.hero-copy { display: flex; flex-direction: column; justify-content: center; align-items: flex-start; min-width: 0; }
-.hero-eyebrow { color: var(--primary); font-size: 12px; letter-spacing: .22em; }
+.hero-copy { position: relative; z-index: 1; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; min-width: 0; }
+.hero-eyebrow { color: #d9cba4; font-size: 12px; letter-spacing: .22em; }
 .hero h2 {
   margin: 10px 0 8px;
   font-size: clamp(38px, 4.2vw, 60px);
   line-height: 1.1;
-  color: #2a3f33;
+  color: #14291f;
   letter-spacing: .04em;
   white-space: nowrap;
 }
 .hero h2.hero-title-admin { font-size: clamp(30px, 3.2vw, 46px); }
-.hero-sub { color: var(--text-2); font-size: 16px; margin-bottom: 24px; }
-.hero-art { display: flex; align-items: center; justify-content: center; min-width: 0; }
-.hero-art svg { width: 100%; max-width: 520px; height: auto; }
+.hero-sub { color: #1f3a2b; font-size: 16px; margin-bottom: 24px; }
+.hero-photo {
+  position: absolute;
+  top: 0;
+  right: 0;
+  height: 100%;
+  width: 58%;
+  object-fit: cover;
+  object-position: right center;
+  pointer-events: none;
+  /* 左缘渐变蒙版：照片向奶油背景淡出，避免裁图阴影带形成硬分界 */
+  -webkit-mask-image: linear-gradient(to right, transparent 0%, rgba(0, 0, 0, .45) 12%, #000 26%);
+  mask-image: linear-gradient(to right, transparent 0%, rgba(0, 0, 0, .45) 12%, #000 26%);
+}
+
+/* 设计稿同款深绿胶囊主按钮 */
+.hero .hero-cta {
+  --btn-height: 52px;
+  --btn-padding: 30px;
+  --btn-font: 15.5px;
+  margin-top: 4px;
+  background: #204637;
+  border-radius: 999px;
+  box-shadow: 0 12px 26px rgba(32, 70, 55, .28);
+}
+.hero .hero-cta:hover { background: #2a5746; }
 
 /* 常用功能网格：放大入口，两两一行 */
 .quick-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
@@ -401,8 +408,8 @@ function timeText(row) {
   .tips-anchor { margin-top: 0; }
 }
 @media (max-width: 760px) {
-  .hero { grid-template-columns: 1fr; padding: 26px 22px; }
-  .hero-art { display: none; }
+  .hero { grid-template-columns: 1fr; padding: 26px 22px; min-height: 300px; }
+  .hero-photo { display: none; }
   .home-hello h1 { font-size: 28px; }
   .quick-grid { grid-template-columns: 1fr; }
 }
