@@ -322,6 +322,8 @@ function timeText(row) {
 
 /* 管理员端：与用户端同款底色与信息层级（无我的学习安排） */
 .home-page--admin { background: #eef5f4; box-shadow: 0 0 0 100vmax #eef5f4; padding-top: 28px; }
+/* 管理员 hero：文字块整体上移、按钮与统计下移（居中布局下用间距拉开两组） */
+.home-page--admin .hero-full { gap: clamp(28px, 5vh, 56px); }
 
 .cancel-notice {
   display: flex;
