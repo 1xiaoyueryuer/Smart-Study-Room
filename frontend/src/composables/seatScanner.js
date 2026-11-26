@@ -61,6 +61,29 @@ export function createSeatScanner({ onCode, onError, onCamera = () => {}, reader
     } catch (error) { if (ticket === generation) onError('图片中未能识别有效二维码：' + scanFailure(error)) }
     finally { if (imageUrl === url) releaseImage() }
   }
+  async function waitForVideoFrame(video) {
+    if (!video || typeof video.videoWidth !== 'number') return
+    if (video.videoWidth > 0 && video.videoHeight > 0) return
+    await new Promise((resolve, reject) => {
+      let timer
+      const cleanup = () => {
+        clearTimeout(timer)
+        video.removeEventListener('loadedmetadata', check)
+        video.removeEventListener('canplay', check)
+        video.removeEventListener('resize', check)
+      }
+      const check = () => {
+        if (video.videoWidth > 0 && video.videoHeight > 0) { cleanup(); resolve() }
+      }
+      timer = setTimeout(() => {
+        cleanup()
+        reject(new Error('摄像头画面未就绪，请确认浏览器支持视频预览，或改用上传座位码图片。'))
+      }, 5000)
+      video.addEventListener('loadedmetadata', check)
+      video.addEventListener('canplay', check)
+      video.addEventListener('resize', check)
+    })
+  }
   async function camera(element) {
     if (locked) return
     stop(); const ticket = generation
@@ -70,6 +93,14 @@ export function createSeatScanner({ onCode, onError, onCamera = () => {}, reader
       const acquired = await mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false })
       if (ticket !== generation) { acquired.getTracks().forEach(track => track.stop()); return }
       stream = acquired; video = element
+      // Some mobile browsers resolve getUserMedia before the preview has metadata;
+      // starting ZXing immediately can capture a 0x0 frame and stop with an error.
+      if (element) {
+        try { element.srcObject = acquired } catch { /* ZXing will try again */ }
+        try { element.muted = true; element.playsInline = true; element.setAttribute?.('playsinline', '') } catch { /* older browser */ }
+        if (typeof element.play === 'function') { try { await element.play() } catch { /* waitForVideoFrame gives the explicit error */ } }
+        await waitForVideoFrame(element)
+      }
       const active = await reader.decodeFromStream(acquired, element, (result, error) => {
         if (result) void deliver(result.getText(), ticket)
         else if (error && !['NotFoundException','ChecksumException','FormatException'].includes(error.name) && ticket === generation) { stopCamera(); onError(scanFailure(error)) }

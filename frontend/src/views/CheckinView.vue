@@ -114,7 +114,7 @@ onBeforeUnmount(() => { disposed = true; loadSequence++; scanner.stop() })
         <p v-if="decoding || submitting" role="status">{{ submitting ? '正在提交签到，请勿重复操作…' : '正在识别图片…' }}</p>
         <div class="row-actions"><SButton variant="primary" :disabled="!canCheckin || submitting || decoding || cameraActive" @click="startCamera">开启摄像头扫码</SButton><SButton v-if="cameraActive" :disabled="submitting" @click="scanner.stop">停止摄像头</SButton><RouterLink to="/mine">返回我的预约</RouterLink></div>
         <p v-if="cameraActive" role="status">请将完整座位二维码对准镜头；识别后将提交签到。</p>
-        <video v-show="cameraActive" ref="video" class="scan-video" muted playsinline aria-label="座位码摄像头预览" />
+        <video v-show="cameraActive" ref="video" class="scan-video" muted playsinline autoplay aria-label="座位码摄像头预览" />
       </div>
     </section>
   </div>
