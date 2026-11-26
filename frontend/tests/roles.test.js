@@ -53,6 +53,7 @@ for (const role of ['student', 'staff']) {
     }
     assert.equal(navigation.guard(navigation.route('admin')), '/')
     assert.equal(navigation.guard(navigation.route('analytics')), '/')
+    assert.equal(navigation.guard(navigation.route('lan')), '/')
     assert.equal(store.isLoggedIn, true)
   })
 }
@@ -63,6 +64,7 @@ test('administrator has management routes and cannot enter ordinary booking rout
   assert.equal(store.roleLabel, '管理员')
   assert.equal(navigation.guard(navigation.route('admin')), undefined)
   assert.equal(navigation.guard(navigation.route('analytics')), undefined)
+  assert.equal(navigation.guard(navigation.route('lan')), undefined)
   assert.equal(navigation.guard(navigation.route('booking')), '/admin')
   assert.equal(navigation.guard(navigation.route('complaints')), '/admin')
   assert.equal(navigation.guard(navigation.route('complaint-detail')), '/admin')

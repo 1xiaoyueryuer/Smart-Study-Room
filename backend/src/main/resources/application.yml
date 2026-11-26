@@ -1,5 +1,6 @@
 server:
-  address: 127.0.0.1
+  # 默认仅监听本机回环；局域网多设备访问时设置 STUDYROOM_SERVER_ADDRESS=0.0.0.0 或在本地配置写 server.address=0.0.0.0
+  address: ${STUDYROOM_SERVER_ADDRESS:127.0.0.1}
   port: ${STUDYROOM_HOST_PORT:8080}
 spring:
   config:

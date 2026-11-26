@@ -9,7 +9,7 @@ public class SpaController {
     @GetMapping({
         "/", "/login", "/room-reviews", "/booking", "/mine", "/mine/{id}/checkin",
         "/complaints", "/complaints/{id}", "/appeals/new", "/appeals/{id}",
-        "/waitlist", "/analytics", "/notifications", "/profile", "/admin"
+        "/waitlist", "/lan", "/analytics", "/notifications", "/profile", "/admin"
     })
     String page() { return "forward:/index.html"; }
 }
