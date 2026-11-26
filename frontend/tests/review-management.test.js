@@ -23,23 +23,27 @@ test('public failed refresh retains last successful page and late room response 
  const safe=id=>({id,rating:4,content:'匿名文字'+id,updated_at:'2026-10-30T11:00+08:00',admin_reply:'回复',replied_at:'2026-10-30T11:00+08:00'})
  const mocks={
   '../api/room':{getRooms:async()=>({data:[{id:1,name:'A'},{id:2,name:'B'}]})},
-  '../api/review':{listRoomReviews:async id=>{
-   if(fail)throw new Error('503')
-   if(id===2)return new Promise(resolve=>{release=()=>resolve({data:list([safe(2)])})})
-   return {data:list([safe(id)])}
-  }}
+  '../api/review':{
+   listAllRoomReviews:async()=>{if(fail)throw new Error('503');return {data:list([safe(3)])}},
+   listRoomReviews:async id=>{
+    if(fail)throw new Error('503')
+    if(id===2)return new Promise(resolve=>{release=()=>resolve({data:list([safe(2)])})})
+    return {data:list([safe(id)])}
+   }
+  }
  }
- const p=await script('../src/views/RoomReviewsView.vue',mocks,'room,snapshot,snapshotRoom,loading,error,loadRooms,load')
- await p.loadRooms();const previous=p.snapshot.value;fail=true;await p.load(1);assert.equal(p.snapshot.value,previous);assert.equal(p.snapshotRoom.value.id,1);assert.match(p.error.value,/503/)
- fail=false;p.room.value=2;const old=p.load(1);p.room.value=1;await p.load(1);release();await old;assert.equal(p.snapshotRoom.value.id,1);assert.equal(p.snapshot.value.items[0].id,1)
+ const p=await script('../src/views/RoomReviewsView.vue',mocks,'room,snapshot,snapshotKey,loading,error,loadRooms,load')
+ await p.loadRooms();const previous=p.snapshot.value;assert.equal(p.snapshotKey.value,'all');assert.equal(p.room.value,null)
+ fail=true;await p.load(1);assert.equal(p.snapshot.value,previous);assert.equal(p.snapshotKey.value,'all');assert.match(p.error.value,/503/)
+ fail=false;p.room.value=2;const old=p.load(1);p.room.value=1;await p.load(1);release();await old;assert.equal(p.snapshotKey.value,1);assert.equal(p.snapshot.value.items[0].id,1)
 })
 test('actual owner template renders hidden reason/reply without offering restoration or management identity fields',async()=>{const source=await readFile(new URL('../src/components/ReviewEditor.vue',import.meta.url),'utf8');assert.match(source,/修改不会自动恢复公开/);assert.match(source,/detail.review.hidden_reason/);assert.match(source,/detail.review.admin_reply/);assert.doesNotMatch(source,/subject.username|campus_id|hidden=false|unhide/);const publicSource=await readFile(new URL('../src/views/RoomReviewsView.vue',import.meta.url),'utf8');assert.match(publicSource,/匿名评价/);assert.doesNotMatch(publicSource,/item.username|item.reservation_id|item.hidden_reason/);const notifications=await readFile(new URL('../src/views/NotificationsView.vue',import.meta.url),'utf8');assert.match(notifications,/review_replied/);assert.match(notifications,/review_hidden/);const mine=await readFile(new URL('../src/views/MyReservationsView.vue',import.meta.url),'utf8');assert.match(mine,/reviewReservationParam\(route.query.review_reservation_id\)/)})
 test('public SFC renders anonymous text and reply and never renders extra injected account or reservation fields',async()=>{
  const source=await readFile(new URL('../src/views/RoomReviewsView.vue',import.meta.url),'utf8'),{descriptor}=parse(source),compiled=compileTemplate({source:descriptor.template.content,filename:'RoomReviewsView.vue',id:'s25-public',ssr:true,ssrCssVars:[]});assert.equal(compiled.errors.length,0)
  const context=vm.createContext({}),module=new vm.SourceTextModule(compiled.code,{context});await module.link(specifier=>{const values=specifier==='vue'?vue:ssr;return new vm.SyntheticModule(Object.keys(values),function(){for(const[k,v]of Object.entries(values))this.setExport(k,v)},{context})});await module.evaluate()
  const snapshot=list([{id:8,rating:4,content:'公开评价原文',updated_at:'2026-10-30T11:00+08:00',admin_reply:'公开管理回复',replied_at:'2026-10-30T11:00+08:00',username:'PRIVATE_USERNAME',reservation_id:99999,hidden_reason:'PRIVATE_REASON'}])
- const app=vue.createSSRApp({setup:()=>({rooms:[{id:1,name:'A'}],room:1,snapshot,snapshotRoom:{id:1,name:'A'},loading:false,roomLoading:false,error:'',roomError:'',load(){},loadRooms(){},formatCampusDateTime}),ssrRender:module.namespace.ssrRender})
- for(const name of ['SButton','SSelect','SBanner'])app.component(name,{render(){return vue.h('div',this.$slots.default?.())}})
+ const app=vue.createSSRApp({setup:()=>({rooms:[{id:1,name:'A'}],room:1,snapshot,snapshotKey:1,loading:false,roomLoading:false,error:'',roomError:'',roomOptions:[{value:1,label:'A'}],currentKey:()=>1,refreshAll(){},load(){},loadRooms(){},formatCampusDateTime}),ssrRender:module.namespace.ssrRender})
+ for(const name of ['SButton','SSelect','SBanner','SEmpty'])app.component(name,{render(){return vue.h('div',this.$slots.default?.())}})
  const html=await ssr.renderToString(app);assert.match(html,/匿名评价 · 4星/);assert.match(html,/公开评价原文/);assert.match(html,/公开管理回复/);assert.doesNotMatch(html,/PRIVATE_USERNAME|PRIVATE_REASON|99999/)
 })
 test('successful moderation refreshes current list page after current detail, preserving selection and other drafts',async()=>{
