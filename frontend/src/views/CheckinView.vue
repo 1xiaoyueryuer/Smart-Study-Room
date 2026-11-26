@@ -8,6 +8,7 @@ import SBanner from '../components/ui/SBanner.vue'
 import UsageRecordSummary from '../components/UsageRecordSummary.vue'
 const props = defineProps({ id: { type: [String, Number], required: true } })
 const reservation = ref(null), loading = ref(false), detailError = ref(''), scanError = ref(''), scanNotice = ref(''), uncertainResult = ref(false), accepted = ref(false), success = ref(false), submitting = ref(false), decoding = ref(false), cameraActive = ref(false), video = ref(null)
+const insecureContext = globalThis.isSecureContext === false
 const canCheckin = computed(() => !loading.value && !detailError.value && reservation.value?.allowed_actions?.includes('checkin'))
 const deadline = computed(() => checkinDeadlineOf(reservation.value))
 let loadSequence = 0, reservationScope = 0, disposed = false
@@ -107,12 +108,13 @@ onBeforeUnmount(() => { disposed = true; loadSequence++; scanner.stop() })
       <SBanner v-if="scanNotice" type="info" :title="scanNotice" />
       <SBanner v-if="scanError" type="error" :title="scanError" />
       <div class="scan-controls">
+        <p v-if="insecureContext" class="rule-note warn">当前页面不是 HTTPS。手机浏览器会阻止摄像头；请改用管理员提供的 https:// 地址，或上传座位码图片。电脑本机 localhost 不受影响。</p>
         <label class="upload-label">上传座位码图片<input type="file" accept="image/png,image/jpeg,image/webp" :disabled="!canCheckin || submitting || decoding || cameraActive" @change="upload" /></label>
         <p class="muted">支持PNG、JPEG、WebP，最大5MiB、边长不超过4096像素。图片只在本机解码；请勿上传个人证件。</p>
         <p v-if="decoding || submitting" role="status">{{ submitting ? '正在提交签到，请勿重复操作…' : '正在识别图片…' }}</p>
         <div class="row-actions"><SButton variant="primary" :disabled="!canCheckin || submitting || decoding || cameraActive" @click="startCamera">开启摄像头扫码</SButton><SButton v-if="cameraActive" :disabled="submitting" @click="scanner.stop">停止摄像头</SButton><RouterLink to="/mine">返回我的预约</RouterLink></div>
         <p v-if="cameraActive" role="status">请将完整座位二维码对准镜头；识别后将提交签到。</p>
-        <video v-show="cameraActive" ref="video" class="scan-video" muted playsinline aria-label="座位码摄像头预览" />
+        <video v-show="cameraActive" ref="video" class="scan-video" muted playsinline autoplay aria-label="座位码摄像头预览" />
       </div>
     </section>
   </div>

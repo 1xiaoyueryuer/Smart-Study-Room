@@ -40,10 +40,12 @@ public class LanService {
     private final java.time.Clock clock;
     private final String bindAddress;
     private final int port;
+    private final boolean secure;
     private final ConcurrentHashMap<String,Presence> presences=new ConcurrentHashMap<>();
     public LanService(Store db,OpeningScheduleService opening,BookingPolicy policy,java.time.Clock clock,
-            @Value("${server.address:}") String bindAddress,@Value("${server.port:8080}") int port) {
-        this.db=db;this.opening=opening;this.policy=policy;this.clock=clock;this.bindAddress=bindAddress;this.port=port;
+            @Value("${server.address:}") String bindAddress,@Value("${server.port:8080}") int port,
+            @Value("${server.ssl.enabled:false}") boolean sslEnabled) {
+        this.db=db;this.opening=opening;this.policy=policy;this.clock=clock;this.bindAddress=bindAddress;this.port=port;this.secure=sslEnabled;
     }
     /** 已认证请求刷新在线设备；令牌只以摘要形式留在内存，最长保留90秒。 */
     public void touch(String token,String remoteAddress,String userAgent,Map<String,Object> user) {
@@ -95,11 +97,12 @@ public class LanService {
         LocalDateTime now=now();
         String bind=LanNetwork.normalizeBind(bindAddress);
         boolean lanBind=LanNetwork.lanBind(bindAddress);
-        List<LanNetwork.Link> links=LanNetwork.links(bindAddress,port);
+        List<LanNetwork.Link> links=LanNetwork.links(bindAddress,port,secure?"https":"http");
         String access=LanNetwork.accessKind(remoteAddress);
         var server=new LinkedHashMap<String,Object>();
         server.put("bind_address",bind.isEmpty()?"0.0.0.0":bind);
         server.put("port",port);
+        server.put("secure",secure);
         server.put("lan_available",lanBind&&!links.isEmpty());
         server.put("campus_zone",BookingPolicy.CAMPUS_ZONE.getId());
         var client=new LinkedHashMap<String,Object>();
@@ -122,7 +125,8 @@ public class LanService {
     private String hint(boolean lanBind,List<LanNetwork.Link> links) {
         if(!lanBind) return "当前仅监听本机回环地址。请在本机 .local/application-local.properties 增加 server.address=0.0.0.0 并重启服务，其他设备才能通过局域网访问。";
         if(links.isEmpty()) return "监听已允许局域网访问，但未检测到可用的局域网地址，请确认主机已连接同一 Wi-Fi 或网线。";
-        return "同一局域网内的其他设备打开接入地址即可登录同一套系统；所有设备读取同一份座位与预约数据。";
+        if(secure) return "当前已开启 HTTPS。手机首次使用需在手机上信任本地 CA，摄像头扫码才能使用；也可上传座位码图片。";
+        return "同一局域网内的其他设备打开接入地址即可登录同一套系统；所有设备读取同一份座位与预约数据。手机摄像头需要 HTTPS，当前为 HTTP，可上传座位码图片或按文档开启 HTTPS。";
     }
     /** 座位与预约冲突的唯一判定仍在预约提交；看板只做聚合展示，不代替提交校验。 */
     @Transactional(readOnly=true)
@@ -168,14 +172,14 @@ public class LanService {
         return result;
     }
     public byte[] qrPng() {
-        var links=LanNetwork.links(bindAddress,port);
+        var links=LanNetwork.links(bindAddress,port,secure?"https":"http");
         Api.require(!links.isEmpty(),409,"当前服务未监听局域网地址，请设置 server.address=0.0.0.0 后重启");
         return QrImages.png(links.get(0).url(),512);
     }
     @EventListener(ApplicationReadyEvent.class)
     public void announce() {
         String bind=LanNetwork.normalizeBind(bindAddress);
-        var links=LanNetwork.links(bindAddress,port);
+        var links=LanNetwork.links(bindAddress,port,secure?"https":"http");
         if(!LanNetwork.lanBind(bindAddress)) {
             log.info("局域网接入未开启：当前仅监听 {}:{}；多设备访问请在本地配置设置 server.address=0.0.0.0",bind.isEmpty()?"127.0.0.1":bind,port);
             return;

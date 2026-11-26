@@ -2,6 +2,14 @@ server:
   # 默认仅监听本机回环；局域网多设备访问时设置 STUDYROOM_SERVER_ADDRESS=0.0.0.0 或在本地配置写 server.address=0.0.0.0
   address: ${STUDYROOM_SERVER_ADDRESS:127.0.0.1}
   port: ${STUDYROOM_HOST_PORT:8080}
+  # 可选 HTTPS：手机浏览器的摄像头只在 HTTPS 或 localhost 下可用。
+  # 开启后局域网地址、二维码和启动日志都会使用 https://；证书需让手机信任。
+  ssl:
+    enabled: ${STUDYROOM_SSL_ENABLED:false}
+    key-store: ${STUDYROOM_SSL_KEY_STORE:}
+    key-store-password: ${STUDYROOM_SSL_KEY_STORE_PASSWORD:}
+    key-store-type: ${STUDYROOM_SSL_KEY_STORE_TYPE:PKCS12}
+    key-alias: ${STUDYROOM_SSL_KEY_ALIAS:studyroom}
 spring:
   config:
     import: optional:file:../.local/application-local.properties,optional:file:.local/application-local.properties

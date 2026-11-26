@@ -52,7 +52,7 @@
 | F09 | 使用评价 | 本人对已结算的真实使用评价 1—5 星；管理员回复或有理由隐藏；登录角色可查看服务端白名单过滤后的匿名公开内容 |
 | F10 | 记录与消息查询 | 本人与管理记录的服务端条件筛选与稳定分页；站内消息分类筛选、已读标记与真实业务跳转；管理审计只读安全投影 |
 | F11 | 统计与整体验收 | 统一统计快照与近七日趋势、热力图；页面可见时每 10 秒刷新且失败保留上次数据；S01—S31 整体工程验收 |
-| F12 | 局域网接入与共同预约 | 一台设备作主机、同一局域网其他设备经内网地址登录同一系统；共享同一份座位与预约数据；管理端展示接入地址/二维码、最近在线设备与各空间占座聚合；预约规则与权限不变 |
+| F12 | 局域网接入与共同预约 | 一台设备作主机、同一局域网其他设备经内网地址登录同一系统；共享同一份座位与预约数据；管理端展示接入地址/二维码、最近在线设备与各空间占座聚合；可选 HTTPS + 本地 CA 让手机摄像头扫码可用；预约规则与权限不变 |
 | F13 | 批量生成座位二维码 | 管理员一次为所有缺少座位码的座位补齐当前二维码，已有码座位跳过且不改写；与单座位首次生成同格式，可重复执行且幂等 |
 
 各功能的规则边界、状态模型与验证记录见 `docs/features/Fxx-*/` 下的两份方案。
@@ -66,7 +66,7 @@
 | 结构管理 | Flyway 10.20.1（`flyway-core` + `flyway-database-postgresql`） | V1—V31 增量迁移；校验开启、禁止 clean |
 | 缓存与限流 | Redis 7.2 | 登录限流、预约限流与注销令牌撤销；3 号库、键前缀 `studyroom-java:` |
 | 认证与口令 | `com.auth0:java-jwt` 4.4.0（HMAC256，有效期 7 天）、BCrypt | 令牌签发与校验、口令哈希 |
-| 二维码 | ZXing core 3.5.4（后端生成 PNG）、`@zxing/browser` 0.2.1（前端本机解码） | 每座位当前码，用于签到核验座位身份 |
+| 二维码 | ZXing core 3.5.4（后端生成 PNG）、`@zxing/browser` 0.2.1（图片解码）、`qr-scanner` 1.4.2（移动端摄像头） | 每座位当前码，用于签到核验座位身份；摄像头优先使用浏览器 BarcodeDetector，回退 Worker+ZXing |
 | 数据导入 | Apache Commons CSV 1.14.1 | 校园用户批量导入的模板、预览与确认 |
 | 前端 | Vue 3.5、vue-router 5、Pinia 4、Axios、ECharts 6、Three.js、GSAP | 单页应用、角色路由守卫、2D/3D 座位图与统计图表 |
 | 构建与测试 | Maven 3.6+、Vite 8、Node 24+、Python 3.12+ | 后端 JUnit + 真实 PostgreSQL/Redis 集成测试；前端 `node --test`；脚本自测 |
@@ -169,7 +169,27 @@ cd Smart-Study-Room
 2. 主机登录后打开“局域网”页，页面会显示可访问的内网地址、二维码、最近在线设备与共享座位看板；其他设备连接同一 Wi‑Fi 后扫码或输入该地址，使用各自校园账号登录。
 3. 所有设备共用同一份座位与预约数据；同一座位同一时段并发提交时，只有一方成功，另一方会看到冲突提示。撤回该配置并重启即恢复仅本机访问。
 
-该能力面向小范围教学演示：`0.0.0.0` 会把服务暴露到所在局域网，不包含 HTTPS、反向代理、校园统一认证或公网防护，不应直接用于生产环境。详细规则见 [F12 功能方案](docs/features/F12-局域网共同预约/局域网共同预约功能架构方案.md)。
+### 手机摄像头与可选 HTTPS
+
+手机浏览器只在 **HTTPS 或 localhost** 下允许 `getUserMedia` 摄像头权限；用 `http://局域网IP` 打开时不会弹权限框。默认的 HTTP 模式仍可上传座位码图片；需要使用手机摄像头时：
+
+1. 生成一张包含局域网 IP 的本地 CA 与服务器证书（SAN 例：`IP:192.168.43.111,IP:127.0.0.1,DNS:localhost`），导出 PKCS12。
+2. 在 `.local/application-local.properties` 或环境变量中开启：
+
+   ```properties
+   server.ssl.enabled=true
+   server.ssl.key-store=file:C:/absolute/path/server.p12
+   server.ssl.key-store-password=CHANGE_ME
+   server.ssl.key-store-type=PKCS12
+   server.ssl.key-alias=studyroom
+   ```
+
+   或使用 `STUDYROOM_SSL_ENABLED`、`STUDYROOM_SSL_KEY_STORE`、`STUDYROOM_SSL_KEY_STORE_PASSWORD`、`STUDYROOM_SSL_KEY_STORE_TYPE`、`STUDYROOM_SSL_KEY_ALIAS`。
+
+3. 重启后使用 `https://主机IP:端口` 打开；管理端“局域网”页的接入地址和二维码会自动变为 https。
+4. 手机安装并信任本地 CA 后再打开 HTTPS 地址：Android 在“设置 → 安全 → 加密与凭据 → 安装证书 → CA 证书”；iOS 安装描述文件后在“关于 → 证书信任设置”启用完全信任。建议使用 Chrome/Safari，微信内置浏览器可能不支持摄像头。摄像头扫码使用 GitHub 项目 [qr-scanner](https://github.com/nimiq/qr-scanner)（移动端优先 BarcodeDetector，回退 Worker+ZXing）；图片上传仍由既有 ZXing 在本机解码。
+
+公共 CA 不能为私有 IP 签发证书，所以局域网场景需要本地 CA 手动信任；CA 私钥只放 `.local/` 或独立 secrets 目录，不提交、不外传。该模式面向教学演示，不替代正式证书、反向代理、HTTPS 公网防护或校园统一认证。
 
 本机凭据（数据库口令、JWT 密钥）只保存在被 `.gitignore` 忽略的 `.local/` 目录中，不随仓库提交；如需手工调整，可复制 `application-local.example.properties` 到 `.local/application-local.properties` 后修改。
 
@@ -194,7 +214,7 @@ cd Smart-Study-Room
 
 前端热更新（可选）：在 `frontend/` 执行 `npm ci` 与 `npm run dev`，访问 <http://127.0.0.1:5173>，`/api` 自动代理到后端 8080 端口。
 
-常用环境变量：`STUDYROOM_HOST_PORT`（应用端口，默认 8080）、`STUDYROOM_SERVER_ADDRESS`（监听地址，默认 127.0.0.1；局域网访问改为 0.0.0.0）、`STUDYROOM_DB_URL` / `_USERNAME` / `_PASSWORD`、`STUDYROOM_REDIS_HOST` / `_PORT` / `_PASSWORD` / `_DATABASE`、`STUDYROOM_JWT_SECRET`（必填，≥32 字符随机串）、`STUDYROOM_SEED`、`STUDYROOM_SCHEDULER_ENABLED`、`STUDYROOM_MAVEN`（指定 `mvn.cmd` 路径）。
+常用环境变量：`STUDYROOM_HOST_PORT`（应用端口，默认 8080）、`STUDYROOM_SERVER_ADDRESS`（监听地址，默认 127.0.0.1；局域网访问改为 0.0.0.0）、`STUDYROOM_DB_URL` / `_USERNAME` / `_PASSWORD`、`STUDYROOM_REDIS_HOST` / `_PORT` / `_PASSWORD` / `_DATABASE`、`STUDYROOM_JWT_SECRET`（必填，≥32 字符随机串）、`STUDYROOM_SEED`、`STUDYROOM_SCHEDULER_ENABLED`、`STUDYROOM_SSL_ENABLED` / `STUDYROOM_SSL_KEY_STORE` / `STUDYROOM_SSL_KEY_STORE_PASSWORD` / `STUDYROOM_SSL_KEY_STORE_TYPE` / `STUDYROOM_SSL_KEY_ALIAS`（可选 HTTPS）、`STUDYROOM_MAVEN`（指定 `mvn.cmd` 路径）。
 
 若本机没有名为 `my-redis` 的 Redis 容器，可改用 `docker compose --profile extra-redis up -d redis` 另起 6380 实例并同步修改本地配置，或连接自行管理的 Redis 7.x；`./scripts/Start.ps1 -SkipContainers` 可跳过容器启动。
 
