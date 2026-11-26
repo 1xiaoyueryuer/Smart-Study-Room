@@ -31,7 +31,8 @@ async function resources(overrides = {}) {
     listRoomSeats: async () => { effects.calls.push(['seats']); return { data: { room: room(), seats: [seat()] } } },
     createSeat: async (id, data) => { effects.calls.push(['createSeat', id, data]); return { data: seat() } },
     updateSeat: async (id, data) => { effects.calls.push(['updateSeat', id, data]); return { data: seat() } },
-    deleteRoom: async () => ({}), deleteSeat: async () => ({}), batchGenSeats: async () => ({ data: { created: 1 } }), ...overrides
+    deleteRoom: async () => ({}), deleteSeat: async () => ({}), batchGenSeats: async () => ({ data: { created: 1 } }),
+    batchGenerateSeatCodes: async data => { effects.calls.push(['batchCodes', data]); return { data: { total_seats: 3, generated: 2, skipped: 1 } } }, ...overrides
   }
   const page = await script('../src/components/admin/ResourceManagement.vue', {
     vue: { ref, computed, onMounted() {} },
@@ -40,7 +41,7 @@ async function resources(overrides = {}) {
     './userForm.js': { operationReason },
     '../../composables/usePagination': { usePagination },
     '../ui/feedback': { message: { success() {} } }
-  }, 'loadRooms, openCreate, openEdit, saveRoom, roomForm, roomDialog, formError, openSeats, editSeat, saveSeat, seatForm, seatDialog, seatRoom, removeResource, deleteForm, saveDelete, deleteDialog, changeConfirm, writeNotice', { defineEmits: () => (_, value) => effects.summaries.push(value) })
+  }, 'loadRooms, openCreate, openEdit, saveRoom, roomForm, roomDialog, formError, openSeats, editSeat, saveSeat, seatForm, seatDialog, seatRoom, removeResource, deleteForm, saveDelete, deleteDialog, changeConfirm, writeNotice, openBatchCodes, saveBatchCodes, batchCodeReason, batchCodeDialog, batchCodeError', { defineEmits: () => (_, value) => effects.summaries.push(value) })
   page.changeConfirm.value = {run:overrides.confirmChange || (async proposal=>{effects.calls.push(['change',proposal]);return{operation_id:'test-operation',cancelled_count:0}})}
   return { ...page, effects }
 }
@@ -122,4 +123,43 @@ test('acknowledged resource write followed by reload failure is explicit and nev
   const page=await resources({confirmChange:async()=>{changes++;return{cancelled_count:1}},getRooms:async()=>{throw new Error('读取失败')}})
   page.openEdit(room());page.roomForm.value.reason='工程模拟：资源维护';await page.saveRoom()
   assert.equal(changes,1);assert.equal(page.roomDialog.value,false);assert.match(page.writeNotice.value,/已确认写入/);assert.match(page.writeNotice.value,/不要重复提交/)
+})
+test('batch seat code API posts the explicit reason to the admin batch endpoint', async () => {
+  const calls = []
+  const context = vm.createContext({})
+  const module = new vm.SourceTextModule(await readFile(new URL('../src/api/admin.js', import.meta.url), 'utf8'), { context })
+  await module.link(() => new vm.SyntheticModule(['default'], function () { this.setExport('default', { post: (...args) => { calls.push(args) } }) }, { context }))
+  await module.evaluate()
+  module.namespace.batchGenerateSeatCodes({ reason: '部署前补齐缺失座位码' })
+  assert.equal(calls[0][0], '/admin/seat-codes/batch')
+  assert.equal(calls[0][1].reason, '部署前补齐缺失座位码')
+})
+test('batch seat code generation reports generated and skipped counts from the real batch response', async () => {
+  const page = await resources()
+  page.openBatchCodes()
+  page.batchCodeReason.value = '部署前补齐缺失座位码'
+  await page.saveBatchCodes()
+  const batchCall = page.effects.calls.find(call => call[0] === 'batchCodes')
+  assert.equal(batchCall[0], 'batchCodes')
+  assert.equal(batchCall[1].reason, '部署前补齐缺失座位码')
+  assert.equal(page.batchCodeDialog.value, false)
+  assert.match(page.writeNotice.value, /新生成2个/)
+  assert.match(page.writeNotice.value, /跳过1个/)
+})
+test('batch seat code generation keeps the dialog and reason on blank reason or permission failure', async () => {
+  const page = await resources()
+  page.openBatchCodes()
+  page.batchCodeReason.value = '   '
+  await page.saveBatchCodes()
+  assert.equal(page.batchCodeDialog.value, true)
+  assert.match(page.batchCodeError.value, /操作理由/)
+  assert.equal(page.effects.calls.some(call => call[0] === 'batchCodes'), false)
+
+  const denied = await resources({ batchGenerateSeatCodes: async () => { throw { status: 403, message: '需要管理员权限' } } })
+  denied.openBatchCodes()
+  denied.batchCodeReason.value = '越权批量补齐'
+  await denied.saveBatchCodes()
+  assert.equal(denied.batchCodeDialog.value, true)
+  assert.match(denied.batchCodeError.value, /无资源管理权限/)
+  assert.equal(denied.batchCodeReason.value, '越权批量补齐')
 })
