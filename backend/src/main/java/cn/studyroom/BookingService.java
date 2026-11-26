@@ -166,7 +166,10 @@ public class BookingService {
         long reservation=id(before,"id");before.put("usage_record",usage.view(reservation,snapshot));UsageService.requireReservationState(text(before,"status"),usage.view(reservation,snapshot),snapshot);
         if("checked_in".equals(before.get("status"))){Api.require(restrictionId==null,409,"使用中预约不由预约限制提前结束");usage.finish(reservation,ends(before),snapshot,tag,snapshot);}
         LocalDateTime end=snapshot.isBefore(ends(before))?snapshot:ends(before);db.update("UPDATE reservations SET status='cancelled',ended_at=?,termination_reason=?,termination_note=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",Timestamp.valueOf(end),tag,reason,reservation);
-        if(restrictionId==null)messages.reservation(id(before,"user_id"),reservation,null,"management_cancelled","预约因资源管理已取消","管理原因："+reason+"。受影响预约已立即取消，已用时长按实际确认时刻结算，本次不登记用户违规或信用奖惩。",snapshot);
+        String notification="checked_in".equals(before.get("status"))
+                ? "管理原因："+reason+"。受影响预约已立即取消，已用时长按实际确认时刻结算，本次不登记用户违规或信用奖惩。"
+                : "管理原因："+reason+"。待签到预约已立即取消，未产生使用记录，本次不登记用户违规或信用奖惩。";
+        if(restrictionId==null)messages.reservation(id(before,"user_id"),reservation,null,"management_cancelled","预约因资源管理已取消",notification,snapshot);
         else messages.reservation(id(before,"user_id"),reservation,restrictionId,"restriction_cancelled","待签到预约因限制取消","预约"+reservation+"因当前有效限制取消。\n公开原因：\n"+reason+"\n本次管理取消不另登记用户违约。",snapshot);
         if(restrictionId==null)auditReservation(actor,"reservation.admin_cancel",before,reason);else {var after=db.one("SELECT * FROM reservations WHERE id=?",reservation);after.put("usage_record",usage.view(reservation,snapshot));var values=reservationSnapshot(after);values.put("restriction_id",restrictionId);audit.record(actor,"reservation.restriction_cancel","reservation",Long.toString(reservation),reason,reservationSnapshot(before),values);}
         var result=db.one("SELECT id AS reservation_id,status,termination_reason,termination_note,ended_at FROM reservations WHERE id=?",reservation);result.put("usage_record",usage.view(reservation,snapshot));return result;
