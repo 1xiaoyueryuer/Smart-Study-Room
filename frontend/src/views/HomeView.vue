@@ -476,6 +476,11 @@ function timeText(row) {
 .board-cta:hover { background: #ffffff; }
 
 .user-bottom { margin-top: 8px; }
+/* 首页「使用须知」卡片改为纯白 */
+.home-page--user :deep(.tips-surface) {
+  background: #ffffff;
+  border-color: rgba(20, 40, 32, .08);
+}
 
 /* 自习室列表 */
 .zone-section { margin-bottom: 26px; }
