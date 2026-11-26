@@ -688,6 +688,20 @@ onMounted(async () => {
 .booking-split {
   position: relative;
 }
+/* 左列卡片：与顶部功能行、选座卡一致的深色透明玻璃（30% 不透明度），文字改浅色 */
+.booking-split .split-left .card.responsive-compact {
+  border-color: rgba(255, 255, 255, .14);
+  background: rgba(21, 32, 40, .3);
+  backdrop-filter: blur(10px);
+}
+.booking-split .split-left .card.responsive-compact .card-title-row h3 { color: rgba(248, 246, 240, .95); }
+.booking-split .split-left .card.responsive-compact .filter-row { color: rgba(244, 242, 236, .85); }
+.booking-split .split-left .card.responsive-compact p[role='status'] { color: rgba(240, 244, 242, .75); }
+.booking-split .split-left .submit-card {
+  border-color: rgba(255, 255, 255, .14);
+  background: rgba(21, 32, 40, .3);
+  backdrop-filter: blur(10px);
+}
 .booking-split{grid-template-columns:360px minmax(0,1fr)}
 .booking-split .filter-group{display:grid;grid-template-columns:1fr;gap:14px}
 .booking-split .split-left{display:flex;flex-direction:column;gap:14px;min-width:0}
