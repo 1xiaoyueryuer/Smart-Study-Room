@@ -205,6 +205,7 @@ onUnmounted(() => {
         </div>
         <dl class="lan-facts">
           <div><dt>服务监听</dt><dd class="num">{{ info?.server?.bind_address || '—' }}:{{ info?.server?.port || '—' }}</dd></div>
+          <div><dt>访问协议</dt><dd>{{ info?.server?.secure ? 'HTTPS' : 'HTTP' }}</dd></div>
           <div><dt>当前设备接入</dt><dd><STag :type="info?.client?.access === 'other' ? 'warning' : 'success'">{{ accessLabel(info?.client?.access) }}</STag></dd></div>
           <div><dt>当前设备地址</dt><dd class="num">{{ info?.client?.remote_address || '—' }}</dd></div>
           <div><dt>校园时区</dt><dd>{{ info?.server?.campus_zone || 'Asia/Shanghai' }}</dd></div>
@@ -339,10 +340,12 @@ onUnmounted(() => {
       <ol class="steps">
         <li>在主机设备上启动系统，并在本地配置中设置 <code>server.address=0.0.0.0</code> 后重启。</li>
         <li>让其他设备连接与主机相同的 Wi-Fi；打开本页顶部显示的接入地址或扫码。</li>
+        <li v-if="info?.server?.secure">手机摄像头需要 HTTPS：首次使用前请按 F12 文档在手机安装并信任本地 CA，之后即可在扫码签到页开启摄像头。</li>
+        <li v-else>手机摄像头需要 HTTPS；当前为 HTTP，扫码签到可改用上传图片，或按 F12 文档开启 HTTPS。</li>
         <li>每台设备用自己的校园账号登录，进入「座位预约」正常选座提交。</li>
         <li>所有设备共用同一份座位与预约数据；同一座位同一时段并发提交时，只有一方成功，另一方会看到冲突提示。</li>
       </ol>
-      <p class="muted small">该能力面向小范围教学演示，不替代生产环境的 HTTPS、反向代理与校园统一认证。</p>
+      <p class="muted small">该能力面向小范围教学演示；HTTPS 可通过本地 CA 开启，生产环境仍需正式证书、反向代理与校园统一认证。</p>
     </section>
   </div>
 </template>

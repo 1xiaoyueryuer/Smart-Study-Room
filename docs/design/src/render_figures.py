@@ -1,404 +1,481 @@
 # -*- coding: utf-8 -*-
-"""系统设计报告图件生成脚本（第 3 版 · 部署拓扑风格）
-风格规范（依据用户提供的参考图）：
-- 白底、深灰细边框节点（圆角），节点内为「名称（粗体居中）+ 灰色小字说明」
-- 分组用虚线大框，左上角灰色分组标签
-- 连接线为灰色细线箭头，标签小字放在线旁
-- 文字稀疏、留白充足；框高按内容行数自动计算，杜绝重叠
+"""重绘系统设计报告的七张 PNG。运行：python docs/design/src/render_figures.py。
+
+依赖 Pillow 和宋体（Windows SimSun，或通过 STUDYROOM_SIMSUN 指定宋体文件）。
+图中坐标以逻辑像素表示，导出时放大两倍。
 """
+
+from functools import lru_cache
+from itertools import combinations, pairwise
+from pathlib import Path
 import os
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-from matplotlib.patches import FancyBboxPatch, FancyArrowPatch, Rectangle, Circle
 
-OUT = os.path.join(os.path.dirname(__file__), "..", "figures")
-os.makedirs(OUT, exist_ok=True)
+from PIL import Image, ImageDraw, ImageFont
 
-plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei"]
-plt.rcParams["axes.unicode_minus"] = False
-plt.rcParams["font.family"] = "sans-serif"
 
-# 配色（参考图风格：黑白灰 + 少量深蓝）
-TITLE = "#1F1F1F"      # 标题
-NODE_FC = "#FFFFFF"    # 节点填充
-NODE_EC = "#404040"    # 节点边框
-NODE_TEXT = "#1A1A1A"  # 节点名称
-SUB = "#707070"        # 说明小字
-GROUP_EC = "#9AA5B1"   # 虚线分组框
-LINE = "#8A8A8A"       # 连线
-LBL = "#4A4A4A"        # 连线标签
+OUT = Path(__file__).resolve().parents[1] / "figures"
+SCALE = 2
+WIDTH = 1280
+TOP = 110
+BLACK = "#000000"
+LINE = "#252525"
+BORDER = "#888888"
+GRID = "#c7c7c7"
+PALE = "#f5f5f5"
+WHITE = "#ffffff"
 
-def save(fig, name):
-    path = os.path.join(OUT, name)
-    fig.savefig(path, dpi=200, bbox_inches="tight", facecolor="white")
-    plt.close(fig)
-    print("saved", os.path.basename(path))
 
-def node(ax, x, y, w, name, sub=None, name_fs=10.5, sub_fs=8, h=None):
-    """节点：名称一行居中粗体，说明（可多行，'|' 分隔）灰色小字居中。框高按内容自适应。"""
-    lines = sub.split("|") if sub else []
-    if h is None:
-        h = 0.34 + 0.20 + (len(lines) * 0.19 if lines else 0) + 0.10
-    p = FancyBboxPatch((x, y), w, h, boxstyle="round,pad=0.01,rounding_size=0.08",
-                       fc=NODE_FC, ec=NODE_EC, lw=1.2)
-    ax.add_patch(p)
-    ax.text(x + w / 2, y + h - 0.22, name, ha="center", va="center",
-            fontsize=name_fs, fontweight="bold", color=NODE_TEXT)
-    yy = y + h - 0.22 - 0.20
-    for i, ln in enumerate(lines):
-        ax.text(x + w / 2, yy - i * 0.19, ln, ha="center", va="center",
-                fontsize=sub_fs, color=SUB)
-    return h
+@lru_cache
+def font(size):
+    windows = Path(os.environ.get("WINDIR", "C:/Windows")) / "Fonts"
+    path = Path(os.environ.get("STUDYROOM_SIMSUN", windows / "simsun.ttc"))
+    if not path.is_file():
+        raise RuntimeError("未找到宋体；请安装 SimSun 或设置 STUDYROOM_SIMSUN")
+    return ImageFont.truetype(str(path), size * SCALE)
 
-def group(ax, x, y, w, h, label):
-    """虚线分组框，左上角标签。"""
-    ax.add_patch(Rectangle((x, y), w, h, fc="none", ec=GROUP_EC, lw=1.1,
-                           linestyle=(0, (5, 4))))
-    ax.text(x + 0.08, y + h - 0.16, label, fontsize=8.5, color="#5B6B8C",
-            ha="left", va="center")
 
-def arrow(ax, x1, y1, x2, y2, text=None, tdx=0.0, tdy=0.0, rad=0.0, lw=1.3, fs=8.5):
-    a = FancyArrowPatch((x1, y1), (x2, y2), arrowstyle="-|>", mutation_scale=14,
-                        color=LINE, lw=lw, connectionstyle=f"arc3,rad={rad}")
-    ax.add_patch(a)
-    if text:
-        ax.text((x1 + x2) / 2 + tdx, (y1 + y2) / 2 + tdy, text, ha="center", va="center",
-                fontsize=fs, color=LBL, bbox=dict(fc="white", ec="none", pad=0.5))
+def intersects(left, right):
+    return (left[0] < right[2] and left[2] > right[0]
+            and left[1] < right[3] and left[3] > right[1])
 
-def title(ax, text, W, H):
-    ax.text(W / 2, H - 0.4, text, ha="center", fontsize=14, fontweight="bold", color=TITLE)
 
-def note(ax, text, y):
-    ax.text(0.5, y, text, fontsize=8.5, color="#6B7280")
+class Figure:
+    def __init__(self, number, name, height):
+        self.name = f"图 {number}  {name}"
+        self.height = height
+        self.image = Image.new("RGB", (WIDTH * SCALE, height * SCALE), WHITE)
+        self.draw = ImageDraw.Draw(self.image)
+        self.labels = []
+        self.boxes = []
+        self.decorations = []
+        self.segments = []
 
-def clean(ax, w, h):
-    ax.set_xlim(0, w); ax.set_ylim(0, h); ax.axis("off")
+    def text(self, x, y, value, size=22, *, align="l", bold=False, inside=None):
+        xy = (x * SCALE, y * SCALE)
+        anchor = align + "t"
+        face = font(size)
+        weight = int(bold)
+        bounds = tuple(n / SCALE for n in
+                       self.draw.textbbox(xy, value, font=face, anchor=anchor, stroke_width=weight))
+        minimum = inside or (24, TOP, WIDTH - 24, self.height - 12)
+        if not (minimum[0] + 5 <= bounds[0] <= bounds[2] <= minimum[2] - 5
+                and minimum[1] + 5 <= bounds[1] <= bounds[3] <= minimum[3] - 5):
+            raise ValueError(f"{self.name}：文字越界 {value!r} {bounds} / {minimum}")
+        self.labels.append((bounds, value))
+        self.draw.text(xy, value, font=face, anchor=anchor, fill=BLACK, stroke_width=weight)
 
-# ============================================================
-# 图 1 系统总体架构图
-# ============================================================
-W, H = 13.0, 8.8
-fig, ax = plt.subplots(figsize=(13.0, 8.8))
-clean(ax, W, H)
-title(ax, "图 1  智慧自习室预约与管理系统总体架构图", W, H)
+    def rect(self, bounds, fill=WHITE, outline=BORDER, radius=10):
+        self.draw.rounded_rectangle(tuple(n * SCALE for n in bounds), radius=radius * SCALE,
+                                    fill=fill, outline=outline, width=2 * SCALE)
 
-group(ax, 0.6, 7.0, 11.8, 1.25, "客户端层 · 浏览器（Vue 3 单页应用）")
-items1 = ["登录 / 注册", "座位预约", "我的预约 / 签到", "求助与投诉", "消息 / 个人中心", "管理端"]
-n = len(items1); cw = 1.72; gap = (11.8 - 0.3 - n * cw) / (n - 1)
-for i, t in enumerate(items1):
-    node(ax, 0.9 + i * (cw + gap), 7.18, cw, t, h=0.8)
+    def panel(self, bounds, title):
+        self.rect(bounds, outline=GRID)
+        self.text(bounds[0] + 20, bounds[1] + 13, title, 22, bold=True, inside=bounds)
 
-group(ax, 0.6, 5.35, 11.8, 1.25, "接口层 · Spring Boot（20 个控制器 · 统一前缀 /api）")
-items2 = [("REST 接口", "统一信封 {code, message, data}"), ("参数校验", "Bean Validation"),
-          ("异常映射", "统一错误码"), ("安全拦截", "认证 / 权限 / 限流"), ("静态资源", "SpaController")]
-n = len(items2); cw = 2.05; gap = (11.8 - 0.3 - n * cw) / (n - 1)
-for i, (t, s) in enumerate(items2):
-    node(ax, 0.9 + i * (cw + gap), 5.5, cw, t, sub=s, h=0.95)
+    def card(self, bounds, title, *details, fill=WHITE, title_size=24, detail_size=20,
+             align="l", radius=10):
+        self.rect(bounds, fill, radius=radius)
+        self.boxes.append((bounds, title))
+        x = (bounds[0] + bounds[2]) / 2 if align == "m" else bounds[0] + 18
+        height = title_size + len(details) * (detail_size + 6)
+        y = bounds[1] + (bounds[3] - bounds[1] - height) / 2
+        self.text(x, y, title, title_size, align=align, bold=True, inside=bounds)
+        y += title_size + 6
+        for detail in details:
+            self.text(x, y, detail, detail_size, align=align, inside=bounds)
+            y += detail_size + 6
 
-group(ax, 0.6, 2.9, 11.8, 2.0, "业务层 · Service / Policy（业务规则集中实现）")
-domains = [("账号与权限", "认证 / 导入"), ("资源与开放", "窗口 / 停用"), ("预约生命周期", "创建 / 签到 / 结算"),
-           ("连续空档找座", "快照查询"), ("投诉核实反馈", "受理 / 反馈"), ("违规与限制", "累计 / 限制"),
-           ("申诉与评价", "申诉 / 审核 / 评价")]
-n = len(domains); cw = 1.55; gap = (11.8 - 0.3 - n * cw) / (n - 1)
-for i, (t, s) in enumerate(domains):
-    node(ax, 0.9 + i * (cw + gap), 3.05, cw, t, sub=s, h=1.05)
-node(ax, 0.9, 4.28, 11.5, "支撑服务", sub="消息 / 审计 / 材料 / 统计 / 记录分页", h=0.62, name_fs=9.5)
+    def uml(self, bounds, name, attribute, *operations, fill=WHITE):
+        self.rect(bounds, fill, radius=0)
+        self.boxes.append((bounds, name))
+        x1, y1, x2, _ = bounds
+        self.text(x1 + 17, y1 + 11, name, 22, bold=True, inside=bounds)
+        self.stroke((x1 + 12, y1 + 43), (x2 - 12, y1 + 43),
+                    color=GRID, within_box=True)
+        self.text(x1 + 17, y1 + 51, attribute, 17, inside=bounds)
+        self.stroke((x1 + 12, y1 + 71), (x2 - 12, y1 + 71),
+                    color=GRID, width=1, within_box=True)
+        for i, operation in enumerate(operations):
+            self.text(x1 + 17, y1 + 75 + i * 25, operation, 17, inside=bounds)
 
-group(ax, 0.6, 1.15, 11.8, 1.3, "数据访问与存储层")
-items4 = [("Store", "唯一 SQL 入口"), ("PostgreSQL 17", "Flyway V1—V31"),
-          ("Redis 7.2", "限流 / 令牌撤销"), ("通用结构", "Slot / RecordPage")]
-n = len(items4); cw = 2.6; gap = (11.8 - 0.3 - n * cw) / (n - 1)
-for i, (t, s) in enumerate(items4):
-    node(ax, 0.9 + i * (cw + gap), 1.3, cw, t, sub=s, h=0.95)
+    def stroke(self, *points, arrow=False, dashed=False, color=LINE, width=2, within_box=False):
+        for (x1, y1), (x2, y2) in pairwise(points):
+            if (x1 == x2) == (y1 == y2):
+                raise ValueError(f"{self.name}：连线必须是非零水平或垂直线段 {(x1, y1), (x2, y2)}")
+            self.segments.append(((min(x1, x2) - width / 2, min(y1, y2) - width / 2,
+                                   max(x1, x2) + width / 2, max(y1, y2) + width / 2), points, within_box))
+            self.draw_segment((x1, y1), (x2, y2), color, width, dashed)
+        if arrow:
+            (x1, y1), (x2, y2) = points[-2:]
+            dx = (x2 > x1) - (x2 < x1)
+            dy = (y2 > y1) - (y2 < y1)
+            head = ((x2, y2), (x2 - 11 * dx + 5 * dy, y2 - 11 * dy - 5 * dx),
+                    (x2 - 11 * dx - 5 * dy, y2 - 11 * dy + 5 * dx))
+            xs, ys = zip(*head)
+            self.decorations.append((min(xs), min(ys), max(xs), max(ys)))
+            tip, first, second = [tuple(n * SCALE for n in point) for point in head]
+            if arrow == "open":
+                self.draw.line((first, tip, second), fill=color, width=width * SCALE)
+            else:
+                self.draw.polygon((tip, first, second), fill=color)
 
-arrow(ax, 6.5, 7.0, 6.5, 6.62, "HTTP / JSON", tdx=1.5, tdy=0.14)
-arrow(ax, 6.5, 5.35, 6.5, 4.92, "调用")
-arrow(ax, 6.5, 2.9, 6.5, 2.47, "JDBC / Redis")
-note(ax, "写事务先锁定互斥表固定行，保证并发写串行化。", 0.5)
-save(fig, "fig1_系统总体架构.png")
+    def draw_segment(self, start, end, color, width, dashed=False):
+        if dashed:
+            x1, y1 = start
+            x2, y2 = end
+            length = abs(x2 - x1) + abs(y2 - y1)
+            dx, dy = (x2 - x1) / length, (y2 - y1) / length
+            for step in range(0, int(length), 12):
+                stop = min(length, step + 7)
+                seg = (x1 + dx * step, y1 + dy * step, x1 + dx * stop, y1 + dy * stop)
+                self.draw.line(tuple(n * SCALE for n in seg), fill=color, width=width * SCALE)
+        else:
+            self.draw.line(tuple(n * SCALE for n in (*start, *end)), fill=color, width=width * SCALE)
 
-# ============================================================
-# 图 2 系统部署架构图（严格仿参考图「部署拓扑」风格）
-# ============================================================
-W, H = 13.5, 8.6
-fig, ax = plt.subplots(figsize=(13.5, 8.6))
-clean(ax, W, H)
-title(ax, "图 2  系统部署架构图", W, H)
+    def dot(self, x, y, radius=7):
+        self.draw.ellipse(tuple(n * SCALE for n in (x - radius, y - radius, x + radius, y + radius)),
+                          fill=LINE)
 
-group(ax, 0.5, 1.0, 9.3, 6.6, "本系统部署的组件")
+    def note(self, y, value):
+        self.text(50, y, value, 20)
 
-node(ax, 1.0, 6.6, 2.6, "浏览器", sub="学生端 / 管理端|前端构建产物装入 JAR", h=1.0)
-node(ax, 5.0, 6.6, 4.3, "接口服务", sub="Spring Boot · Java 17|127.0.0.1:8080 · 仅监听本机", h=1.0)
-node(ax, 5.0, 5.0, 4.3, "前端静态资源", sub="dist 打包进 JAR 的 static/|运行时无需另起 Node 服务", h=1.0)
-node(ax, 5.0, 3.4, 4.3, "业务数据", sub="PostgreSQL 17 · 开发库 / 测试库|127.0.0.1:5433 · Flyway V1—V31", h=1.0)
-node(ax, 5.0, 1.8, 4.3, "Redis 7.2", sub="仅用于限流与令牌撤销|3 号库 · 键前缀 studyroom-java:", h=1.0)
-node(ax, 1.0, 1.8, 2.6, "scripts/", sub="构建 · 启停|联调 · 性能采样", h=1.0)
+    def validate(self):
+        for (first, label), (second, other) in combinations(self.labels, 2):
+            if intersects(first, second):
+                raise ValueError(f"{self.name}：文本相交 {label!r} 与 {other!r}")
+        for segment, points, within_box in self.segments:
+            for bounds, label in self.labels:
+                if intersects(segment, bounds):
+                    raise ValueError(f"{self.name}：连线 {points} 与文字 {label!r} 相交")
+            for (x1, y1, x2, y2), title in self.boxes:
+                if not within_box and intersects(segment, (x1 + 2, y1 + 2, x2 - 2, y2 - 2)):
+                    raise ValueError(f"{self.name}：连线 {points} 穿过节点 {title!r}")
+        for marker in self.decorations:
+            for bounds, label in self.labels:
+                if intersects(marker, bounds):
+                    raise ValueError(f"{self.name}：箭头或基数标记与文字 {label!r} 相交")
+        for (first, title), (second, other) in combinations(self.boxes, 2):
+            if intersects(first, second):
+                raise ValueError(f"{self.name}：节点相交 {title!r} 与 {other!r}")
 
-arrow(ax, 3.6, 7.1, 5.0, 7.1, "HTTP")
-arrow(ax, 7.15, 6.6, 7.15, 6.05, "JDBC")
-arrow(ax, 7.15, 5.0, 7.15, 4.45, "JDBC")
-arrow(ax, 7.15, 3.4, 7.15, 2.85, "Redis 协议")
-arrow(ax, 2.3, 6.6, 2.3, 2.85, "部署", rad=0.25, tdx=-0.9)
 
-group(ax, 10.1, 1.0, 2.9, 6.6, "外部（不在系统边界内）")
-node(ax, 10.4, 5.6, 2.3, "GitHub 远程仓库", sub="分支 / 拉取请求|CI 检查", h=1.0)
-node(ax, 10.4, 3.9, 2.3, "Docker 容器", sub="PostgreSQL 17|运行于本机", h=1.0)
-node(ax, 10.4, 2.2, 2.3, "浏览器入口", sub="http://127.0.0.1:8080", h=1.0)
-arrow(ax, 9.3, 6.1, 10.4, 6.1, "推送 / 拉取")
-arrow(ax, 9.3, 4.4, 10.4, 4.4, "容器编排")
+def architecture():
+    f = Figure(3, "系统总体架构图", 782)
+    layers = [
+        ("客户端层", "浏览器 · Vue 3 单页应用", "学生、教职工与管理员通过同一 Web 入口访问"),
+        ("接口层", "Spring Boot Web", "静态页面路由、REST 接口、安全拦截、参数校验与异常映射"),
+        ("业务层", "Service / Policy", "账号认证、开放与预约、投诉、违规与限制、申诉、评价与统计"),
+        ("数据访问与存储层", "Store 通过 JdbcTemplate 访问 PostgreSQL", "Flyway 管理数据库结构，PostgreSQL 保存业务事实"),
+    ]
+    for y, (label, title, detail) in zip((132, 280, 428, 576), layers):
+        f.card((48, y, 868, y + 98), title, detail, fill=PALE)
+        f.text(834, y + 14, label, 17, align="r", bold=True)
+    for y, label in ((230, "HTTP · 页面与 JSON"), (378, "业务调用"), (526, "经 Store 执行 SQL")):
+        f.stroke((448, y), (448, y + 50), arrow=True)
+        f.text(466, y + 13, label, 19)
+    f.card((948, 576, 1232, 674), "Redis", "限流与令牌撤销", align="m", fill=PALE)
+    f.stroke((868, 336), (1090, 336), (1090, 576), arrow=True)
+    f.stroke((868, 484), (1090, 484))
+    f.dot(1090, 484, 3)
+    f.text(885, 309, "安全拦截限流", 18)
+    f.text(885, 457, "认证服务读写撤销状态", 18)
+    f.note(718, "关键预约与资源写事务在 PostgreSQL 内先锁定 booking_mutex，再校验和写入。")
+    return f
 
-note(ax, "应用与数据库同机部署；写事务互斥串行化，单机教学规模。", 0.35)
-save(fig, "fig2_系统部署架构.png")
 
-# ============================================================
-# 图 3 系统模块结构图
-# ============================================================
-W, H = 13.0, 8.2
-fig, ax = plt.subplots(figsize=(13.0, 8.2))
-clean(ax, W, H)
-title(ax, "图 3  系统模块结构图", W, H)
+def deployment():
+    f = Figure(4, "系统部署架构图", 847)
+    f.card((498, 130, 918, 211), "同一局域网的其他设备", "各自登录同一应用", align="m")
+    f.panel((48, 252, 1232, 685), "应用主机")
+    f.card((77, 330, 374, 435), "主机浏览器", "127.0.0.1:8080", align="m")
+    f.card((498, 330, 918, 472), "Spring Boot · Java 17", "单个应用进程，提供 /api",
+           "前端 dist 随 JAR 的 static/ 一起发布", fill=PALE, align="m")
+    f.card((92, 555, 468, 654), "PostgreSQL 17 · Docker", "本机 5433 映射容器 5432", "开发库和测试库分开", detail_size=18)
+    f.card((821, 555, 1204, 654), "Redis 7.2 · 本机实例", "默认 6379，Compose 备用 6380", "使用 3 号库", detail_size=18)
+    f.stroke((708, 211), (708, 330), arrow=True)
+    f.text(727, 224, "HTTP · 主机局域网 IP:8080", 19)
+    f.text(727, 260, "需要启用非回环监听", 19)
+    f.stroke((374, 382), (498, 382), arrow=True)
+    f.text(436, 350, "HTTP", 19, align="m")
+    f.stroke((600, 472), (600, 525), (273, 525), (273, 555), arrow=True)
+    f.stroke((819, 472), (819, 525), (1012, 525), (1012, 555), arrow=True)
+    f.text(427, 494, "JDBC", 19)
+    f.text(923, 494, "Redis 协议", 19)
+    f.card((48, 717, 1232, 807), "开发与交付",
+           "本机 scripts/ 构建、启停与验证；GitHub 管理代码、拉取请求和 CI 检查。", fill=PALE)
+    return f
 
-node(ax, 4.3, 7.05, 4.4, "智慧自习室预约与管理系统", h=0.7)
 
-mods = [
-    ("账号与权限模块", "登录 · 账号维护 · 导入"),
-    ("资源与开放模块", "空间 · 窗口 · 座位码"),
-    ("预约模块", "选座 · 签到 · 结算"),
-    ("投诉与反馈模块", "求助 · 报修 · 反馈"),
-    ("违规与限制模块", "违规 · 累计 · 限制"),
-    ("申诉与纠错模块", "申诉 · 审核 · 重算"),
-    ("评价与消息模块", "评价 · 回复 · 消息"),
-    ("统计与审计模块", "快照 · 热力图 · 审计"),
-]
-cols, rows = 4, 2
-gw, gh = 2.85, 1.05
-gx0, gy0 = 0.85, 0.9
-hgap = (W - 2 * gx0 - cols * gw) / (cols - 1)
-vgap = 1.15
-bus_y = 6.75
-top_top = gy0 + (rows - 1) * (gh + vgap) + gh
+def modules():
+    f = Figure(5, "系统模块结构图", 736)
+    f.card((380, 132, 900, 213), "智慧自习室预约与管理系统", fill=PALE, align="m")
+    f.panel((48, 269, 1232, 578), "业务模块")
+    f.stroke((640, 213), (640, 269), arrow=True)
+    items = [
+        ("账号与权限", "F01", "登录、账号维护"),
+        ("资源与开放", "F02、F05、F13", "开放、变更善后、补齐座位码"),
+        ("预约", "F03、F04", "选座、签到、结算"),
+        ("投诉与反馈", "F06", "求助、报修、反馈"),
+        ("违规与限制", "F07", "违规登记、预约限制"),
+        ("申诉与纠错", "F08", "申诉审核、核实补签"),
+        ("评价与消息", "F09、F10", "评价、记录、消息"),
+        ("统计与审计", "F11", "热力图、跨模块审计"),
+    ]
+    for index, (title, *details) in enumerate(items):
+        row, column = divmod(index, 4)
+        x, y = 67 + 292 * column, 320 + 120 * row
+        f.card((x, y, x + 270, y + 101), title, *details, detail_size=17)
+    f.card((48, 615, 1232, 698), "F12 · 局域网接入与共同预约",
+           "各设备复用同一套账号、座位和预约规则；接入页提供二维码与共享看板。", fill=PALE)
+    return f
 
-for idx, (name, sub) in enumerate(mods):
-    r, c = divmod(idx, cols)
-    x = gx0 + c * (gw + hgap)
-    y = gy0 + (rows - 1 - r) * (gh + vgap)
-    node(ax, x, y, gw, name, sub=sub, h=gh, name_fs=9.5)
 
-for c in range(cols):
-    x = gx0 + c * (gw + hgap)
-    ax.plot([x + gw / 2, x + gw / 2], [top_top, bus_y], color=LINE, lw=1.1)
-for c in range(cols):
-    x = gx0 + c * (gw + hgap)
-    x_bottom = x + gw / 2
-    y_bottom = gy0
-    mid_y = gy0 + gh + vgap / 2
-    x_gap = x + gw + hgap / 2 if c < 2 else x - hgap / 2
-    ax.plot([x_bottom, x_bottom], [y_bottom + gh, mid_y], color=LINE, lw=1.1)
-    ax.plot([x_bottom, x_gap], [mid_y, mid_y], color=LINE, lw=1.1)
-    ax.plot([x_gap, x_gap], [mid_y, bus_y], color=LINE, lw=1.1)
-ax.plot([gx0 + gw / 2, gx0 + 3 * (gw + hgap) + gw / 2], [bus_y, bus_y], color=LINE, lw=1.1)
-ax.plot([6.5, 6.5], [bus_y, 7.05], color=LINE, lw=1.1)
+def lifecycle():
+    f = Figure(7, "预约状态图", 840)
+    f.card((500, 151, 780, 246), "待签到 · pending", "创建成功后的初始状态", fill=PALE, align="m")
+    f.card((48, 410, 365, 506), "已取消 · cancelled", "不登记用户违规", align="m")
+    f.card((500, 410, 780, 506), "使用中 · checked_in", "已建立唯一使用记录", fill=PALE, align="m")
+    f.card((915, 410, 1232, 506), "未签到结束 · unused_ended", "登记违规并通知", title_size=21, align="m")
+    f.card((500, 679, 780, 770), "已完成 · completed", "使用记录已结算", align="m")
+    f.dot(640, 126)
+    f.stroke((640, 133), (640, 151), arrow="open")
 
-note(ax, "模块对应功能编号 F01—F11；每个模块由控制器与服务组成，数据访问统一经由 Store。", 0.35)
-save(fig, "fig3_系统模块结构.png")
+    for x, y, label in (
+        (105, 174, "本人取消 [开始前]"),
+        (208, 202, "资源变更确认"),
+        (310, 230, "预约限制生效"),
+    ):
+        f.stroke((500, y), (x, y), (x, 410), arrow="open")
+        f.text(x + 15, y - 24, label, 18)
 
-# ============================================================
-# 图 4 预约状态图
-# ============================================================
-W, H = 13.5, 8.2
-fig, ax = plt.subplots(figsize=(13.5, 8.2))
-clean(ax, W, H)
-title(ax, "图 4  预约状态图", W, H)
+    for x, y, label in (
+        (1170, 174, "签到截止 [仍未签到]"),
+        (1020, 230, "主动放弃 [窗口内]"),
+    ):
+        f.stroke((780, y), (x, y), (x, 410), arrow="open")
+        f.text(807, y - 25, label, 18)
 
-node(ax, 5.2, 6.4, 3.0, "待签到 pending", sub="签到窗口：开始 ~ 开始后 15 分钟", h=1.0)
-node(ax, 5.2, 4.3, 3.0, "使用中 checked_in", sub="有唯一使用记录", h=0.85)
-node(ax, 5.2, 2.3, 3.0, "已完成 completed", sub="使用记录已结算", h=0.85)
-node(ax, 0.7, 2.3, 3.2, "已取消 cancelled", sub="开始前取消 · 不登记违规", h=0.85)
-node(ax, 9.5, 2.3, 3.3, "未签到结束 unused_ended", sub="登记违规并通知", h=0.85)
-node(ax, 9.5, 0.7, 3.3, "已取消（管理）", sub="使用中按确认时刻结算", h=0.85)
+    f.stroke((561, 246), (561, 410), arrow="open")
+    f.stroke((719, 246), (719, 410), arrow="open")
+    f.text(545, 302, "本人扫码签到", 19, align="r")
+    f.text(545, 331, "[窗口内，座位码有效", 17, align="r")
+    f.text(545, 358, "且资源开放]", 17, align="r")
+    f.text(736, 302, "管理员核实补签", 19)
+    f.text(736, 331, "[窗口内，核实依据齐全]", 17)
 
-ax.add_patch(Circle((2.0, 6.9), 0.18, fc="#404040"))
-arrow(ax, 2.0, 6.9, 5.2, 6.9, "创建预约", tdy=0.28)
-arrow(ax, 6.7, 6.4, 6.7, 5.15, "扫码签到", tdy=0.22)
-arrow(ax, 6.7, 4.3, 6.7, 3.15, "提前签退 / 到期自动结束", tdy=0.22)
-arrow(ax, 5.2, 6.75, 3.9, 5.75, "开始前取消", rad=0.12, tdy=0.25)
-arrow(ax, 8.2, 6.75, 9.9, 5.75, "未签到 / 主动放弃", rad=0.12, tdy=0.25)
-arrow(ax, 8.2, 4.4, 9.9, 3.3, "资源管理取消", rad=0.12, tdy=0.25)
-arrow(ax, 11.15, 2.3, 11.15, 1.6)
+    f.stroke((500, 473), (398, 473), (398, 585), (207, 585), (207, 506), arrow="open")
+    f.text(229, 525, "资源变更确认", 19)
+    f.text(229, 555, "/ 按确认时刻结算", 18)
 
-note(ax, "调度器每 10 秒推进状态结算；未签到与到期自动结束由签到截止判断类与预约服务统一判定。", 0.3)
-save(fig, "fig4_预约状态图.png")
+    f.stroke((561, 506), (561, 679), arrow="open")
+    f.stroke((719, 506), (719, 679), arrow="open")
+    f.text(544, 613, "提前签退 / 按实际时刻结算", 19, align="r")
+    f.text(736, 613, "到期结束 / 按计划时刻结算", 19)
+    f.note(792, "签到窗口为 [预约开始，开始后 15 分钟)。")
+    return f
 
-# ============================================================
-# 图 5 预约创建顺序图
-# ============================================================
-W, H = 14.5, 9.6
-fig, ax = plt.subplots(figsize=(14.5, 9.6))
-clean(ax, W, H)
-title(ax, "图 5  预约创建顺序图", W, H)
 
-roles = ["用户浏览器", "预约控制器", "预约服务", "开放安排服务", "限制策略", "数据访问层", "消息服务"]
-xs = [1.2, 3.3, 5.5, 7.7, 9.8, 11.9, 13.6]
-for x, r in zip(xs, roles):
-    node(ax, x - 0.95, 7.9, 1.9, r, h=0.65, name_fs=8.5)
-    ax.plot([x, x], [0.85, 7.85], color=LINE, lw=1.0, ls=(0, (4, 3)))
+def sequence():
+    f = Figure(6, "预约创建顺序图", 1334)
+    participants = [
+        (97, "浏览器", "Vue 3"), (252, "接口控制器", "ApiController"),
+        (407, "预约服务", "BookingService"), (562, "数据访问", "Store"),
+        (717, "限制策略", "RestrictionPolicy"), (872, "开放安排", "OpeningScheduleService"),
+        (1027, "消息服务", "NotificationService"), (1182, "审计服务", "AuditService"),
+    ]
+    for x, label, cls in participants:
+        f.card((x - 71, 135, x + 71, 195), label, cls, title_size=21,
+               detail_size=12, align="m", fill=PALE, radius=0)
+        f.stroke((x, 195), (x, 1192), dashed=True, color=BORDER)
+    # 每条消息的标题置于相邻生命线之间，避免盖住生命线。
+    messages = [
+        (0, 1, ("POST", "/api/reservations")),
+        (1, 2, ("createForClient",)),
+        (2, 3, ("锁定预约互斥行",)),
+        (2, 2, ("校验时间、账号", "推进旧预约及限制")),
+        (2, 4, ("查询预约资格",)),
+        (4, 2, ("返回资格",)),
+        (2, 3, ("读取目标座位与", "空间，核验可用")),
+        (2, 5, ("校验开放窗口",)),
+        (2, 2, ("结算相关旧预约", "应用有效限制")),
+        (2, 3, ("查座位、用户冲突", "通过后插入预约")),
+        (2, 6, ("记录站内消息",)),
+        (2, 7, ("记录创建审计",)),
+        (2, 3, ("读预约和使用记录",)),
+        (2, 2, ("组装预约视图", "附上允许动作")),
+        (2, 1, ("返回结果", "ActionResult")),
+        (1, 0, ("HTTP 200", "统一响应信封")),
+    ]
+    replies = {5, 14, 15}
+    for index, (sender, receiver, lines) in enumerate(messages):
+        x1, x2 = participants[sender][0], participants[receiver][0]
+        y = 244 + index * 61
+        if sender == receiver:
+            f.stroke((x1, y), (x1 + 45, y), (x1 + 45, y + 10), (x1, y + 10), arrow=True)
+        else:
+            reply = index in replies
+            f.stroke((x1, y), (x2, y), arrow="open" if reply else True, dashed=reply)
+        for offset, label in enumerate(reversed(lines)):
+            f.text(min(x1, x2) + 8, y - 25 - 20 * offset, label, 16 if label.startswith("/") else 18)
 
-def msg(ax, y, x1, x2, label, tdx=0.0):
-    arrow(ax, x1, y, x2, y, lw=1.2)
-    ax.text((x1 + x2) / 2 + tdx, y + 0.17, label, ha="center", va="bottom",
-            fontsize=8, bbox=dict(fc="white", ec="none", pad=0.5))
+    f.note(1214, "手动选座成功路径。实线带实心箭头表示同步调用，虚线带开放箭头表示返回。")
+    f.note(1248, "预约写入、站内消息和审计在同一服务事务内。资格失败返回 403，时段冲突返回 409。")
+    f.note(1282, "其余读取、重复校验及部分返回消息从略。")
+    return f
 
-msg(ax, 7.2, 1.2, 3.3, "POST /api/reservations")
-msg(ax, 6.8, 3.3, 5.5, "createForClient(uid, req)")
-msg(ax, 6.4, 5.5, 11.9, "lockBookings() 锁定互斥行")
-msg(ax, 6.0, 5.5, 7.7, "requireSlot(seat, slot)", tdx=0.4)
-msg(ax, 5.6, 7.7, 5.5, "开放窗口校验通过")
-msg(ax, 5.2, 5.5, 9.8, "eligibility(uid)")
-msg(ax, 4.8, 9.8, 5.5, "返回可预约资格")
-msg(ax, 4.4, 5.5, 11.9, "冲突检查并插入预约记录")
-msg(ax, 4.0, 11.9, 5.5, "返回预约记录")
-msg(ax, 3.6, 5.5, 13.6, "reservation() 站内消息", tdx=0.3)
-msg(ax, 3.2, 5.5, 11.9, "audit.record() 审计留痕", tdx=0.2)
-msg(ax, 2.8, 5.5, 3.3, "返回动作结果")
-msg(ax, 2.4, 3.3, 1.2, "HTTP {code, message, data}")
 
-note(ax, "同步请求为实线箭头，返回为虚线语义；业务失败返回 4xx 并携带 details 投影，预约状态保持。", 0.5)
-save(fig, "fig5_预约创建顺序图.png")
+def entity(f, x, y, table, description, width=205):
+    f.card((x, y, x + width, y + 73), table, description, title_size=19, detail_size=16, fill=PALE, radius=0)
 
-# ============================================================
-# 图 6 数据实体关系图（ER 图）
-# ============================================================
-W, H = 14.0, 9.6
-fig, ax = plt.subplots(figsize=(14.0, 9.6))
-clean(ax, W, H)
-title(ax, "图 6  核心数据实体关系图（ER 图）", W, H)
 
-ents = [
-    ("users 用户", 0.7, 7.3, 2.9, "id · username · campus_id|role · status"),
-    ("restrictions 限制", 0.7, 4.4, 2.9, "user_id · starts_at · ends_at|source · released_at"),
-    ("violations 违规", 0.7, 1.5, 2.9, "user_id · reservation_id|type · status"),
-    ("appeals 申诉", 4.0, 1.5, 2.9, "violation_id · deadline|status · version"),
-    ("rooms 空间", 5.5, 7.3, 2.9, "name · building · floor|enabled · version"),
-    ("seats 座位", 5.5, 4.4, 2.9, "seat_no · zone|has_power · status"),
-    ("reservations 预约", 5.5, 1.5, 2.9, "user_id · seat_id|res_date · start_time · end_time|status"),
-    ("usage_records 使用记录", 9.0, 1.5, 2.9, "reservation_id 唯一|checkin_at · ended_at|origin"),
-    ("complaints 投诉", 9.0, 4.4, 2.9, "user_id · type · status|service 字段"),
-    ("complaint_events 事件", 9.0, 7.3, 2.9, "event_type · source|不可覆盖"),
-    ("seat_codes 座位码", 12.1, 7.3, 1.8, "seat_id 主键|code_value"),
-    ("notifications 消息", 12.1, 4.4, 1.8, "user_id|type · event_key"),
-]
-for name, x, y, w, sub in ents:
-    node(ax, x, y, w, name, sub=sub, h=None, name_fs=9.5)
+def cardinality(f, point, toward, count):
+    x, y = point
+    dx = (toward[0] > x) - (toward[0] < x)
+    dy = (toward[1] > y) - (toward[1] < y)
 
-def rel(ax, x1, y1, x2, y2, label, rad=0.0, tdx=0.0):
-    arrow(ax, x1, y1, x2, y2, label, lw=1.2, fs=7.8, rad=rad, tdx=tdx)
+    def offset(along, across=0):
+        return (x + dx * along - dy * across, y + dy * along + dx * across)
 
-rel(ax, 2.15, 7.3, 2.15, 5.35, "1—N")
-rel(ax, 2.15, 4.4, 2.15, 2.45, "1—N")
-rel(ax, 3.5, 2.05, 4.0, 2.3, "1—N")
-rel(ax, 6.95, 7.3, 6.95, 5.35, "1—N 包含")
-rel(ax, 6.95, 4.4, 6.95, 2.5, "1—N 被预约")
-rel(ax, 8.4, 2.1, 9.0, 2.35, "1—1 使用")
-rel(ax, 10.45, 5.35, 10.45, 7.3, "1—N 事件")
-rel(ax, 12.1, 7.3, 12.1, 5.35, "1—1")
-# 预约 -> 投诉（折线）
-ax.plot([6.95, 6.95], [1.5, 2.2], color=LINE, lw=1.2)
-ax.plot([6.95, 9.0], [2.2, 2.2], color=LINE, lw=1.2)
-ax.plot([9.0, 9.0], [2.2, 4.4], color=LINE, lw=1.2)
-ax.text(8.0, 2.38, "1—N 投诉", ha="center", va="center", fontsize=7.8, color=LBL,
-        bbox=dict(fc="white", ec="none", pad=0.5))
-# 消息 -> 用户（折线）
-ax.plot([12.1, 12.1], [4.4, 5.0], color=LINE, lw=1.2)
-ax.plot([12.1, 11.5], [5.0, 5.0], color=LINE, lw=1.2)
-ax.plot([11.5, 11.5], [5.0, 6.7], color=LINE, lw=1.2)
-ax.plot([11.5, 3.6], [6.7, 6.7], color=LINE, lw=1.2)
-ax.add_patch(FancyArrowPatch((3.6, 6.7), (3.6, 7.3), arrowstyle="-|>",
-                             mutation_scale=13, color=LINE, lw=1.2))
-ax.text(7.5, 6.88, "N—1", ha="center", va="center", fontsize=7.8, color=LBL,
-        bbox=dict(fc="white", ec="none", pad=0.5))
+    xs, ys = zip(offset(0, -8), offset(26, 8))
+    f.decorations.append((min(xs), min(ys), max(xs), max(ys)))
 
-note(ax, "关系线标注多重性（1、1—N、N—1）；完整字段与约束以数据库迁移脚本 V1—V31 为准。", 0.45)
-save(fig, "fig6_数据实体关系图.png")
+    f.draw_segment(offset(0), offset(13), LINE, 2)
+    if count.endswith("*"):
+        for wing in (-7, 7):
+            f.draw_segment(offset(13), offset(1, wing), LINE, 2)
+    else:
+        f.draw_segment(offset(9, -7), offset(9, 7), LINE, 2)
+    if count.startswith("0"):
+        cx, cy = offset(21)
+        circle = (cx - 4, cy - 4, cx + 4, cy + 4)
+        f.draw.ellipse(tuple(n * SCALE for n in circle), fill=WHITE, outline=LINE, width=2 * SCALE)
+    else:
+        f.draw_segment(offset(19, -7), offset(19, 7), LINE, 2)
 
-# ============================================================
-# 图 7 核心设计类图
-# ============================================================
-W, H = 17.5, 12.2
-fig, ax = plt.subplots(figsize=(17.5, 12.2))
-clean(ax, W, H)
-title(ax, "图 7  核心设计类图（节选）", W, H)
 
-HEADER = 0.5
-PAD = 0.32
-LSP = 0.30
-SEP = 0.18
-BOT = 0.2
+def relationship(f, *points, first, second, identifying=False):
+    f.stroke(*points, dashed=not identifying)
+    cardinality(f, points[0], points[1], first)
+    cardinality(f, points[-1], points[-2], second)
 
-def uml(ax, x, y, w, name, attrs, methods):
-    h = HEADER + PAD + len(attrs) * LSP + SEP + 0.10 + len(methods) * LSP + BOT
-    ax.add_patch(Rectangle((x, y), w, h, fc="white", ec=NODE_EC, lw=1.3))
-    ax.add_patch(Rectangle((x, y + h - HEADER), w, HEADER, fc="#F2F2F2", ec=NODE_EC, lw=1.0))
-    ax.text(x + w / 2, y + h - HEADER / 2, name, ha="center", va="center",
-            fontsize=10, fontweight="bold", color=NODE_TEXT)
-    ay = y + h - HEADER - PAD
-    for a in attrs:
-        ax.text(x + 0.14, ay, a, fontsize=7.8, color=NODE_TEXT, va="center")
-        ay -= LSP
-    sep_y = ay + LSP - 0.10
-    ax.plot([x, x + w], [sep_y, sep_y], color=NODE_EC, lw=0.9)
-    ay = sep_y - SEP
-    for m in methods:
-        ax.text(x + 0.14, ay, m, fontsize=7.8, color="#1F4E79", va="center")
-        ay -= LSP
-    return h
 
-def dep(ax, x1, y1, x2, y2):
-    ax.add_patch(FancyArrowPatch((x1, y1), (x2, y2), arrowstyle="-|>", mutation_scale=13,
-                                 color=LINE, lw=1.2, linestyle=(0, (4, 3))))
+def entities():
+    f = Figure(1, "核心数据实体关系图", 1355)
+    f.panel((48, 133, 627, 648), "空间与预约")
+    f.panel((653, 133, 1232, 648), "投诉与反馈")
+    f.panel((48, 675, 627, 1172), "违规、限制与申诉")
+    f.panel((653, 675, 1232, 1172), "站内消息")
+    entity(f, 74, 188, "rooms", "空间")
+    entity(f, 377, 188, "users", "校园账号")
+    entity(f, 74, 311, "seats", "座位 · room_id")
+    entity(f, 377, 311, "reservations", "预约 · 属于用户与座位")
+    entity(f, 74, 434, "seat_codes", "座位码 · seat_id")
+    entity(f, 377, 434, "usage_records", "使用记录 · 预约唯一")
+    entity(f, 377, 557, "reviews", "评价 · 预约唯一")
+    relationship(f, (155, 261), (155, 311), first="1", second="0..*")
+    relationship(f, (498, 261), (498, 311), first="1", second="0..*")
+    relationship(f, (279, 350), (377, 350), first="1", second="0..*")
+    relationship(f, (155, 384), (155, 434), first="1", second="0..1", identifying=True)
+    relationship(f, (476, 384), (476, 434), first="1", second="0..1")
+    relationship(f, (582, 361), (611, 361), (611, 593), (582, 593), first="1", second="0..1")
 
-row1_y, row2_y, row3_y = 9.6, 6.0, 2.2
-x1a, x1b, x1c = 0.7, 6.3, 12.0
-cw1, cw2 = 5.3, 5.5
+    entity(f, 679, 188, "users", "提交人")
+    entity(f, 1002, 188, "reservations", "关联预约")
+    entity(f, 679, 333, "complaints", "投诉 · 预约外键可空")
+    entity(f, 1002, 333, "complaint_events", "事件 · complaint_id")
+    entity(f, 679, 478, "rooms", "关联空间")
+    relationship(f, (750, 261), (750, 333), first="1", second="0..*")
+    relationship(f, (1104, 261), (1104, 295), (837, 295), (837, 333), first="0..1", second="0..*")
+    relationship(f, (884, 372), (1002, 372), first="1", second="0..*")
+    relationship(f, (781, 406), (781, 478), first="0..*", second="0..1")
+    f.text(678, 581, "被占求助必须关联提交人自己的预约。", 17)
 
-hA = uml(ax, x1a, row1_y, cw1, "AvailabilityService 找座服务",
-         ["- db / auth / clock / policy", "- bookings / opening"],
-         ["+ find(uid, roomId, date, ...)", "+ reconcileAvailability()"])
-hB = uml(ax, x1b, row1_y, cw2, "BookingService 预约服务",
-         ["- db / clock / opening / policy", "- audit / violations / codes", "- usage / restrictions / messages"],
-         ["+ createForClient(uid, req)", "+ checkin(uid, id, seatCode)", "+ action(uid, id, action)"])
-hC = uml(ax, x1c, row1_y, cw1, "RestrictionWorkflow 限制工作流",
-         ["- db / auth / policy", "- bookings / violations"],
-         ["+ registerManualViolation()", "+ create(actor, req)", "+ release(actor, id, req)"])
+    entity(f, 74, 733, "users", "限制对象及违规主体")
+    entity(f, 397, 733, "reservations", "违规关联预约")
+    entity(f, 74, 856, "restrictions", "预约限制 · user_id")
+    entity(f, 397, 856, "violations", "违规 · 关联用户与预约")
+    entity(f, 74, 979, "appeal_reviews", "审核 · appeal_id")
+    entity(f, 397, 979, "appeals", "申诉 · 关联违规与用户")
+    relationship(f, (159, 806), (159, 856), first="1", second="0..*")
+    relationship(f, (498, 806), (498, 856), first="1", second="0..*")
+    relationship(f, (498, 929), (498, 979), first="1", second="0..*")
+    relationship(f, (279, 1018), (397, 1018), first="0..1", second="1")
+    relationship(f, (279, 770), (338, 770), (338, 893), (397, 893), first="1", second="0..*")
+    f.text(73, 1080, "自动限制通过 restriction_evaluation_sources", 17)
+    f.text(73, 1106, "固定 3 条违规。每条违规最多作为一个自动限制的来源。", 17)
 
-hD = uml(ax, x1a, row2_y, cw1, "OpeningScheduleService 开放安排服务",
-         ["- db / auth / audit / clock"],
-         ["+ calendar(roomId)", "+ requireSlot(seat, slot)", "+ save / saveBlock"])
-hE = uml(ax, x1b, row2_y, cw2, "RestrictionPolicy 限制策略",
-         ["- db / audit / json / messages"],
-         ["+ eligibility(uid) : 资格投影", "+ assess(uid, now)", "+ create / release / 重算"])
-hF = uml(ax, x1c, row2_y, cw1, "Store 数据访问类（唯一 SQL 入口）",
-         ["- jdbc : JdbcTemplate"],
-         ["+ list / one / update / count", "+ insert(sql, ...) : id", "+ lockBookings()"])
+    entity(f, 679, 733, "users", "消息接收人", width=527)
+    entity(f, 679, 856, "notifications", "站内消息 · user_id、type、event_key", width=527)
+    relationship(f, (943, 806), (943, 856), first="1", second="0..*")
+    f.text(679, 968, "按消息类型关联对应业务对象", 19, bold=True)
+    f.text(679, 1010, "预约、投诉、违规、限制、申诉、评价", 19)
+    f.text(679, 1053, "部分引用与 user_id 组成复合外键，", 17)
+    f.text(679, 1084, "数据库同时校验对象与消息归属。", 17)
 
-x3 = [0.7, 5.2, 9.7, 14.2]
-hG = uml(ax, x3[0], row3_y, 4.0, "UsageService 使用服务", ["- db"], ["+ start / finish / view"])
-hH = uml(ax, x3[1], row3_y, 4.0, "BookingPolicy 预约规则", ["- clock", "MAX_ADVANCE_DAYS = 2"], ["+ validateDate / validate"])
-hI = uml(ax, x3[2], row3_y, 4.0, "Slot 时间区间（记录类）", ["- date / start / end"], ["+ parse / overlaps", "+ startsAt / endsAt"])
-hJ = uml(ax, x3[3], row3_y, 2.9, "ReservationDeadline 签到截止", ["- SIGN_IN_MINUTES = 15"], ["+ at / expiredPending"])
+    for x, count, label in ((90, "1", "恰好一个"), (320, "0..1", "零或一个"), (550, "0..*", "零到多个")):
+        f.stroke((x, 1213), (x + 78, 1213))
+        cardinality(f, (x + 78, 1213), (x, 1213), count)
+        f.text(x + 94, 1204, label, 19)
+    f.note(1254, "同名框代表同一张表。实线表示标识关系，虚线表示非标识关系。")
+    f.note(1294, "图中列出主要关系，完整约束见 Flyway V1—V31 迁移脚本。")
+    return f
 
-# 依赖箭头只走类框之间的空隙
-dep(ax, x1a + cw1, row1_y + hA - 0.9, x1b, row1_y + hA - 0.9)
-dep(ax, x1b + cw2, row1_y + hB - 0.9, x1c, row1_y + hB - 0.9)
-dep(ax, x1a + cw1 / 2, row1_y, x1a + cw1 / 2, row2_y + hD)
-dep(ax, x1b + cw2 / 2, row1_y, x1b + cw2 / 2, row2_y + hE)
-dep(ax, x1c + cw1 / 2, row1_y, x1c + cw1 / 2, row2_y + hF)
-dep(ax, x1b + cw2, row2_y + hE - 0.5, x1c, row2_y + hF - 0.5)
-dep(ax, x1a + cw1 / 2, row2_y, x1a + cw1 / 2, row3_y + hG)
-dep(ax, x1b + cw2 / 2, row2_y, x1b + cw2 / 2, row3_y + hH)
-dep(ax, x1c + cw1 / 2, row2_y, x1c + cw1 / 2, row3_y + hI)
 
-note(ax, "虚线箭头表示依赖（调用 / 编排 / 数据访问）；所有业务服务均依赖 Store 完成数据访问。", 0.45)
-save(fig, "fig7_设计类图.png")
+def classes():
+    f = Figure(2, "核心设计类图", 1220)
+    f.panel((48, 131, 1232, 363), "上游业务协作")
+    f.uml((72, 201, 385, 315), "AvailabilityService", "- bookings: BookingService", "+ find(…)", fill=PALE)
+    f.uml((482, 201, 798, 315), "BookingService", "- db: Store  ·  - clock: Clock",
+          "+ reconcileAvailability(…)", fill=PALE)
+    f.uml((895, 201, 1208, 315), "RestrictionWorkflow", "- bookings: BookingService",
+          "+ create(…)  ·  + release(…)", fill=PALE)
+    f.stroke((385, 272), (482, 272), arrow="open", dashed=True)
+    f.stroke((895, 272), (798, 272), arrow="open", dashed=True)
+    f.text(433, 237, "找座前结算", 16, align="m")
+    f.text(846, 237, "应用限制", 16, align="m")
+    f.panel((48, 389, 1232, 1123), "预约服务的直接依赖")
+    f.uml((446, 447, 834, 576), "BookingService", "- opening: OpeningScheduleService",
+          "+ createForClient(…)  ·  + checkin(…)", "+ action(…)  ·  + correctCheckin(…)", fill=PALE)
+    rows = [
+        (605, ("OpeningScheduleService", "- db: Store", "+ requireSlot(roomId, seatId, slot)"),
+              ("RestrictionPolicy", "- db: Store", "~ eligibility(user, now)  ·  + assess(…)")),
+        (735, ("BookingPolicy", "- clock: Clock", "+ validateDate(…)  ·  + validate(slot)"),
+              ("UsageService", "- db: Store", "+ start(…)  ·  + finish(…)  ·  + view(…)")),
+        (865, ("Slot", "- date  ·  - startMinute  ·  - endMinute", "+ parse(…)  ·  + overlaps(…)"),
+              ("ReservationDeadline", "+ SIGN_IN_MINUTES = 15", "+ at(…)  ·  + expiredPending(…)")),
+    ]
+    f.stroke((640, 576), (640, 1001), dashed=True, arrow="open")
+    for (y, left, right), x_left, x_right in zip(rows, (578, 598, 618), (702, 682, 662)):
+        f.uml((74, y, 556, y + 105), *left)
+        f.uml((724, y, 1206, y + 105), *right)
+        f.stroke((x_left, 576), (x_left, y + 52), (556, y + 52), arrow="open", dashed=True)
+        f.stroke((x_right, 576), (x_right, y + 52), (724, y + 52), arrow="open", dashed=True)
+    f.uml((446, 1001, 834, 1106), "Store", "- jdbc: JdbcTemplate", "+ lockBookings()  ·  + insert(…)", fill=PALE)
+    f.note(1154, "虚线带开放箭头表示依赖。+ 公开，- 私有，~ 包内可见。")
+    return f
 
-print("ALL DONE")
+
+def main():
+    figures = (
+        (entities, "fig1_数据实体关系图.png"),
+        (classes, "fig2_设计类图.png"),
+        (architecture, "fig3_系统总体架构.png"),
+        (deployment, "fig4_系统部署架构.png"),
+        (modules, "fig5_系统模块结构.png"),
+        (sequence, "fig6_预约创建顺序图.png"),
+        (lifecycle, "fig7_预约状态图.png"),
+    )
+    rendered = []
+    for build, filename in figures:
+        figure = build()
+        figure.validate()
+        rendered.append((figure, filename))
+    OUT.mkdir(parents=True, exist_ok=True)
+    for figure, filename in rendered:
+        image = figure.image.crop((0, TOP * SCALE, WIDTH * SCALE, figure.height * SCALE))
+        image.save(OUT / filename, dpi=(180, 180), optimize=True)
+        print(f"{filename}  {image.width} × {image.height}")
+
+
+if __name__ == "__main__":
+    main()

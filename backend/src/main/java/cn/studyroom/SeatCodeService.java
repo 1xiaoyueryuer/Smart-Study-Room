@@ -32,6 +32,23 @@ public class SeatCodeService {
         db.update("INSERT INTO seat_codes(seat_id,code_value,enabled,version,created_at,updated_at) VALUES(?,?,TRUE,1,?,?)",seat,code,now,now);
         var after=view(seat,current(seat));audit.record(actor,"seat_code.generate","seat",Long.toString(seat),redact(reason),view(seat,old),after);return after;
     }
+    /** 为全部缺码座位补齐当前码；已有码（含停用）座位保持原值、版本和启停不变。 */
+    public Map<String,Object> batchGenerate(long actor,Requests.SeatCodeBatch body) {
+        db.lockBookings();requireAdmin(actor);String reason=reason(body==null?null:body.reason());
+        var missing=db.list("SELECT s.id FROM seats s LEFT JOIN seat_codes c ON c.seat_id=s.id WHERE c.seat_id IS NULL ORDER BY s.id");
+        Timestamp now=Timestamp.from(clock.instant());
+        for(var row:missing) {
+            long seat=Store.id(row,"id");
+            db.update("INSERT INTO seat_codes(seat_id,code_value,enabled,version,created_at,updated_at) VALUES(?,?,TRUE,1,?,?)",seat,newCode(),now,now);
+            audit.record(actor,"seat_code.batch_generate","seat",Long.toString(seat),redact(reason),view(seat,Map.of()),view(seat,current(seat)));
+        }
+        long total=db.count("SELECT count(*) FROM seats");
+        long generated=missing.size();
+        long configured=db.count("SELECT count(*) FROM seat_codes");
+        var result=new LinkedHashMap<String,Object>();
+        result.put("total_seats",total);result.put("generated",generated);result.put("skipped",configured-generated);
+        return result;
+    }
     public Map<String,Object> rotate(long actor,long seat,Requests.SeatCodeChange body) {
         db.lockBookings();requireAdmin(actor);requireSeat(seat);String reason=reason(body==null?null:body.reason());var old=required(seat);version(old,body==null?null:body.version());
         db.update("UPDATE seat_codes SET code_value=?,version=version+1,updated_at=? WHERE seat_id=?",newCode(),Timestamp.from(clock.instant()),seat);

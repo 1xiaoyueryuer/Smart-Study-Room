@@ -82,3 +82,4 @@ export const createSeatCode = (id, data) => request.post(`/admin/seats/${id}/cod
 export const rotateSeatCode = (id, data) => request.post(`/admin/seats/${id}/code/rotate`, data, { silent: true })
 export const updateSeatCode = (id, data) => request.patch(`/admin/seats/${id}/code`, data, { silent: true })
 export const getSeatCodePng = (id, expectedVersion) => request.get(`/admin/seats/${id}/code/png`, { params: { expected_version: expectedVersion }, responseType: 'blob', silent: true })
+export const batchGenerateSeatCodes = data => request.post('/admin/seat-codes/batch', data)

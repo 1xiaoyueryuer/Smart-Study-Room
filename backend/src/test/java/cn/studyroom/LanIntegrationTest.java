@@ -23,7 +23,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /** 局域网接入、在线设备与共享看板必须使用独立真实测试库；预约写入仍走 BookingService。 */
 @EnabledIfEnvironmentVariable(named="STUDYROOM_INTEGRATION",matches="true")
-@SpringBootTest(properties={"spring.datasource.url=${STUDYROOM_TEST_DB_URL:jdbc:postgresql://127.0.0.1:5433/studyroom_java_test}","studyroom.seed=false","studyroom.scheduler-enabled=false"})
+@SpringBootTest(properties={"spring.datasource.url=${STUDYROOM_TEST_DB_URL:jdbc:postgresql://127.0.0.1:5433/studyroom_java_test}","studyroom.seed=false","studyroom.scheduler-enabled=false","server.address=127.0.0.1","server.ssl.enabled=false"})
 class LanIntegrationTest {
     @Autowired Store db;
     @Autowired LanService lan;
@@ -57,6 +57,7 @@ class LanIntegrationTest {
         assertEquals(true,loopClient.get("same_lan"));
         @SuppressWarnings("unchecked") var server=(Map<String,Object>)loopback.get("server");
         assertEquals("127.0.0.1",server.get("bind_address"));
+        assertEquals(false,server.get("secure"));
         assertEquals(false,server.get("lan_available"));
         assertEquals(0,((List<?>)loopback.get("links")).size());
         assertTrue(String.valueOf(loopback.get("hint")).contains("server.address=0.0.0.0"));
