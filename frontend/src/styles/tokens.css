@@ -9,15 +9,15 @@
   /* ---------- 画布与表面 · 浅薄荷白（与首页底色一致） ---------- */
   --canvas: #eef5f4;
   --canvas-deep: #e5efee;
-  --surface: #fffdf8;
-  --surface-2: #faf5ea;
-  --surface-3: #f3ecdd;
-  --surface-hover: #f6efe2;
+  --surface: #fbfefd;
+  --surface-2: #f3faf8;
+  --surface-3: #eaf4f1;
+  --surface-hover: #eef8f5;
 
   /* ---------- 边界 ---------- */
-  --border: #e6ddcb;
-  --border-strong: #d7cab2;
-  --hairline: #efe7d8;
+  --border: #d9e9e3;
+  --border-strong: #c3dbd3;
+  --hairline: #e6f1ee;
 
   /* ---------- 文字 · 深墨绿 ---------- */
   --text-1: #23372d;
