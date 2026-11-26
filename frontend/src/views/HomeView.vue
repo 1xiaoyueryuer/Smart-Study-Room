@@ -1,6 +1,5 @@
 <script setup>
 import StudyTips from '../components/StudyTips.vue'
-import SAnimatedNumber from '../components/ui/SAnimatedNumber.vue'
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
@@ -12,26 +11,12 @@ import { validOverview, ratioText } from '../composables/statsForm.js'
 import { createStatsRefresh } from '../composables/statsRefresh.js'
 import { checkinDeadlineOf, deadlineLabel } from '../composables/checkinDeadline.js'
 import { formatCampusDateTime } from '../composables/campusDateTime.js'
-import AppIcon from '../components/AppIcon.vue'
 import SBanner from '../components/ui/SBanner.vue'
 import SButton from '../components/ui/SButton.vue'
 
 const router = useRouter()
 const auth = useAuthStore()
 const notifStore = useNotificationStore()
-
-const who = computed(() => auth.user?.real_name || auth.user?.username || '同学')
-const todayText = computed(() =>
-  new Date().toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' })
-)
-const greeting = computed(() => {
-  const h = new Date().getHours()
-  if (h < 6) return '夜深了'
-  if (h < 12) return '早上好'
-  if (h < 14) return '中午好'
-  if (h < 18) return '下午好'
-  return '晚上好'
-})
 
 const statsOverview = ref(null)
 const statsError = ref('')
@@ -135,6 +120,7 @@ const shortcuts = computed(() => auth.isAdmin
     ])
 
 // 自习室种类卡片：四个分区（与设计稿一致），入口统一去预约页。
+// 自习室种类卡片：四个分区（与设计稿一致），入口统一去预约页。
 const zones = [
   { key: 'A', name: 'A区', img: '/images/zone-a.jpg' },
   { key: 'B', name: 'B区', img: '/images/zone-b.jpg' },
@@ -156,96 +142,82 @@ function timeText(row) {
 </script>
 
 <template>
-  <div v-reveal class="page-view home-page" :class="{ 'home-page--user': auth.isOrdinary }">
-    <!-- ===== 管理员端：维持原布局不变 ===== -->
+  <div v-reveal class="page-view home-page" :class="{ 'home-page--user': auth.isOrdinary, 'home-page--admin': auth.isAdmin }">
+    <!-- ===== 管理员端：与用户端同款首页（不含我的学习安排） ===== -->
     <template v-if="auth.isAdmin">
-      <header class="home-hello" data-page-title>
-        <p class="hello-date">{{ todayText }}</p>
-        <h1>{{ greeting }}，{{ who }}</h1>
-      </header>
-
-      <div class="home-layout">
-        <div class="home-main">
-          <section class="hero">
+      <div class="hero-zone">
+        <section class="hero-full">
+          <div class="hero-inner">
             <div class="hero-copy">
-              <p class="hero-eyebrow">静阅 · 专注空间</p>
-              <h2 class="hero-title-admin">今日运营，一目了然</h2>
+              <p class="hero-eyebrow" data-page-title>
+                <span class="eyebrow-dash" aria-hidden="true" />
+                <span>静阅 · 专注空间</span>
+              </p>
+              <h1 class="hero-title">
+                <span class="hero-title-line">今日运营，</span>
+                <span class="hero-title-line">一目了然</span>
+              </h1>
               <p class="hero-sub">查看真实使用统计与待办，安排今天的开放资源</p>
-              <SButton variant="primary" size="lg" class="hero-cta" @click="router.push('/analytics')">查看统计</SButton>
             </div>
-            <img class="hero-photo" src="/images/home-hero.jpg" alt="" aria-hidden="true" />
-          </section>
-
-          <section class="card quick-card">
-            <div class="card-title-row"><h3>常用功能</h3><span class="muted">快速进入对应业务</span></div>
-            <div class="quick-grid">
-              <button v-for="s in shortcuts" :key="s.to" type="button" class="quick-item" @click="router.push(s.to)">
-                <span class="quick-icon"><AppIcon :name="s.icon" :size="22" /></span>
-                <span class="quick-copy"><b>{{ s.title }}</b><small>{{ s.desc }}</small></span>
-                <AppIcon class="quick-arrow" name="chevron-right" :size="16" />
-              </button>
-            </div>
-          </section>
-
-          <div class="tips-anchor">
-            <StudyTips title="管理提示">
-              <ul class="tips tips-list">
-                <li>资源变更先预览影响清单，确认后管理取消受影响预约，不记用户违约。</li>
-                <li>投诉先受理再核实，未知身份不归责；设施报修由系统按影响范围和安全风险自动分级，存在安全风险固定5级。</li>
-                <li>统计快照每 10 秒刷新，失败保留上次成功值与时间。</li>
-                <li>评价隐藏后本人修改不自动恢复公开，需管理员复核。</li>
-              </ul>
-            </StudyTips>
           </div>
-        </div>
+          <div class="hero-bottom">
+            <div class="hero-actions">
+              <button type="button" class="hero-btn hero-btn--solid" @click="router.push('/analytics')">查看统计</button>
+              <button type="button" class="hero-btn hero-btn--outline" @click="router.push('/admin')">管理端</button>
+            </div>
+            <div class="hero-kpis">
+              <div class="hero-kpi"><b>{{ inUseNow ?? '—' }}</b><span>使用中</span></div>
+              <div class="hero-kpi"><b>{{ openAvailableSeats ?? '—' }}</b><span>开放可用</span></div>
+              <div class="hero-kpi"><b class="is-text">{{ currentUsageText }}</b><span>使用比例</span></div>
+              <div class="hero-kpi"><b>{{ complaintTodoCount ?? '—' }}</b><span>投诉待办</span></div>
+            </div>
+          </div>
+        </section>
+      </div>
 
-        <aside class="home-side">
+      <div class="admin-grid">
+        <section class="zone-section">
+          <div class="zone-head">
+            <h3>自习室列表</h3>
+            <span class="zone-head-meta">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
+              按开放时间管理自习室
+            </span>
+          </div>
+          <div class="zone-grid zone-grid--admin">
+            <article v-for="z in zones" :key="z.key" class="zone-card">
+              <img class="zone-photo" :src="z.img" alt="" aria-hidden="true" />
+              <div class="zone-body">
+                <h4>{{ z.name }}</h4>
+                <button type="button" class="zone-cta" @click="router.push('/admin')">去管理</button>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <aside class="admin-side">
           <section class="card overview-card">
             <div class="card-title-row">
-              <h3>今日概览</h3>
+              <h3>统计状态</h3>
               <RouterLink to="/analytics" class="text-link">详细统计</RouterLink>
             </div>
             <p v-if="statsLoading" class="muted">正在加载统计…</p>
             <p class="muted" role="status">{{ statsVisible ? '页面可见时每 10 秒刷新。' : '页面已隐藏，刷新暂停。' }}</p>
             <SBanner v-if="statsError" type="error" :title="statsError"><SButton size="sm" @click="loadStats">重试统计</SButton></SBanner>
-
-            <div class="mini-kpis">
-              <div><SAnimatedNumber v-if="inUseNow !== null" :value="inUseNow" /><span v-else>—</span><small>使用中</small></div>
-              <div><SAnimatedNumber v-if="openAvailableSeats !== null" :value="openAvailableSeats" /><span v-else>—</span><small>开放可用</small></div>
-              <div><span>{{ currentUsageText }}</span><small>使用比例</small></div>
-              <div><SAnimatedNumber v-if="complaintTodoCount !== null" :value="complaintTodoCount" /><span v-else>—</span><small>投诉待办</small></div>
-            </div>
             <p v-if="statsOverview" class="snapshot">快照 {{ statsSnapshotText }}</p>
           </section>
-
-          <section class="card schedule-card">
-            <div class="card-title-row">
-              <h3>我的学习安排</h3>
-              <RouterLink to="/mine" class="text-link">全部记录</RouterLink>
-            </div>
-            <p v-if="reservationsLoading" class="muted">正在读取本人预约…</p>
-            <SBanner v-else-if="reservationsError" type="error" :title="reservationsError"><SButton size="sm" @click="loadReservations">重试</SButton></SBanner>
-            <div v-else-if="activeReservations.length" class="schedule-list">
-              <article v-for="row in activeReservations" :key="row.id" class="schedule-item">
-                <div class="schedule-head">
-                  <h4>{{ row.room_name }} · {{ row.seat_no }}</h4>
-                  <span class="pill" :class="statusPillClass(row)">{{ statusText(row) }}</span>
-                </div>
-                <p class="schedule-time">{{ timeText(row) }}</p>
-                <p v-if="checkinDeadlineOf(row)" class="schedule-deadline">签到截止 <b>{{ deadlineLabel(checkinDeadlineOf(row)) }}</b></p>
-                <div class="schedule-actions">
-                  <SButton v-if="row.status === 'pending'" variant="primary" size="sm" @click="router.push(`/mine/${row.id}/checkin`)">去签到</SButton>
-                  <SButton variant="soft" size="sm" @click="router.push('/mine')">查看详情</SButton>
-                </div>
-              </article>
-            </div>
-            <div v-else class="empty-schedule">
-              <AppIcon name="desk-book" :size="30" class="empty-icon" />
-              <p>今天还没有安排学习，挑一个合适的座位开始吧。</p>
-              <SButton variant="primary" block @click="router.push('/booking')">去选座</SButton>
-            </div>
-          </section>
         </aside>
+      </div>
+
+      <div class="tips-anchor">
+        <StudyTips title="管理提示">
+          <ul class="tips tips-list">
+            <li>资源变更先预览影响清单，确认后管理取消受影响预约，不记用户违约。</li>
+            <li>投诉先受理再核实，未知身份不归责；设施报修由系统按影响范围和安全风险自动分级，存在安全风险固定5级。</li>
+            <li>统计快照每 10 秒刷新，失败保留上次成功值与时间。</li>
+            <li>评价隐藏后本人修改不自动恢复公开，需管理员复核。</li>
+          </ul>
+        </StudyTips>
       </div>
     </template>
 
@@ -363,10 +335,13 @@ function timeText(row) {
 
 <style scoped>
 .home-page { padding-top: 22px; }
-.home-hello { margin: 0 2px 22px; }
-.hello-date { color: var(--text-3); font-size: var(--fs-body-sm); letter-spacing: .04em; }
-.home-hello h1 { margin-top: 6px; font-size: 34px; color: var(--text-1); }
-.home-layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 24px; }
+
+/* 管理员端：与用户端同款底色与信息层级（无我的学习安排） */
+.home-page--admin { background: #eef5f4; box-shadow: 0 0 0 100vmax #eef5f4; padding-top: 28px; }
+.admin-grid { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 20px; align-items: start; margin-bottom: 22px; }
+.admin-side { min-width: 0; }
+.zone-grid--admin { grid-template-columns: repeat(2, 1fr); }
+
 .cancel-notice {
   display: flex;
   align-items: center;
@@ -384,10 +359,7 @@ function timeText(row) {
 .cancel-meta { color: var(--text-3) !important; font-size: 11px !important; margin-top: 6px; }
 .cancel-actions { display: flex; flex-wrap: wrap; gap: 8px; flex: 0 0 auto; }
 @media (max-width: 760px) { .cancel-notice { flex-direction: column; align-items: flex-start; } }
-.home-main { min-width: 0; display: flex; flex-direction: column; gap: 20px; }
-.home-side { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
 .tips-anchor { margin-top: auto; min-width: 0; }
-.home-side .schedule-card { flex: 1 1 auto; }
 
 /* ============ 用户端新版首页（按参考图） ============ */
 /* 整页底色：浅薄荷白 */
@@ -483,6 +455,8 @@ function timeText(row) {
 .hero-kpi { min-width: 96px; padding: 0 26px; text-align: center; border-left: 1px solid rgba(255, 255, 255, .32); }
 .hero-kpi:first-child { border-left: 0; }
 .hero-kpi b { display: block; font-family: var(--font-display); font-size: 34px; font-weight: 600; line-height: 1.1; color: #ffffff; font-variant-numeric: tabular-nums; text-shadow: 0 2px 16px rgba(4, 10, 12, .5); }
+/* 文字型指标（如「不适用」）用小一号字号，避免撑开统计条 */
+.hero-kpi b.is-text { font-size: 24px; line-height: 1.45; }
 .hero-kpi span { display: block; margin-top: 8px; font-size: 13px; color: rgba(255, 255, 255, .85); }
 
 /* 右上角黑板面板：我的学习安排（浮在照片上，与照片内容无关） */
@@ -556,125 +530,17 @@ function timeText(row) {
   .hero-kpi { flex: 1 1 0; min-width: 0; padding: 0 10px; }
   .hero-kpi b { font-size: 26px; }
   .zone-head h3 { font-size: 22px; }
-  .home-hello h1 { font-size: 28px; }
-  .quick-grid { grid-template-columns: 1fr; }
 }
 
-.hero {
-  position: relative;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 42%;
-  gap: 12px;
-  min-height: 320px;
-  padding: 40px 36px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-2xl);
-  background:
-    radial-gradient(120% 130% at 10% 0%, rgba(251, 245, 229, .95), transparent 58%),
-    linear-gradient(100deg, #fbf5e5 0%, #f7f0de 52%, #efe7d4 100%);
-  overflow: hidden;
-}
-.hero-copy { position: relative; z-index: 1; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; min-width: 0; }
-.hero-eyebrow { color: #d9cba4; font-size: 12px; letter-spacing: .22em; }
-.hero h2 {
-  margin: 10px 0 8px;
-  font-size: clamp(38px, 4.2vw, 60px);
-  line-height: 1.1;
-  color: #14291f;
-  letter-spacing: .04em;
-  white-space: nowrap;
-}
-.hero h2.hero-title-admin { font-size: clamp(30px, 3.2vw, 46px); }
-.hero-sub { color: #1f3a2b; font-size: 16px; margin-bottom: 24px; }
-.hero-photo {
-  position: absolute;
-  top: 0;
-  right: 0;
-  height: 100%;
-  width: 58%;
-  object-fit: cover;
-  object-position: right center;
-  pointer-events: none;
-  /* 左缘渐变蒙版：照片向奶油背景淡出，避免裁图阴影带形成硬分界 */
-  -webkit-mask-image: linear-gradient(to right, transparent 0%, rgba(0, 0, 0, .45) 12%, #000 26%);
-  mask-image: linear-gradient(to right, transparent 0%, rgba(0, 0, 0, .45) 12%, #000 26%);
-}
-
-/* 设计稿同款深绿胶囊主按钮 */
-.hero .hero-cta {
-  --btn-height: 52px;
-  --btn-padding: 30px;
-  --btn-font: 15.5px;
-  margin-top: 4px;
-  background: #204637;
-  border-radius: 999px;
-  box-shadow: 0 12px 26px rgba(32, 70, 55, .28);
-}
-.hero .hero-cta:hover { background: #2a5746; }
-
-/* 常用功能网格：放大入口，两两一行 */
-.quick-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
-.quick-item {
-  all: unset;
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: 24px 22px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-xl);
-  background: var(--surface);
-  cursor: pointer;
-  transition: transform var(--dur-2) var(--ease), box-shadow var(--dur-2) var(--ease), border-color var(--dur-2) var(--ease);
-}
-.quick-item:hover { transform: translateY(-2px); box-shadow: var(--shadow-2); border-color: var(--primary-weak); }
-.quick-icon { width: 58px; height: 58px; flex: 0 0 58px; border-radius: 50%; display: grid; place-items: center; background: var(--primary-weak); color: var(--primary); }
-.quick-copy { flex: 1; min-width: 0; }
-.quick-copy b { display: block; font-size: 17px; color: var(--text-1); font-weight: 600; }
-.quick-copy small { display: block; margin-top: 4px; color: var(--text-3); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.quick-arrow { color: var(--text-3); flex: 0 0 auto; }
-
-/* 我的学习安排：四行竖排，条目填满卡片 */
-.schedule-card { display: flex; flex-direction: column; }
-.schedule-list { flex: 1; display: flex; flex-direction: column; gap: 14px; }
-.schedule-item {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  text-align: center;
-  padding: 16px 18px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-xl);
-  background: var(--surface-2);
-}
-.schedule-head { display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap; }
-.schedule-head h4 { margin: 0; font-family: var(--font-display); font-size: 18px; color: var(--text-1); }
-.schedule-time { margin: 10px 0 0; color: var(--text-2); font-size: var(--fs-body-sm); font-variant-numeric: tabular-nums; }
-.schedule-deadline { margin: 8px 0 0; color: var(--text-3); font-size: var(--fs-body-sm); }
-.schedule-deadline b { color: var(--amber-strong); font-variant-numeric: tabular-nums; }
-.schedule-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; justify-content: center; }
-.empty-schedule { display: grid; gap: 14px; justify-items: center; text-align: center; padding: 18px 0 6px; color: var(--text-3); }
-.empty-icon { color: var(--primary-weak); }
-.empty-schedule p { margin: 0; }
-
-/* 概览 KPI */
-.mini-kpis { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin: 14px 0 6px; }
-.mini-kpis > div { background: var(--surface-2); border-radius: var(--r-md); padding: 14px 12px; text-align: center; }
-.mini-kpis span { display: block; font-family: var(--font-display); font-size: 26px; color: var(--text-1); }
-.mini-kpis small { display: block; margin-top: 4px; color: var(--text-3); font-size: 12px; }
-.snapshot { color: var(--text-4); font-size: 11px; margin-top: 6px; }
 .text-link { color: var(--primary); font-size: var(--fs-caption); text-decoration: none; }
 .text-link:hover { text-decoration: underline; }
 
+/* 管理员端：列表与状态卡在中等宽度下改为单列 */
 @media (max-width: 1200px) {
-  .home-layout { grid-template-columns: minmax(0, 1fr); }
-  .home-side { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
-  .tips-anchor { margin-top: 0; }
+  .admin-grid { grid-template-columns: minmax(0, 1fr); }
+  .zone-grid--admin { grid-template-columns: repeat(2, 1fr); }
 }
 @media (max-width: 760px) {
-  .hero { grid-template-columns: 1fr; padding: 26px 22px; min-height: 300px; }
-  .hero-photo { display: none; }
-  .home-hello h1 { font-size: 28px; }
-  .quick-grid { grid-template-columns: 1fr; }
+  .zone-grid--admin { grid-template-columns: 1fr; }
 }
 </style>
