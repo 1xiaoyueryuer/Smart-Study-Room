@@ -41,7 +41,8 @@
   display: grid;
   grid-template-columns: 300px minmax(0, 1fr);
   gap: 18px;
-  align-items: start;
+  /* 左右两栏等高：任一侧只有一张卡片时，卡片撑满整列 */
+  align-items: stretch;
   min-height: 0;
 }
 
@@ -52,6 +53,8 @@
   flex-direction: column;
   gap: 16px;
 }
+.split-left > .card:only-child,
+.split-right > .card:only-child { flex: 1 1 auto; }
 
 /* =============== 卡片 =============== */
 .card {
