@@ -154,8 +154,7 @@ function timeText(row) {
                 <span>静阅 · 专注空间</span>
               </p>
               <h1 class="hero-title">
-                <span class="hero-title-line">今日运营，</span>
-                <span class="hero-title-line">一目了然</span>
+                <span class="hero-title-line">今日运营，一目了然</span>
               </h1>
               <p class="hero-sub">查看真实使用统计与待办，安排今天的开放资源</p>
             </div>
@@ -175,39 +174,24 @@ function timeText(row) {
         </section>
       </div>
 
-      <div class="admin-grid">
-        <section class="zone-section">
-          <div class="zone-head">
-            <h3>自习室列表</h3>
-            <span class="zone-head-meta">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
-              按开放时间管理自习室
-            </span>
-          </div>
-          <div class="zone-grid zone-grid--admin">
-            <article v-for="z in zones" :key="z.key" class="zone-card">
-              <img class="zone-photo" :src="z.img" alt="" aria-hidden="true" />
-              <div class="zone-body">
-                <h4>{{ z.name }}</h4>
-                <button type="button" class="zone-cta" @click="router.push('/admin')">去管理</button>
-              </div>
-            </article>
-          </div>
-        </section>
-
-        <aside class="admin-side">
-          <section class="card overview-card">
-            <div class="card-title-row">
-              <h3>统计状态</h3>
-              <RouterLink to="/analytics" class="text-link">详细统计</RouterLink>
+      <section class="zone-section">
+        <div class="zone-head">
+          <h3>自习室列表</h3>
+          <span class="zone-head-meta">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
+            按开放时间管理自习室
+          </span>
+        </div>
+        <div class="zone-grid">
+          <article v-for="z in zones" :key="z.key" class="zone-card">
+            <img class="zone-photo" :src="z.img" alt="" aria-hidden="true" />
+            <div class="zone-body">
+              <h4>{{ z.name }}</h4>
+              <button type="button" class="zone-cta" @click="router.push('/admin')">去管理</button>
             </div>
-            <p v-if="statsLoading" class="muted">正在加载统计…</p>
-            <p class="muted" role="status">{{ statsVisible ? '页面可见时每 10 秒刷新。' : '页面已隐藏，刷新暂停。' }}</p>
-            <SBanner v-if="statsError" type="error" :title="statsError"><SButton size="sm" @click="loadStats">重试统计</SButton></SBanner>
-            <p v-if="statsOverview" class="snapshot">快照 {{ statsSnapshotText }}</p>
-          </section>
-        </aside>
-      </div>
+          </article>
+        </div>
+      </section>
 
       <div class="tips-anchor">
         <StudyTips title="管理提示">
@@ -338,9 +322,6 @@ function timeText(row) {
 
 /* 管理员端：与用户端同款底色与信息层级（无我的学习安排） */
 .home-page--admin { background: #eef5f4; box-shadow: 0 0 0 100vmax #eef5f4; padding-top: 28px; }
-.admin-grid { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 20px; align-items: start; margin-bottom: 22px; }
-.admin-side { min-width: 0; }
-.zone-grid--admin { grid-template-columns: repeat(2, 1fr); }
 
 .cancel-notice {
   display: flex;
@@ -534,13 +515,4 @@ function timeText(row) {
 
 .text-link { color: var(--primary); font-size: var(--fs-caption); text-decoration: none; }
 .text-link:hover { text-decoration: underline; }
-
-/* 管理员端：列表与状态卡在中等宽度下改为单列 */
-@media (max-width: 1200px) {
-  .admin-grid { grid-template-columns: minmax(0, 1fr); }
-  .zone-grid--admin { grid-template-columns: repeat(2, 1fr); }
-}
-@media (max-width: 760px) {
-  .zone-grid--admin { grid-template-columns: 1fr; }
-}
 </style>
