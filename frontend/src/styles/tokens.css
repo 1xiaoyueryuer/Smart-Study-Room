@@ -10,6 +10,8 @@
   --canvas: #eef5f4;
   --canvas-deep: #e5efee;
   --surface: #fbfefd;
+  /* 卡片白磨砂底色 */
+  --card-frosted: rgba(255, 255, 255, .72);
   --surface-2: #f3faf8;
   --surface-3: #eaf4f1;
   --surface-hover: #eef8f5;
@@ -165,6 +167,8 @@ html.dark {
   --canvas: #121a15;
   --canvas-deep: #0b110d;
   --surface: #1a241e;
+  /* 深色主题下的卡片磨砂底色 */
+  --card-frosted: rgba(26, 36, 30, .78);
   --surface-2: #202c25;
   --surface-3: #27352d;
   --surface-hover: #2c3b32;

@@ -689,7 +689,7 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   border-color: rgba(255, 255, 255, .55);
-  background: rgba(255, 255, 255, .62);
+  background: rgba(255, 255, 255, .72);
   backdrop-filter: blur(18px);
   color: #2c3833;
 }
@@ -740,7 +740,7 @@ onMounted(async () => {
 .room-brief{color:var(--text-3);font-size:var(--fs-caption);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 @media(max-width:1100px){.booking-split{grid-template-columns:minmax(0,1fr)}}
 /* 顶部功能行：白磨砂卡（与左侧「预约条件」一致） */
-.booking-top{display:block;margin-bottom:20px;padding:18px 20px 20px;border:1px solid rgba(255,255,255,.55);border-radius:var(--r-xl);background:rgba(255,255,255,.62);backdrop-filter:blur(18px)}
+.booking-top{display:block;margin-bottom:20px;padding:18px 20px 20px;border:1px solid rgba(255,255,255,.55);border-radius:var(--r-xl);background:rgba(255,255,255,.72);backdrop-filter:blur(18px)}
 .picker-row{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,.7fr) minmax(0,.7fr) minmax(0,1.2fr);gap:14px;align-items:end}
 .picker-field{display:grid;gap:6px;min-width:0}
 .picker-label{font-size:var(--fs-caption);color:#3a4642}
@@ -883,7 +883,7 @@ onMounted(async () => {
   min-height: 0;
   /* 选座卡片：与左侧「预约条件」一致的白磨砂卡 */
   border-color: rgba(255, 255, 255, .55);
-  background: rgba(255, 255, 255, .62);
+  background: rgba(255, 255, 255, .72);
   backdrop-filter: blur(18px);
 }
 .seat-card .seat-heading h3,
