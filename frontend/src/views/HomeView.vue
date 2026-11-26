@@ -265,21 +265,65 @@ function timeText(row) {
         </div>
       </section>
 
-      <section class="home-top">
-        <img class="home-top-img" src="/images/home-top.jpg" alt="静阅自习室 · 今日宜专注" />
-        <div class="home-stats">
-          <div class="home-stats-head">
-            <h3>我的预约</h3>
-            <div class="home-stats-kpis">
-              <div><span>{{ pendingCount }}</span><small>待签到</small></div>
-              <div><span>{{ checkedInCount }}</span><small>使用中</small></div>
-              <div><span>{{ completedCount }}</span><small>已结束</small></div>
-              <div><span>{{ totalCount }}</span><small>累计预约</small></div>
+      <div class="hero-zone">
+        <section class="hero-full">
+          <div class="hero-inner">
+            <div class="hero-copy">
+              <p class="hero-eyebrow" data-page-title>
+                <span class="eyebrow-dash" aria-hidden="true" />
+                <span>静阅 · 专注空间</span>
+              </p>
+              <h1 class="hero-title">今日宜专注<br />让每一次坐下都<span class="hero-title-gold">算数</span></h1>
+              <p class="hero-sub">预约属于你的专属座位，找到一段不被打扰的学习时光</p>
+              <div class="hero-actions">
+                <button type="button" class="hero-btn hero-btn--solid" @click="router.push('/booking')">立即预约</button>
+                <button type="button" class="hero-btn hero-btn--glass" @click="router.push('/mine')">我的预约</button>
+              </div>
+              <p class="hero-meta">开放时间 08:00—22:00 · 全场静音 · 独立台灯与插座</p>
             </div>
           </div>
-          <p class="home-stats-info">开放时间 08:00—22:00 · 全场静音 · 独立台灯与插座</p>
-        </div>
-      </section>
+          <div class="hero-kpis">
+            <div class="hero-kpi"><b>{{ pendingCount }}</b><span>待签到</span></div>
+            <div class="hero-kpi"><b>{{ checkedInCount }}</b><span>使用中</span></div>
+            <div class="hero-kpi"><b>{{ completedCount }}</b><span>已结束</span></div>
+            <div class="hero-kpi"><b>{{ totalCount }}</b><span>累计预约</span></div>
+          </div>
+        </section>
+
+        <!-- 右上角悬挂小黑板：我的学习安排 -->
+        <aside class="board" aria-label="我的学习安排">
+          <span class="board-string board-string--left" aria-hidden="true" />
+          <span class="board-string board-string--right" aria-hidden="true" />
+          <div class="board-frame">
+            <div class="board-surface">
+              <div class="board-head">
+                <h3>我的学习安排</h3>
+                <RouterLink to="/mine" class="board-link">全部记录</RouterLink>
+              </div>
+              <p v-if="reservationsLoading" class="board-hint">正在读取本人预约…</p>
+              <p v-else-if="reservationsError" class="board-hint">{{ reservationsError }}</p>
+              <ul v-else-if="activeReservations.length" class="board-list">
+                <li v-for="row in activeReservations.slice(0, 3)" :key="row.id">
+                  <RouterLink v-if="row.status === 'pending'" :to="`/mine/${row.id}/checkin`" class="board-item">
+                    <b>{{ row.room_name }} · {{ row.seat_no }}</b>
+                    <small>{{ timeText(row) }}</small>
+                    <em>{{ statusText(row) }}</em>
+                  </RouterLink>
+                  <RouterLink v-else :to="'/mine'" class="board-item">
+                    <b>{{ row.room_name }} · {{ row.seat_no }}</b>
+                    <small>{{ timeText(row) }}</small>
+                    <em>{{ statusText(row) }}</em>
+                  </RouterLink>
+                </li>
+              </ul>
+              <template v-else>
+                <p class="board-hint">今天还没有安排学习</p>
+                <RouterLink to="/booking" class="board-cta">去选座</RouterLink>
+              </template>
+            </div>
+          </div>
+        </aside>
+      </div>
 
       <section class="zone-section">
         <div class="zone-head">
@@ -299,48 +343,15 @@ function timeText(row) {
         </div>
       </section>
 
-      <div class="home-layout">
-        <div class="home-main">
-          <div class="tips-anchor">
-            <StudyTips title="使用须知">
-              <ul class="tips tips-list">
-                <li>可预约当天至后天，单次至少 30 分钟，起止在开放空档内自选。</li>
-                <li>开始前取消不记违规；开始后未签到放弃记一次违约。</li>
-                <li>签到窗口为开始时刻起至开始后 15 分钟；本系统当前不提供签到延期。</li>
-                <li>短暂离开不延长原结束时间；提前签退释放剩余时段。</li>
-              </ul>
-            </StudyTips>
-          </div>
-        </div>
-        <aside class="home-side">
-          <section class="card schedule-card">
-            <div class="card-title-row">
-              <h3>我的学习安排</h3>
-              <RouterLink to="/mine" class="text-link">全部记录</RouterLink>
-            </div>
-            <p v-if="reservationsLoading" class="muted">正在读取本人预约…</p>
-            <SBanner v-else-if="reservationsError" type="error" :title="reservationsError"><SButton size="sm" @click="loadReservations">重试</SButton></SBanner>
-            <div v-else-if="activeReservations.length" class="schedule-list">
-              <article v-for="row in activeReservations" :key="row.id" class="schedule-item">
-                <div class="schedule-head">
-                  <h4>{{ row.room_name }} · {{ row.seat_no }}</h4>
-                  <span class="pill" :class="statusPillClass(row)">{{ statusText(row) }}</span>
-                </div>
-                <p class="schedule-time">{{ timeText(row) }}</p>
-                <p v-if="checkinDeadlineOf(row)" class="schedule-deadline">签到截止 <b>{{ deadlineLabel(checkinDeadlineOf(row)) }}</b></p>
-                <div class="schedule-actions">
-                  <SButton v-if="row.status === 'pending'" variant="primary" size="sm" @click="router.push(`/mine/${row.id}/checkin`)">去签到</SButton>
-                  <SButton variant="soft" size="sm" @click="router.push('/mine')">查看详情</SButton>
-                </div>
-              </article>
-            </div>
-            <div v-else class="empty-schedule">
-              <AppIcon name="desk-book" :size="30" class="empty-icon" />
-              <p>今天还没有安排学习，挑一个合适的座位开始吧。</p>
-              <SButton variant="primary" block @click="router.push('/booking')">去选座</SButton>
-            </div>
-          </section>
-        </aside>
+      <div class="user-bottom">
+        <StudyTips title="使用须知">
+          <ul class="tips tips-list">
+            <li>可预约当天至后天，单次至少 30 分钟，起止在开放空档内自选。</li>
+            <li>开始前取消不记违规；开始后未签到放弃记一次违约。</li>
+            <li>签到窗口为开始时刻起至开始后 15 分钟；本系统当前不提供签到延期。</li>
+            <li>短暂离开不延长原结束时间；提前签退释放剩余时段。</li>
+          </ul>
+        </StudyTips>
       </div>
     </template>
   </div>
@@ -378,25 +389,131 @@ function timeText(row) {
 /* 整页底色：取自设计稿第三张图（冰蓝），仅用户端首页 */
 .home-page--user { background: #e0f0f0; box-shadow: 0 0 0 100vmax #e0f0f0; padding-top: 28px; }
 
-/* 顶部区：设计稿第一张图的上半部（不含烘焙统计区）+ 真实统计条 */
-.home-top { margin-bottom: 22px; border-radius: var(--r-2xl); overflow: hidden; background: #476467; box-shadow: var(--shadow-2); }
-.home-top-img {
-  display: block;
-  width: 100%;
-  aspect-ratio: 1636 / 720;
-  object-fit: cover;
-  /* 底部淡出与统计条底色衔接 */
-  -webkit-mask-image: linear-gradient(to bottom, #000 93%, transparent 100%);
-  mask-image: linear-gradient(to bottom, #000 93%, transparent 100%);
+/* 顶部区：原图整幅铺满上半屏（非卡片），文字/按钮/统计由 HTML 渲染 */
+.hero-zone { position: relative; margin-bottom: 26px; }
+.hero-full {
+  position: relative;
+  /* 冲出版心 padding，左右铺到视口边缘 */
+  margin: -28px calc(50% - 50vw) 0;
+  min-height: clamp(460px, 58vh, 760px);
+  padding: 0;
+  background: #2b3a45 url('/images/home-top.jpg') center / cover no-repeat;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
 }
-.home-stats { padding: 18px 26px 20px; }
-.home-stats-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
-.home-stats-head h3 { margin: 0; font-size: 19px; color: #f4f1ea; font-family: var(--font-display); }
-.home-stats-kpis { display: flex; gap: 36px; flex-wrap: wrap; }
-.home-stats-kpis > div { text-align: center; min-width: 56px; }
-.home-stats-kpis span { display: block; font-family: var(--font-display); font-size: 28px; line-height: 1.1; color: #ffffff; font-variant-numeric: tabular-nums; }
-.home-stats-kpis small { color: #cfd9d4; font-size: 12px; }
-.home-stats-info { margin: 10px 0 0; color: #cfd9d4; font-size: 12.5px; }
+/* 左侧压暗，保证文字可读 */
+.hero-full::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(95deg, rgba(10, 20, 28, .78) 0%, rgba(10, 20, 28, .5) 34%, rgba(10, 20, 28, .08) 62%, transparent 78%);
+  pointer-events: none;
+}
+.hero-inner {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 1560px;
+  margin: 0 auto;
+  padding: 64px 40px 96px;
+}
+.hero-copy { max-width: 760px; }
+.hero-eyebrow { display: flex; align-items: center; gap: 14px; color: rgba(240, 235, 225, .86); font-size: 15px; letter-spacing: .28em; }
+.eyebrow-dash { width: 46px; height: 1px; background: rgba(240, 235, 225, .7); }
+.hero-title {
+  margin: 18px 0 20px;
+  font-family: var(--font-display);
+  font-size: clamp(38px, 5.4vw, 82px);
+  font-weight: 700;
+  line-height: 1.12;
+  letter-spacing: .03em;
+  color: #fbf8f2;
+  text-shadow: 0 6px 30px rgba(6, 14, 20, .45);
+}
+.hero-title-gold { color: #dcbd7a; }
+.hero-sub { max-width: 620px; color: rgba(238, 236, 230, .9); font-size: clamp(15px, 1.15vw, 18px); line-height: 1.7; }
+.hero-actions { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 30px; }
+.hero-btn {
+  all: unset;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 56px;
+  padding: 0 39px;
+  border-radius: 14px;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: .02em;
+  cursor: pointer;
+  transition: transform var(--dur-1) var(--ease), background var(--dur-1) var(--ease), box-shadow var(--dur-1) var(--ease);
+}
+.hero-btn:focus-visible { outline: 2px solid #f0e6cf; outline-offset: 3px; }
+.hero-btn--solid { background: #2c4b47; color: #f7f4ec; box-shadow: 0 10px 24px rgba(4, 12, 16, .35); }
+.hero-btn--solid:hover { background: #365c57; transform: translateY(-1px); }
+.hero-btn--glass { background: rgba(255, 255, 255, .28); color: #2a312e; backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, .55); }
+.hero-btn--glass:hover { background: rgba(255, 255, 255, .4); transform: translateY(-1px); }
+.hero-meta { margin-top: 22px; color: rgba(226, 224, 218, .78); font-size: 14px; letter-spacing: .02em; }
+
+/* 右下角四个玻璃统计卡 */
+.hero-kpis { position: absolute; right: max(40px, calc((100% - 1560px) / 2 + 40px)); bottom: 34px; z-index: 2; display: flex; gap: 14px; }
+.hero-kpi {
+  min-width: 112px;
+  padding: 20px 16px 16px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, .17);
+  border: 1px solid rgba(255, 255, 255, .22);
+  backdrop-filter: blur(12px);
+  text-align: center;
+  color: #fdfcf8;
+}
+.hero-kpi b { display: block; font-family: var(--font-display); font-size: 34px; line-height: 1; font-variant-numeric: tabular-nums; }
+.hero-kpi span { display: block; margin-top: 10px; font-size: 13px; color: rgba(250, 250, 246, .82); }
+
+/* 右上角悬挂小黑板 */
+.board { position: absolute; top: 0; right: max(40px, calc((100% - 1560px) / 2 + 40px)); z-index: 3; width: 300px; transform-origin: 50% -30px; transform: rotate(-1.4deg); }
+.board-string { position: absolute; top: -14px; width: 1px; height: 22px; background: rgba(235, 232, 224, .75); }
+.board-string--left { left: 34px; }
+.board-string--right { right: 34px; }
+.board-frame {
+  padding: 9px;
+  border-radius: 10px;
+  background: linear-gradient(160deg, #9a7a52, #6f5537 55%, #8b6c48);
+  box-shadow: 0 18px 34px rgba(6, 14, 18, .45), inset 0 1px 0 rgba(255, 255, 255, .25);
+}
+.board-surface {
+  border-radius: 5px;
+  padding: 16px 18px 18px;
+  background:
+    radial-gradient(120% 80% at 20% 0%, rgba(255, 255, 255, .07), transparent 60%),
+    #25322c;
+  box-shadow: inset 0 0 22px rgba(0, 0, 0, .55);
+  color: #e9efe7;
+}
+.board-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.board-head h3 { margin: 0; font-family: var(--font-display); font-size: 17px; letter-spacing: .06em; color: #f2f6ef; }
+.board-link { color: #b9cbb9; font-size: 12px; text-decoration: none; border-bottom: 1px dashed rgba(185, 203, 185, .5); }
+.board-link:hover { color: #e3ecdf; }
+.board-hint { margin: 12px 0 0; color: #b3c1b4; font-size: 13px; }
+.board-list { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 8px; }
+.board-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 10px;
+  padding: 9px 10px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, .05);
+  color: #e6ede3;
+  text-decoration: none;
+}
+.board-item:hover { background: rgba(255, 255, 255, .1); }
+.board-item b { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.board-item em { font-style: normal; font-size: 11px; color: #cfe0c6; }
+.board-item small { grid-column: 1 / -1; font-size: 11.5px; color: #a9b8a9; font-variant-numeric: tabular-nums; }
+.board-cta { display: inline-block; margin-top: 12px; padding: 7px 14px; border-radius: 999px; background: rgba(240, 238, 225, .92); color: #26332c; font-size: 12.5px; text-decoration: none; }
+.board-cta:hover { background: #fff; }
+
+.user-bottom { margin-top: 8px; }
 
 /* 自习室种类卡片 */
 .zone-section { margin-bottom: 22px; }
@@ -413,11 +530,25 @@ function timeText(row) {
 
 @media (max-width: 1200px) {
   .zone-grid { grid-template-columns: repeat(2, 1fr); }
+  .hero-inner { padding: 52px 28px 96px; }
+  .hero-copy { max-width: 100%; padding-right: 0; }
+  .hero-kpis { position: static; margin: 0; padding: 0 28px 34px; justify-content: flex-end; flex-wrap: wrap; }
+  .hero-full { flex-direction: column; align-items: stretch; justify-content: space-between; }
+  .board { position: static; transform: none; width: auto; max-width: 360px; margin: 16px 0 0 auto; }
+  .board-string { display: none; }
 }
 @media (max-width: 760px) {
   .zone-grid { grid-template-columns: 1fr; }
-  .home-stats-head { flex-direction: column; align-items: flex-start; }
-  .home-stats-kpis { width: 100%; justify-content: space-between; gap: 8px; }
+  .hero-full { margin: -20px calc(50% - 50vw) 0; min-height: 0; }
+  .hero-inner { padding: 34px 20px 28px; }
+  .hero-title { font-size: clamp(30px, 9vw, 44px); }
+  .hero-actions { gap: 10px; }
+  .hero-btn { height: 48px; padding: 0 26px; font-size: 16px; }
+  .hero-kpis { padding: 0 20px 24px; gap: 8px; }
+  .hero-kpi { min-width: 0; flex: 1 1 0; padding: 14px 8px 12px; }
+  .hero-kpi b { font-size: 26px; }
+  .home-hello h1 { font-size: 28px; }
+  .quick-grid { grid-template-columns: 1fr; }
 }
 
 .hero {
