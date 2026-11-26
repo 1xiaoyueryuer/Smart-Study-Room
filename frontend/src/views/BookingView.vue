@@ -714,6 +714,8 @@ onMounted(async () => {
 .booking-split .split-left .card.responsive-compact .filter-row { color: #3a4642; }
 .booking-split .split-left .card.responsive-compact p[role='status'] { color: #5c6862; }
 .booking-split .split-left .card.responsive-compact .card-title-row { margin-bottom: 4px; }
+/* 恢复「预约条件」标题：全局 workspace.css 会隐藏左列首卡的标题行 */
+.booking-split .split-left > .card:first-child .card-title-row { display: flex; }
 /* 提交预约固定在卡片底部 */
 .booking-split .split-left .panel-submit { margin-top: auto; padding-top: 32px; }
 .booking-split .split-left .panel-submit :deep(.s-btn) { width: 100%; }
