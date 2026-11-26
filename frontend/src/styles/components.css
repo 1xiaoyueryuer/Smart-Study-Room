@@ -37,6 +37,12 @@
   color: #ffffff;
   text-shadow: 0 1px 12px rgba(10, 20, 28, .55);
 }
+/* 兜底：未加 heading-sub 类的页头说明文字同样为白色 */
+.view-heading > p,
+.view-heading .heading-copy > p {
+  color: #ffffff;
+  text-shadow: 0 1px 12px rgba(10, 20, 28, .55);
+}
 
 /* 页面级双栏 */
 .split {

@@ -19,7 +19,7 @@ onMounted(loadRooms)
 </script>
 <template>
   <div class="page-view room-reviews">
-    <header class="view-heading"><h1>空间评价</h1><p>校园登录用户可查看公开评价；仅显示匿名评价内容。请勿在自己的评价中填写个人信息。</p></header>
+    <header class="view-heading"><h1>空间评价</h1><p class="heading-sub">校园登录用户可查看公开评价；仅显示匿名评价内容。请勿在自己的评价中填写个人信息。</p></header>
     <section class="card">
       <div class="card-title-row"><h3>选择空间</h3><SButton size="sm" :loading="roomLoading" :disabled="loading" @click="refreshAll">刷新</SButton></div>
       <form class="review-query-row" @submit.prevent="load(1)">
