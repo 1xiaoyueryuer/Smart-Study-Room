@@ -62,6 +62,12 @@ const routes = [
         meta:{title:'本人申诉详情',requiresAuth:true,allowedRoles:['student','staff']}
       },
       {
+        path: '/lan',
+        name: 'lan',
+        component: () => import('../views/LanView.vue'),
+        meta: { title: '局域网共同预约', requiresAuth: true, allowedRoles: ['admin'] }
+      },
+      {
         path: '/waitlist',
         name: 'waitlist',
         component: () => import('../views/WaitlistView.vue'),

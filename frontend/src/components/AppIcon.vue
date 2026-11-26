@@ -43,6 +43,11 @@ defineProps({
       <path d="M3.2 3.2v16a1.8 1.8 0 0 0 1.8 1.8h16" stroke="currentColor" stroke-width="1.7" />
       <path d="M7 16.4v-4.4M12 16.4V8M17 16.4v-6.8" stroke="currentColor" stroke-width="1.9" />
     </g>
+    <g v-else-if="name === 'lan'">
+      <rect x="3" y="14.2" width="18" height="6.2" rx="2" stroke="currentColor" stroke-width="1.7" />
+      <path d="M7 17.3h.01M10.6 17.3h.01" stroke="currentColor" stroke-width="2.3" />
+      <path d="M12 11.2V8.6M8.6 8.6a4.8 4.8 0 0 1 6.8 0M5.9 5.9a8.4 8.4 0 0 1 12.2 0" stroke="currentColor" stroke-width="1.6" />
+    </g>
     <g v-else-if="name === 'admin'">
       <path d="M12 3.4 19.4 6v5.2c0 4.5-2.9 7.9-7.4 9.6-4.5-1.7-7.4-5.1-7.4-9.6V6l7.4-2.6Z" stroke="currentColor" stroke-width="1.7" />
       <path d="m9.5 12.1 1.8 1.8 3.5-3.6" stroke="currentColor" stroke-width="1.9" />
