@@ -107,6 +107,7 @@ public class BookingService {
             }
             case "abandon" -> {
                 Api.require(state.equals("pending"),409,"当前状态不能放弃预约");Api.require(!now.isBefore(start),409,"开始前请使用取消操作");
+                Api.require(now.isBefore(ReservationDeadline.at(res)),409,"放弃仅限预约开始后15分钟内，超过按未签到处理");
                 endUnused(res,"abandon",now);enforceRestrictions(uid,now,null,null);
             }
             case "checkin" -> {
