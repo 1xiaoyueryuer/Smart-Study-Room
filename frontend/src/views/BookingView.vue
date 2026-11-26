@@ -3,13 +3,14 @@ import SAnimatedNumber from '../components/ui/SAnimatedNumber.vue'
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import SeatExplorer from '../components/seat3d/SeatExplorer.vue'
 import SeatPlanDesk from '../components/SeatPlanDesk.vue'
-import { seatType, zoneName, getWindowSides } from '../components/seat3d/seatPresentation'
+import { seatType, zoneName, getWindowSides, seatPreferenceCount, matchesSeatPreferences } from '../components/seat3d/seatPresentation'
 import { message, confirmDialog } from '../components/ui/feedback'
 import { getRooms } from '../api/room'
 import { createReservation, getBookingPolicy } from '../api/reservation'
 import { getAvailability } from '../api/availability'
 import { getBookingEligibility } from '../api/restriction'
 import { windowKey, validateWindowSlot, shortfallText } from '../composables/availabilitySelection.js'
+import { MISSING_LOCATION, locationValue, locationOptions } from '../composables/bookingLocation.js'
 import { bookingRestrictionDetails, activeBookingRestrictions, isBookingRestricted } from '../composables/restrictionForm.js'
 import RestrictionRecord from '../components/RestrictionRecord.vue'
 import SButton from '../components/ui/SButton.vue'
@@ -17,7 +18,7 @@ import SSelect from '../components/ui/SSelect.vue'
 import STag from '../components/ui/STag.vue'
 import SInput from '../components/ui/SInput.vue'
 import SBanner from '../components/ui/SBanner.vue'
-import { minuteValue, minuteText, serverStartMinute, validateOpeningWindow } from '../composables/bookingPolicy.js'
+import { minuteValue, minuteText, serverStartMinute, validateAvailabilitySnapshot } from '../composables/bookingPolicy.js'
 
 // ---- 条件区状态 ----
 const rooms = ref([])
@@ -32,22 +33,17 @@ function zoneLabel(room) {
 const selectedBuilding = ref('')
 const selectedFloor = ref('')
 const buildingOptions = computed(() => {
-  const values = [...new Set(rooms.value.map(room => room.building).filter(Boolean))]
-  if (!values.length) return [{ value: '', label: '全部空间' }]
-  return values.sort((left, right) => String(left).localeCompare(String(right), 'zh')).map(value => ({ value, label: value }))
+  const options = locationOptions(rooms.value, 'building', '楼栋未登记', value => value)
+  return options.length ? options : [{ value: '', label: '全部空间' }]
 })
 const floorOptions = computed(() => {
-  const values = [...new Set(rooms.value
-    .filter(room => (room.building || '') === selectedBuilding.value)
-    .map(room => room.floor)
-    .filter(Boolean))]
-  if (!values.length) return rooms.value.some(room => (room.building || '') === selectedBuilding.value) ? [{ value: '', label: '全部楼层' }] : []
-  return values.sort((left, right) => (Number(left) - Number(right)) || String(left).localeCompare(String(right))).map(value => ({ value, label: floorLabel(value) }))
+  const buildingRooms = rooms.value.filter(room => locationValue(room.building) === selectedBuilding.value)
+  return locationOptions(buildingRooms, 'floor', '楼层未登记', floorLabel)
 })
 const zoneRooms = computed(() => rooms.value.filter(room =>
-  (room.building || '') === selectedBuilding.value && (!selectedFloor.value || room.floor === selectedFloor.value)
+  locationValue(room.building) === selectedBuilding.value && locationValue(room.floor) === selectedFloor.value
 ))
-const zoneOptions = computed(() => zoneRooms.value.map(room => ({ value: room.id, label: room.floor ? zoneLabel(room) : room.name })))
+const zoneOptions = computed(() => zoneRooms.value.map(room => ({ value: room.id, label: locationValue(room.floor) === MISSING_LOCATION ? room.name : zoneLabel(room) })))
 function ensureSelection() {
   if (!buildingOptions.value.some(option => option.value === selectedBuilding.value)) selectedBuilding.value = buildingOptions.value[0]?.value ?? ''
   if (!floorOptions.value.some(option => option.value === selectedFloor.value)) selectedFloor.value = floorOptions.value[0]?.value ?? ''
@@ -78,15 +74,11 @@ function togglePreference(value) {
   if (submitting.value) return
   preferences.value = preferences.value.includes(value) ? preferences.value.filter(item => item !== value) : [...preferences.value, value]
 }
-function preferenceCount(seat) {
-  if (!seat) return 0
-  return preferences.value.reduce((total, value) => total + (value === 'window' ? (seat.near_window ? 1 : 0) : (seat.has_power ? 1 : 0)), 0)
-}
-function isPreferredSeat(seat) { return preferences.value.length > 0 && preferenceCount(seat) === preferences.value.length }
+function isPreferredSeat(seat) { return matchesSeatPreferences(seat, preferences.value) }
 const seatById = computed(() => new Map(seats.value.map(seat => [seat.id, seat])))
 const rankedResults = computed(() => {
   if (!preferences.value.length) return results.value
-  return [...results.value].sort((left, right) => preferenceCount(seatById.value.get(right.seat_id)) - preferenceCount(seatById.value.get(left.seat_id)))
+  return [...results.value].sort((left, right) => seatPreferenceCount(seatById.value.get(right.seat_id), preferences.value) - seatPreferenceCount(seatById.value.get(left.seat_id), preferences.value))
 })
 const shortfall = computed(() => shortfallText(availability.value?.learning_minutes, start.value, end.value))
 const date = ref(''), start = ref(''), end = ref('')
@@ -104,7 +96,10 @@ const activeRestrictions = computed(() => activeBookingRestrictions(eligibility.
 const restricted = computed(() => isBookingRestricted(eligibility.value, restrictionFailure.value))
 async function loadEligibility() {
   eligibilityLoading.value = true; eligibilityError.value = ''
-  try { const { data } = await getBookingEligibility(); if (alive) eligibility.value = data }
+  try {
+    const { data } = await getBookingEligibility()
+    if (alive) { eligibility.value = data; restrictionFailure.value = null }
+  }
   catch (failure) { if (alive) eligibilityError.value = failure.message }
   finally { if (alive) eligibilityLoading.value = false }
 }
@@ -221,13 +216,8 @@ function validateSearchCriteria() {
   if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(searchStart.value)) throw new Error('请填写24小时制开始时间（HH:mm）')
   const startMinute = minuteValue(searchStart.value)
   if (startMinute < 8 * 60 || startMinute > 22 * 60) throw new Error('开始时间须在08:00—22:00之间')
-  if (date.value === policy.value?.campus_today) {
-    const currentMinute = serverStartMinute(policy.value)
-    if (startMinute < currentMinute) throw new Error(`开始时间不能早于当前服务端时刻 ${minuteText(currentMinute)}，请调整后重新查询`)
-  }
   if (!/^[0-9]+$/.test(String(requiredDraft.value)) || !Number.isSafeInteger(Number(requiredDraft.value)) || Number(requiredDraft.value) < 30) throw new Error('学习时长须为至少30分钟的整数')
   const learningMinutes = Number(requiredDraft.value)
-  validateOpeningWindow(room.value?.opening_windows, searchStart.value, learningMinutes)
   return { startTime: searchStart.value, learningMinutes }
 }
 
@@ -308,7 +298,14 @@ async function loadAvailability(preserveSelection = false) {
     const response = await getAvailability(query.roomId, query.date, query.strategy, query.requiredMinutes, query.startTime, query.learningMinutes)
     if (!alive || requestId !== mapRequest || !currentQueryMatches({room_id:query.roomId,date:query.date,strategy:query.strategy,filter_start_time:query.startTime,learning_minutes:query.learningMinutes})) return
     const value = response.data
-    if (!value || value.room?.id !== query.roomId || value.date !== query.date || value.strategy !== query.strategy || value.required_minutes !== query.requiredMinutes || value.learning_minutes !== query.learningMinutes || value.start_time !== query.startTime || value.campus_zone !== 'Asia/Shanghai' || !value.computed_at || !Array.isArray(value.seats) || !Array.isArray(value.results) || value.seats.some(seat => !Array.isArray(seat.available_windows) || !Array.isArray(seat.all_windows) || !Array.isArray(seat.matching_windows))) throw new Error('连续空档响应不完整，请重新查询')
+    if (!value || value.room?.id !== query.roomId || value.date !== query.date || value.strategy !== query.strategy || value.required_minutes !== query.requiredMinutes || value.learning_minutes !== query.learningMinutes || value.start_time !== query.startTime || value.campus_zone !== 'Asia/Shanghai' || !value.server_now || !value.computed_at || !Array.isArray(value.seats) || !Array.isArray(value.results) || value.seats.some(seat => !Array.isArray(seat.available_windows) || !Array.isArray(seat.all_windows) || !Array.isArray(seat.matching_windows))) throw new Error('连续空档响应不完整，请重新查询')
+    try { validateAvailabilitySnapshot(query.date, criteria.startTime, criteria.learningMinutes, value) }
+    catch (failure) {
+      room.value = value.room; seats.value = value.seats; results.value = []; availability.value = value
+      filterApplied.value = false; clearSelection(); inputError.value = failure.message
+      queryDirty.value = true; mapError.value = false; mapErrorText.value = ''
+      return
+    }
     const windows = value.seats.flatMap(seat => seat.matching_windows)
     const keys = new Set(windows.map(windowKey))
     const byKey = new Map(windows.map(window => [windowKey(window), window]))
@@ -605,7 +602,7 @@ onMounted(async () => {
     </div>
   </div>
 
-  <SeatExplorer v-if="show3D" ref="explorer" :origin="seatCard" :room="room" :seats="seats" :selected-id="selected?.id" :selected-window="selectedWindow" :date="date" :start="start" :end="end" :requested-start="searchStart" :loading="loading" :submitting="submitting" :submit-error="bookingError || policyError" :restriction-failure="restrictionFailure" :policy-ready="!!policy && !policyLoading && !queryDirty" :strategy-label="strategyLabel" :required-minutes="availability?.learning_minutes" :shortfall="shortfall" @select="onSeatClick" @select-window="chooseWindow" @submit="confirmBooking" @closed="show3D = false" />
+  <SeatExplorer v-if="show3D" ref="explorer" :origin="seatCard" :room="room" :seats="seats" :preferences="preferences" :selected-id="selected?.id" :selected-window="selectedWindow" :date="date" :start="start" :end="end" :requested-start="searchStart" :loading="loading" :submitting="submitting" :submit-error="bookingError || policyError" :restriction-failure="restrictionFailure" :policy-ready="!!policy && !policyLoading && !queryDirty" :strategy-label="strategyLabel" :required-minutes="availability?.learning_minutes" :shortfall="shortfall" @select="onSeatClick" @submit="confirmBooking" @closed="show3D = false" />
 
   <!-- 座位悬浮提示 -->
   <Teleport to="body">

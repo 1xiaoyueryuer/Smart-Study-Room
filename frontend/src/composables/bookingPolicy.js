@@ -30,3 +30,14 @@ export function validateOpeningWindow(windows, start, minutes) {
   }
   return finish
 }
+
+export function validateAvailabilitySnapshot(date, start, minutes, snapshot) {
+  if (!snapshot || snapshot.campus_zone !== 'Asia/Shanghai' || typeof snapshot.server_now !== 'string' || typeof snapshot.campus_today !== 'string' || !snapshot.room || !Array.isArray(snapshot.room.opening_windows)) {
+    throw new Error('连续空档响应缺少当前服务端时刻或空间开放信息，请重新查询')
+  }
+  const currentMinute = serverStartMinute(snapshot)
+  if (date === snapshot.campus_today && minuteValue(start) < currentMinute) {
+    throw new Error(`开始时间不能早于当前服务端时刻 ${minuteText(currentMinute)}，请调整后重新查询`)
+  }
+  validateOpeningWindow(snapshot.room.opening_windows, start, minutes)
+}

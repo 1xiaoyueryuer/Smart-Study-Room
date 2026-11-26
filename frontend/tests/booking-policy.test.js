@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
-import { minuteValue, minuteText, serverStartMinute, validateSlot, validateOpeningWindow } from '../src/composables/bookingPolicy.js'
+import { minuteValue, minuteText, serverStartMinute, validateSlot, validateOpeningWindow, validateAvailabilitySnapshot } from '../src/composables/bookingPolicy.js'
 import { activeBookingRestrictions, isBookingRestricted } from '../src/composables/restrictionForm.js'
 import { windowKey, validateWindowSlot, shortfallText } from '../src/composables/availabilitySelection.js'
 
@@ -68,10 +68,26 @@ test('BookingView uses fixed start + duration + optional preference and no strat
   assert.match(source, /插座/)
   assert.match(source, /suggested_start === query\.startTime/)
   assert.match(source, /suggested_end === requestedEnd/)
-  assert.match(source, /validateOpeningWindow\(room\.value\?\.opening_windows/)
+  assert.match(source, /serverStartMinute\(value\)/)
+  assert.match(source, /validateAvailabilitySnapshot\(query\.date/)
+  assert.match(source, /restrictionFailure\.value = null/)
   assert.match(source, /getBookingEligibility/)
   assert.match(source, /activeRestrictions/)
   assert.match(source, /restricted \|\| !policy/)
   assert.doesNotMatch(source, /找座方案/)
   assert.doesNotMatch(source, /strategyOptions/)
+})
+
+test('availability snapshot supplies the current server time and room opening schedule', () => {
+  const snapshot = {
+    campus_zone: 'Asia/Shanghai',
+    campus_today: '2026-11-20',
+    server_now: '2026-11-20T19:00:00+08:00',
+    room: { opening_windows: [{ start: '08:00', end: '22:00' }] },
+  }
+  assert.doesNotThrow(() => validateAvailabilitySnapshot('2026-11-20', '19:00', 60, snapshot))
+  assert.throws(() => validateAvailabilitySnapshot('2026-11-20', '18:59', 60, snapshot), /当前服务端时刻 19:00/)
+  assert.throws(() => validateAvailabilitySnapshot('2026-11-20', '21:30', 60, snapshot), /超出该空间开放时段/)
+  assert.throws(() => validateAvailabilitySnapshot('2026-11-21', '19:00', 60, { ...snapshot, server_now: '2026-11-20T19:00:00' }), /时间格式无效/)
+  assert.throws(() => validateAvailabilitySnapshot('2026-11-21', '19:00', 60, { ...snapshot, room: {} }), /缺少当前服务端时刻或空间开放信息/)
 })
