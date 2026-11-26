@@ -1,33 +1,43 @@
+import QrScanner from 'qr-scanner'
 import { BrowserQRCodeReader } from '@zxing/browser'
 import { DecodeHintType } from '@zxing/library'
 
 export function scanFailure(error) {
+  const name = typeof error === 'object' ? error?.name : ''
   const messages = {
     NotAllowedError: '摄像头权限被拒绝，请允许权限后重试，或上传座位码图片。',
     NotFoundError: '未找到摄像头，请连接设备或上传座位码图片。',
     NotReadableError: '摄像头被占用或无法读取，请关闭其他使用摄像头的程序后重试。',
     OverconstrainedError: '摄像头不支持所需配置，请换设备或上传图片。',
-    SecurityError: '当前环境禁止访问摄像头，请使用HTTPS或localhost，或上传图片。'
+    SecurityError: '当前环境禁止访问摄像头，请使用HTTPS或localhost，或上传图片。',
+    NotSupportedError: '当前浏览器或内嵌页面不支持摄像头扫码，请改用系统浏览器或上传图片。'
   }
-  return messages[error?.name] || error?.message || '未能识别座位码，请使用清晰、完整的二维码重试。'
+  if (name && messages[name]) return messages[name]
+  const message = typeof error === 'string' ? error : error?.message
+  if (message && /permission|denied|not allowed|not supported|not found|camera/i.test(message)) {
+    return '摄像头不可用：' + message + '。请检查浏览器权限，或上传座位码图片。'
+  }
+  return message || '未能识别座位码，请使用清晰、完整的二维码重试。'
 }
 
-// 每个页面只管理自己的流与图片URL；generation废弃离页后的异步结果。
-export function createSeatScanner({ onCode, onError, onCamera = () => {}, reader = new BrowserQRCodeReader(), pureReader = new BrowserQRCodeReader(new Map([[DecodeHintType.PURE_BARCODE, true]])), mediaDevices = globalThis.navigator?.mediaDevices, urls = globalThis.URL, ImageClass = globalThis.Image } = {}) {
-  let generation = 0, stream = null, controls = null, video = null, imageUrl = null, locked = false
-  function stopCamera() {
+// 摄像头扫描使用 GitHub 上的 Nimiq qr-scanner：移动端优先 BarcodeDetector，
+// 回退到 WebWorker + ZXing，并负责 video 的播放、元数据和移动端兼容处理。
+// 文件上传仍沿用既有 ZXing 解码、尺寸和座位码格式校验。
+export function createSeatScanner({ onCode, onError, onCamera = () => {}, reader = new BrowserQRCodeReader(), pureReader = new BrowserQRCodeReader(new Map([[DecodeHintType.PURE_BARCODE, true]])), urls = globalThis.URL, ImageClass = globalThis.Image, QrScannerClass = QrScanner } = {}) {
+  let generation = 0, qrScanner = null, imageUrl = null, locked = false
+  function destroyCamera() {
     generation++
-    controls?.stop(); controls = null
-    stream?.getTracks().forEach(track => track.stop()); stream = null
-    if (video) { video.srcObject = null; video = null }
+    const active = qrScanner
+    qrScanner = null
+    try { active?.destroy?.() } catch { /* scanner may already be destroyed */ }
     onCamera(false)
   }
   function releaseImage() { if (imageUrl) { urls.revokeObjectURL(imageUrl); imageUrl = null } }
-  function stop() { stopCamera(); releaseImage() }
+  function stop() { destroyCamera(); releaseImage() }
   async function deliver(text, ticket) {
     if (ticket !== generation || locked) return
     locked = true
-    stopCamera()
+    destroyCamera()
     releaseImage()
     try { await onCode(text) } finally { locked = false }
   }
@@ -61,53 +71,33 @@ export function createSeatScanner({ onCode, onError, onCamera = () => {}, reader
     } catch (error) { if (ticket === generation) onError('图片中未能识别有效二维码：' + scanFailure(error)) }
     finally { if (imageUrl === url) releaseImage() }
   }
-  async function waitForVideoFrame(video) {
-    if (!video || typeof video.videoWidth !== 'number') return
-    if (video.videoWidth > 0 && video.videoHeight > 0) return
-    await new Promise((resolve, reject) => {
-      let timer
-      const cleanup = () => {
-        clearTimeout(timer)
-        video.removeEventListener('loadedmetadata', check)
-        video.removeEventListener('canplay', check)
-        video.removeEventListener('resize', check)
-      }
-      const check = () => {
-        if (video.videoWidth > 0 && video.videoHeight > 0) { cleanup(); resolve() }
-      }
-      timer = setTimeout(() => {
-        cleanup()
-        reject(new Error('摄像头画面未就绪，请确认浏览器支持视频预览，或改用上传座位码图片。'))
-      }, 5000)
-      video.addEventListener('loadedmetadata', check)
-      video.addEventListener('canplay', check)
-      video.addEventListener('resize', check)
-    })
-  }
   async function camera(element) {
-    if (locked) return
+    if (locked || !element) return
     stop(); const ticket = generation
-    if (globalThis.isSecureContext === false || !mediaDevices?.getUserMedia) { onError('摄像头需要 HTTPS 安全环境。手机请使用管理员提供的 https:// 局域网地址；电脑可用 localhost。也可上传二维码图片。'); return }
+    if (globalThis.isSecureContext === false) { onError('摄像头需要 HTTPS 安全环境。手机请使用管理员提供的 https:// 局域网地址；电脑可用 localhost。也可上传二维码图片。'); return }
     onCamera(true)
+    let scanner = null
     try {
-      const acquired = await mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false })
-      if (ticket !== generation) { acquired.getTracks().forEach(track => track.stop()); return }
-      stream = acquired; video = element
-      // Some mobile browsers resolve getUserMedia before the preview has metadata;
-      // starting ZXing immediately can capture a 0x0 frame and stop with an error.
-      if (element) {
-        try { element.srcObject = acquired } catch { /* ZXing will try again */ }
-        try { element.muted = true; element.playsInline = true; element.setAttribute?.('playsinline', '') } catch { /* older browser */ }
-        if (typeof element.play === 'function') { try { await element.play() } catch { /* waitForVideoFrame gives the explicit error */ } }
-        await waitForVideoFrame(element)
-      }
-      const active = await reader.decodeFromStream(acquired, element, (result, error) => {
-        if (result) void deliver(result.getText(), ticket)
-        else if (error && !['NotFoundException','ChecksumException','FormatException'].includes(error.name) && ticket === generation) { stopCamera(); onError(scanFailure(error)) }
+      scanner = new QrScannerClass(element, result => {
+        if (ticket !== generation) return
+        const text = typeof result === 'string' ? result : result?.data
+        if (text) void deliver(text, ticket)
+      }, {
+        preferredCamera: 'environment',
+        maxScansPerSecond: 10,
+        highlightScanRegion: false,
+        highlightCode: false,
+        returnDetailedScanResult: true
       })
-      if (ticket !== generation) active.stop()
-      else controls = active
-    } catch (error) { if (ticket === generation) { stopCamera(); onError(scanFailure(error)) } }
+      qrScanner = scanner
+      await scanner.start()
+      if (ticket !== generation) {
+        if (qrScanner === scanner) { qrScanner = null; scanner.destroy?.() }
+        return
+      }
+    } catch (error) {
+      if (ticket === generation) { destroyCamera(); onError(scanFailure(error)) }
+    }
   }
   return { file, camera, stop }
 }

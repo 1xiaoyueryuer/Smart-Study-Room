@@ -66,7 +66,7 @@
 | 结构管理 | Flyway 10.20.1（`flyway-core` + `flyway-database-postgresql`） | V1—V31 增量迁移；校验开启、禁止 clean |
 | 缓存与限流 | Redis 7.2 | 登录限流、预约限流与注销令牌撤销；3 号库、键前缀 `studyroom-java:` |
 | 认证与口令 | `com.auth0:java-jwt` 4.4.0（HMAC256，有效期 7 天）、BCrypt | 令牌签发与校验、口令哈希 |
-| 二维码 | ZXing core 3.5.4（后端生成 PNG）、`@zxing/browser` 0.2.1（前端本机解码） | 每座位当前码，用于签到核验座位身份 |
+| 二维码 | ZXing core 3.5.4（后端生成 PNG）、`@zxing/browser` 0.2.1（图片解码）、`qr-scanner` 1.4.2（移动端摄像头） | 每座位当前码，用于签到核验座位身份；摄像头优先使用浏览器 BarcodeDetector，回退 Worker+ZXing |
 | 数据导入 | Apache Commons CSV 1.14.1 | 校园用户批量导入的模板、预览与确认 |
 | 前端 | Vue 3.5、vue-router 5、Pinia 4、Axios、ECharts 6、Three.js、GSAP | 单页应用、角色路由守卫、2D/3D 座位图与统计图表 |
 | 构建与测试 | Maven 3.6+、Vite 8、Node 24+、Python 3.12+ | 后端 JUnit + 真实 PostgreSQL/Redis 集成测试；前端 `node --test`；脚本自测 |
@@ -187,7 +187,7 @@ cd Smart-Study-Room
    或使用 `STUDYROOM_SSL_ENABLED`、`STUDYROOM_SSL_KEY_STORE`、`STUDYROOM_SSL_KEY_STORE_PASSWORD`、`STUDYROOM_SSL_KEY_STORE_TYPE`、`STUDYROOM_SSL_KEY_ALIAS`。
 
 3. 重启后使用 `https://主机IP:端口` 打开；管理端“局域网”页的接入地址和二维码会自动变为 https。
-4. 手机安装并信任本地 CA 后再打开 HTTPS 地址：Android 在“设置 → 安全 → 加密与凭据 → 安装证书 → CA 证书”；iOS 安装描述文件后在“关于 → 证书信任设置”启用完全信任。建议使用 Chrome/Safari，微信内置浏览器可能不支持摄像头。
+4. 手机安装并信任本地 CA 后再打开 HTTPS 地址：Android 在“设置 → 安全 → 加密与凭据 → 安装证书 → CA 证书”；iOS 安装描述文件后在“关于 → 证书信任设置”启用完全信任。建议使用 Chrome/Safari，微信内置浏览器可能不支持摄像头。摄像头扫码使用 GitHub 项目 [qr-scanner](https://github.com/nimiq/qr-scanner)（移动端优先 BarcodeDetector，回退 Worker+ZXing）；图片上传仍由既有 ZXing 在本机解码。
 
 公共 CA 不能为私有 IP 签发证书，所以局域网场景需要本地 CA 手动信任；CA 私钥只放 `.local/` 或独立 secrets 目录，不提交、不外传。该模式面向教学演示，不替代正式证书、反向代理、HTTPS 公网防护或校园统一认证。
 
