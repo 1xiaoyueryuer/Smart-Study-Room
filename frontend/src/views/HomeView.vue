@@ -413,6 +413,17 @@ function timeText(row) {
   background: linear-gradient(95deg, rgba(10, 20, 28, .78) 0%, rgba(10, 20, 28, .5) 34%, rgba(10, 20, 28, .08) 62%, transparent 78%);
   pointer-events: none;
 }
+/* 底部渐隐：照片最后一段过渡到页面冰蓝底色，与下方内容区自然衔接 */
+.hero-full::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: clamp(72px, 13vh, 140px);
+  background: linear-gradient(to bottom, transparent, #e0f0f0);
+  pointer-events: none;
+}
 .hero-inner {
   position: relative;
   z-index: 1;
@@ -485,6 +496,8 @@ function timeText(row) {
   backdrop-filter: blur(12px);
   text-align: center;
   color: #fdfcf8;
+  /* 底部渐隐区背景变浅，加柔影保证白字可读 */
+  text-shadow: 0 1px 10px rgba(8, 16, 22, .4);
 }
 .hero-kpi b { display: block; font-family: var(--font-display); font-size: 34px; line-height: 1; font-variant-numeric: tabular-nums; }
 .hero-kpi span { display: block; margin-top: 10px; font-size: 13px; color: rgba(250, 250, 246, .82); }
