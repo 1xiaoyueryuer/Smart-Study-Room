@@ -4,7 +4,7 @@ import ResourceChangeConfirm from './ResourceChangeConfirm.vue'
 import OpeningManagement from './OpeningManagement.vue'
 import SeatCodePanel from './SeatCodePanel.vue'
 import { getRooms } from '../../api/room'
-import { createRoom, deleteRoom, batchGenSeats, listRoomSeats, createSeat, deleteSeat } from '../../api/admin'
+import { createRoom, deleteRoom, batchGenSeats, listRoomSeats, createSeat, deleteSeat, batchGenerateSeatCodes } from '../../api/admin'
 import { operationReason } from './userForm.js'
 import { message } from '../ui/feedback'
 import SButton from '../ui/SButton.vue'
@@ -18,6 +18,7 @@ import { usePagination } from '../../composables/usePagination'
 
 const emit = defineEmits(['summary'])
 const codeDialog = ref(false), codeSeat = ref(null), codeBusy = ref(false)
+const batchCodeDialog = ref(false), batchCodeReason = ref(''), batchCodeError = ref('')
 function openSeatCode(seat) { codeSeat.value = seat; codeDialog.value = true }
 const openingDialog = ref(false), openingRoom = ref(null)
 function openSchedule(room) { openingRoom.value = room; openingDialog.value = true }
@@ -166,6 +167,30 @@ async function saveBatch() {
   } catch (failure) { formError.value = failureText(failure) }
   finally { saving.value = false }
 }
+function openBatchCodes() {
+  if (saving.value) return
+  batchCodeReason.value = ''
+  batchCodeError.value = ''
+  batchCodeDialog.value = true
+}
+async function saveBatchCodes() {
+  if (saving.value) return
+  batchCodeError.value = ''
+  let reason
+  try { reason = operationReason(batchCodeReason.value) } catch (failure) { batchCodeError.value = failure.message; return }
+  saving.value = true
+  writeNotice.value = ''
+  try {
+    const response = await batchGenerateSeatCodes({ reason })
+    const generated = Number(response.data?.generated) || 0
+    const skipped = Number(response.data?.skipped) || 0
+    batchCodeDialog.value = false
+    message.success(`已为${generated}个座位生成二维码，跳过${skipped}个已有码座位`)
+    writeNotice.value = `批量座位码完成：新生成${generated}个，跳过${skipped}个已有码座位。`
+  } catch (failure) {
+    batchCodeError.value = failure.status === 403 ? `无资源管理权限：${failure.message}` : failure.message
+  } finally { saving.value = false }
+}
 function removeResource(target, isSeat = false) {
   if (saving.value) return
   deleteForm.value = { id: target.id, version: target.version, label: target.seat_no || target.name, reason: '' }
@@ -196,7 +221,7 @@ defineExpose({ loadRooms, openCreate })
 
 <template>
   <section class="card">
-    <div class="card-title-row"><h3>自习室管理</h3><div class="row-actions"><SButton size="sm" :loading="loading" @click="loadRooms">刷新资源</SButton><SButton size="sm" variant="primary" @click="openCreate">新建自习室</SButton></div></div>
+    <div class="card-title-row"><h3>自习室管理</h3><div class="row-actions"><SButton size="sm" :loading="loading" @click="loadRooms">刷新资源</SButton><SButton size="sm" :disabled="saving" @click="openBatchCodes">批量生成缺失座位码</SButton><SButton size="sm" variant="primary" @click="openCreate">新建自习室</SButton></div></div>
     <SBanner v-if="writeNotice" type="info" :title="writeNotice" />
     <p v-if="loading" role="status">正在加载空间…</p>
     <SBanner v-if="error" type="error" :title="error"><SButton size="sm" @click="loadRooms">重试</SButton></SBanner>
@@ -223,6 +248,7 @@ defineExpose({ loadRooms, openCreate })
     <SDialog v-model="seatDialog" :title="editingSeat === null ? '新增单座位' : '编辑座位'" width="640px" :show-close="!saving" :close-on-click-modal="!saving"><form id="seat-editor" class="resource-form" @submit.prevent="saveSeat"><p v-if="formError" role="alert" class="form-error">{{ formError }}</p><label>座位编号<SInput v-model="seatForm.seat_no" required maxlength="20" /></label><label>区域<SSelect v-model="seatForm.zone" :options="zones" /></label><label>行号<SInputNumber v-model="seatForm.row_no" :min="1" :max="seatRoom?.seat_rows || 30" /></label><label>列号<SInputNumber v-model="seatForm.col_no" :min="1" :max="seatRoom?.seat_cols || 30" /></label><label><span><input v-model="seatForm.has_power" type="checkbox" /> 有电源</span></label><label><span><input v-model="seatForm.near_window" type="checkbox" /> 靠窗</span></label><label>座位状态<SSelect v-model="seatForm.status" :options="states" /></label><label class="full-width">公开原因<SInput v-model="seatForm.reason" type="textarea" required maxlength="1000" /></label></form><template #footer><SButton :disabled="saving" @click="seatDialog=false">取消</SButton><SButton type="submit" form="seat-editor" variant="primary" :loading="saving">保存座位</SButton></template></SDialog>
 
     <SDialog v-model="batchDialog" title="空房批量生成座位" width="480px" :show-close="!saving"><form id="batch-editor" class="resource-form" @submit.prevent="saveBatch"><p v-if="formError" role="alert" class="form-error">{{ formError }}</p><label>行数<SInputNumber v-model="batchForm.seat_rows" :min="1" :max="30" /></label><label>列数<SInputNumber v-model="batchForm.seat_cols" :min="1" :max="30" /></label><label class="full-width">公开原因<SInput v-model="batchForm.reason" type="textarea" required maxlength="1000" /></label><p class="muted full-width">仅空房可生成，不覆盖现有座位。</p></form><template #footer><SButton :disabled="saving" @click="batchDialog=false">取消</SButton><SButton type="submit" form="batch-editor" variant="primary" :loading="saving">确认生成</SButton></template></SDialog>
+    <SDialog v-model="batchCodeDialog" title="批量生成缺失座位码" width="520px" :show-close="!saving" :close-on-click-modal="!saving"><form id="batch-code-editor" class="resource-form" @submit.prevent="saveBatchCodes"><p v-if="batchCodeError" role="alert" class="form-error">{{ batchCodeError }}</p><p class="muted full-width">为所有尚未生成座位码的座位各生成一个二维码；已有座位码的座位保持不变，不会轮换、启停或改变版本。</p><label class="full-width">操作理由<SInput v-model="batchCodeReason" type="textarea" required maxlength="1000" placeholder="例如：部署前补齐全部缺失座位码" /></label></form><template #footer><SButton :disabled="saving" @click="batchCodeDialog=false">取消</SButton><SButton type="submit" form="batch-code-editor" variant="primary" :loading="saving">确认批量生成</SButton></template></SDialog>
     <SDialog v-model="deleteDialog" title="删除资源" width="480px" :show-close="!saving" :close-on-click-modal="!saving"><form id="resource-delete" class="resource-form" @submit.prevent="saveDelete"><p class="full-width">确认删除「{{ deleteForm.label }}」？有历史记录的资源不能删除。</p><p v-if="formError" role="alert" class="form-error">{{ formError }}</p><label class="full-width">删除操作理由<SInput v-model="deleteForm.reason" type="textarea" required maxlength="1000" /></label></form><template #footer><SButton :disabled="saving" @click="deleteDialog=false">取消</SButton><SButton type="submit" form="resource-delete" variant="soft-danger" :loading="saving">确认删除资源</SButton></template></SDialog>
     <ResourceChangeConfirm ref="changeConfirm" />
   </section>
