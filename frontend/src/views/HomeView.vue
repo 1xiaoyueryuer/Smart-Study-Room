@@ -12,6 +12,7 @@ import { listNotifications } from '../api/notification'
 import { validOverview, ratioText } from '../composables/statsForm.js'
 import { createStatsRefresh } from '../composables/statsRefresh.js'
 import { checkinDeadlineOf, deadlineLabel } from '../composables/checkinDeadline.js'
+import { formatCampusDateTime } from '../composables/campusDateTime.js'
 import AppIcon from '../components/AppIcon.vue'
 import SBanner from '../components/ui/SBanner.vue'
 import SButton from '../components/ui/SButton.vue'
@@ -67,7 +68,7 @@ let disposed = false
 const openAvailableSeats = computed(() => statsOverview.value?.current.open_available_seats ?? null)
 const inUseNow = computed(() => statsOverview.value?.current.in_use_now ?? null)
 const currentUsageText = computed(() => statsOverview.value ? ratioText(statsOverview.value.current.usage_ratio) : '尚未读取')
-const statsSnapshotText = computed(() => statsOverview.value ? new Date(statsOverview.value.snapshot_at).toLocaleString('zh-CN', {timeZone:'Asia/Shanghai',hour12:false}) : '')
+const statsSnapshotText = computed(() => statsOverview.value ? formatCampusDateTime(statsOverview.value.snapshot_at) : '')
 
 // 本人最近一条有效预约：报告只要求本人记录，不做学习时长/排名等个人统计。
 const reservations = ref([])

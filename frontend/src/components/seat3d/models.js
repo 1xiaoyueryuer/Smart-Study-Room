@@ -131,8 +131,8 @@ export function buildRoom(room, seats, dark) {
     })
     root.add(wall); walls.push({ side, mesh: wall, window: windowSides[side], facadeMaterials, faded: false })
   }
-  function updateSelection(selectedId) {
-    markers.forEach((p, i) => statusMesh.setColorAt(i, new THREE.Color(stateColors[seatState(p.seat, selectedId)])))
+  function updateSelection(selectedId, preferences = []) {
+    markers.forEach((p, i) => statusMesh.setColorAt(i, new THREE.Color(stateColors[seatState(p.seat, selectedId, preferences)])))
     if (statusMesh.instanceColor) statusMesh.instanceColor.needsUpdate = true
   }
   updateSelection(null)

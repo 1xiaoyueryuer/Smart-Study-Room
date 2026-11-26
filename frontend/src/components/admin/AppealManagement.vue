@@ -1,4 +1,5 @@
 <script setup>
+import { formatCampusDateTime } from '../../composables/campusDateTime.js'
 import {onBeforeUnmount,onMounted,ref} from 'vue'
 import {listAdminAppeals,getAdminAppeal} from '../../api/appeal'
 import {validAppealDetail,violationLabels,appealStatuses,reviewIntent} from '../../composables/appealForm.js'
@@ -47,7 +48,7 @@ onMounted(loadList);onBeforeUnmount(()=>{drafts.clear();alive=false;listSequence
       <div class="record-box">
         <ul v-if="loaded&&items.length" class="appeal-list">
           <li v-for="item in items" :key="item.id">
-            <p>申诉#{{item.id}} · 违规#{{item.violation_id}} · {{appealStatuses[item.status]||item.status}} · {{item.submitted_at}}</p>
+            <p>申诉#{{item.id}} · 违规#{{item.violation_id}} · {{appealStatuses[item.status]||item.status}} · {{ formatCampusDateTime(item.submitted_at) }}</p>
             <p v-if="item.subject">申诉人：#{{item.subject.id}} {{item.subject.real_name}} / {{item.subject.username}}</p>
             <SButton size="sm" :disabled="reviewing||readPending" @click="openDetail(item.id)">查看原件和进度</SButton>
           </li>
@@ -66,7 +67,7 @@ onMounted(loadList);onBeforeUnmount(()=>{drafts.clear();alive=false;listSequence
           <h4>管理核查来源（当前）</h4>
           <template v-if="detail.management_context?.violation">
             <p>当前违规#{{detail.management_context.violation.id}} · 主体账号#{{detail.management_context.violation.user_id}} · {{violationLabels[detail.management_context.violation.type]||detail.management_context.violation.type}} · {{detail.management_context.violation.source==='manual'?'管理员核实后登记':detail.management_context.violation.source==='automatic'?'系统自动事件':detail.management_context.violation.source}} · 当前{{detail.management_context.violation.status==='active'?'有效':detail.management_context.violation.status==='revoked'?'已撤销':detail.management_context.violation.status}}</p>
-            <p>发生：{{detail.management_context.violation.occurred_at}}；登记：{{detail.management_context.violation.registered_at}}</p>
+            <p>发生：{{ formatCampusDateTime(detail.management_context.violation.occurred_at) }}；登记：{{ formatCampusDateTime(detail.management_context.violation.registered_at) }}</p>
             <p class="source-reason">当前公开事实依据：{{detail.management_context.violation.reason}}</p>
             <p>原关联预约：<span v-if="detail.management_context.violation.reservation_id">#{{detail.management_context.violation.reservation_id}}</span><span v-else>未关联</span>；源核实事件：<span v-if="detail.management_context.violation.source_event_id">#{{detail.management_context.violation.source_event_id}}</span><span v-else>无已关联源核实事件</span>；登记人账号：<span v-if="detail.management_context.violation.registrant_id">#{{detail.management_context.violation.registrant_id}}</span><span v-else>无已关联登记人账号</span></p>
             <p v-if="detail.management_context.source_complaint_id">来源投诉#{{detail.management_context.source_complaint_id}}。</p>

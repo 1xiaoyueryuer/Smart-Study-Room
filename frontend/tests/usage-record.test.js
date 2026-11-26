@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises'
 import * as vue from 'vue'
 import * as ssr from 'vue/server-renderer'
 import { compileTemplate, parse } from '@vue/compiler-sfc'
+import { formatCampusDateTime } from '../src/composables/campusDateTime.js'
 const source=await readFile(new URL('../src/components/UsageRecordSummary.vue',import.meta.url),'utf8')
 async function evaluate(code,mocks,extra={}) {
   const context=vm.createContext(extra),module=new vm.SourceTextModule(code,{context})
@@ -13,7 +14,7 @@ async function evaluate(code,mocks,extra={}) {
 }
 async function render(record) {
   const script=source.split('<script setup>')[1].split('</script>')[0]
-  const bindings=await evaluate(script+'\nexport {durationText,originLabels,reasonLabels}',{vue},{defineProps:()=>({record})})
+  const bindings=await evaluate(script+'\nexport {durationText,originLabels,reasonLabels,formatCampusDateTime}',{vue,'../composables/campusDateTime.js':{formatCampusDateTime}},{defineProps:()=>({record})})
   const {descriptor}=parse(source)
   const compiled=compileTemplate({source:descriptor.template.content,filename:'UsageRecordSummary.vue',id:'usage-record',ssr:true,ssrCssVars:[]})
   assert.equal(compiled.errors.length,0)
@@ -23,7 +24,7 @@ async function render(record) {
 test('actual usage SFC renders null as absent, and ongoing nanosecond seconds as a server snapshot without client arithmetic',async()=>{
   assert.match(await render(null),/尚无使用记录/)
   const html=await render({checkin_at:'2026-10-30T08:00:00.000000001',ended_at:null,duration_seconds:'123.000000001',observed_at:'2026-10-30T08:02:03.000000002',origin:'seat_code'})
-  assert.match(html,/123\.000000001秒/);assert.match(html,/截至本次服务端读取，非实时计时/);assert.match(html,/08:02:03\.000000002/);assert.match(html,/座位码签到/)
+  assert.match(html,/123\.000000001秒/);assert.match(html,/截至本次服务端读取，非实时计时/);assert.match(html,/2026-10-30 08:02:03/);assert.match(html,/座位码签到/)
   assert.doesNotMatch(source,/checkout_at|Date\(|Date.now|setInterval|Math.round|toFixed/)
 })
 test('actual usage SFC distinguishes completed legacy facts from explicit simulated usage',async()=>{
@@ -41,5 +42,5 @@ test('missing or invalid usage duration is never fabricated as zero or inferred 
 })
 test('correction summary renders public reason and distinct actual operation time without private fields',async()=>{
  const html=await render({origin:'admin_correction',checkin_at:'2026-10-30T10:01',duration_seconds:60,correction:{operated_at:'2026-10-30T10:02+08:00',reason:'公开补签说明',actor_display_name:'模拟管理员',source:'admin_self_report',verification_note:'PRIVATE_S23'},management_correction:{correction_note:'PRIVATE_S23'}})
- assert.match(html,/管理员核实补签/);assert.match(html,/公开补签说明/);assert.match(html,/补签实际操作：2026-10-30T10:02/);assert.match(html,/管理员自报/);assert.doesNotMatch(html,/PRIVATE_S23|correction_note|verification_note/)
+ assert.match(html,/管理员核实补签/);assert.match(html,/公开补签说明/);assert.match(html,/补签实际操作：2026-10-30 10:02:00/);assert.match(html,/管理员自报/);assert.doesNotMatch(html,/PRIVATE_S23|correction_note|verification_note/)
 })

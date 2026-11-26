@@ -8,6 +8,7 @@ import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import {reviewReservationParam} from '../composables/reviewManagement.js'
 import {checkinDeadlineOf, deadlineLabel} from '../composables/checkinDeadline.js'
+import { formatCampusDateTime } from '../composables/campusDateTime.js'
 import { message, confirmDialog } from '../components/ui/feedback'
 import {
   listMyReservations, cancelReservation, abandonReservation,
@@ -40,7 +41,6 @@ const sourceMeta = { manual: '手动选座', auto: '历史智能分配', waitlis
 const terminationLabels = {user_cancelled:'开始前本人取消',abandon:'开始后主动放弃',no_show:'到签到期限仍未签到',legacy_violation:'历史违约状态，仅作溯源，未转为新独立违规',early_checkout:'提前签退',auto_end:'到期自动结束',legacy_unclassified:'历史结束，具体方式未记录',demo_completed:'演示模拟结束',temp_leave_timeout:'旧暂离流程结束（历史）',admin_resource_change:'资源管理取消（不记用户违约）',admin_restriction:'预约限制管理取消（不记用户违约）'}
 
 function deadlineOf(row) { return checkinDeadlineOf(row) }
-function fmtStamp(value) { return value ? String(value).replace('T', ' ').slice(0, 19) : '' }
 const pendingRows = computed(() => list.value.filter(row => row.status === 'pending' && deadlineOf(row)).slice(0, 3))
 
 const load=()=>pager.refresh(true)
@@ -178,10 +178,10 @@ onMounted(async()=>{await refreshAll();const target=reviewReservationParam(route
                     </div>
                     <div class="termination-detail">{{ terminationLabels[row.termination_reason] || row.termination_reason || '—' }}</div>
                     <div v-if="['admin_resource_change','admin_restriction'].includes(row.termination_reason) && row.termination_note" class="termination-detail">当次公开管理原因：{{ row.termination_note }}</div>
-                    <div v-if="row.ended_at" class="termination-detail">结束：{{ fmtStamp(row.ended_at) }}</div>
+                    <div v-if="row.ended_at" class="termination-detail">结束：{{ formatCampusDateTime(row.ended_at) }}</div>
                     <div v-if="row.legacy_status" class="termination-detail">历史原状态：{{ row.legacy_status === 'temp_leave' ? '暂离（已退出该流程）' : row.legacy_status }}</div>
                   </td>
-                  <td class="usage-cell"><UsageRecordSummary :record="row.usage_record" /><div v-if="row.legacy_status === 'temp_leave' && row.leave_at" class="termination-detail">历史暂离登记：{{ fmtStamp(row.leave_at) }}；不延长原结束。</div></td>
+                  <td class="usage-cell"><UsageRecordSummary :record="row.usage_record" /><div v-if="row.legacy_status === 'temp_leave' && row.leave_at" class="termination-detail">历史暂离登记：{{ formatCampusDateTime(row.leave_at) }}；不延长原结束。</div></td>
                   <td class="actions-cell">
                     <span class="row-actions">
                       <SButton v-for="a in actionsOf(row)" :key="a.key" size="sm" :variant="actionVariant[a.type]" :disabled="loading || !!error || busyId !== null" :loading="busyId === row.id" @click="doAction(row, a.key)">{{ a.label }}</SButton>
