@@ -20,6 +20,23 @@ export function scanFailure(error) {
   return message || '未能识别座位码，请使用清晰、完整的二维码重试。'
 }
 
+// 默认只扫描画面中央 2/3 的正方形；手机靠近屏幕时二维码常超出该区域。
+// 改为整帧扫描，限制下采样宽度以控制开销。
+function fullFrameScanRegion(video) {
+  const width = video?.videoWidth || 0
+  const height = video?.videoHeight || 0
+  if (!width || !height) return { x: 0, y: 0, width: 640, height: 640, downScaledWidth: 640, downScaledHeight: 640 }
+  const downScaledWidth = Math.min(800, width)
+  return {
+    x: 0,
+    y: 0,
+    width,
+    height,
+    downScaledWidth,
+    downScaledHeight: Math.max(1, Math.round(height * downScaledWidth / width))
+  }
+}
+
 // 摄像头扫描使用 GitHub 上的 Nimiq qr-scanner：移动端优先 BarcodeDetector，
 // 回退到 WebWorker + ZXing，并负责 video 的播放、元数据和移动端兼容处理。
 // 文件上传仍沿用既有 ZXing 解码、尺寸和座位码格式校验。
@@ -85,6 +102,7 @@ export function createSeatScanner({ onCode, onError, onCamera = () => {}, reader
       }, {
         preferredCamera: 'environment',
         maxScansPerSecond: 10,
+        calculateScanRegion: fullFrameScanRegion,
         highlightScanRegion: false,
         highlightCode: false,
         returnDetailedScanResult: true

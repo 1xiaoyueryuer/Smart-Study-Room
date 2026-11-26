@@ -67,7 +67,7 @@ test('leaving while camera permission is pending destroys late scanner and never
 test('camera duplicate callbacks submit once and destroy camera',async()=>{
   const hold=deferred();let callback,destroyed=0,submits=0
   class FakeQrScanner {
-    constructor(video,resultCallback,options){assert.equal(options.preferredCamera,'environment');assert.equal(options.returnDetailedScanResult,true);this.video=video;callback=resultCallback}
+    constructor(video,resultCallback,options){assert.equal(options.preferredCamera,'environment');assert.equal(options.returnDetailedScanResult,true);const region=options.calculateScanRegion({videoWidth:1080,videoHeight:1920});assert.equal(region.x,0);assert.equal(region.y,0);assert.equal(region.width,1080);assert.equal(region.height,1920);assert.equal(region.downScaledWidth,800);assert.equal(region.downScaledHeight,1422);this.video=video;callback=resultCallback}
     async start(){}
     destroy(){destroyed++;this.video.srcObject=null}
   }
