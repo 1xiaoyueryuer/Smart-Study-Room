@@ -33,7 +33,9 @@
 .view-heading .heading-sub {
   margin-top: 8px;
   font-size: var(--fs-body-sm);
-  color: var(--text-3);
+  /* 页面背景为照片，副标题统一白色并加柔影保证可读 */
+  color: #ffffff;
+  text-shadow: 0 1px 12px rgba(10, 20, 28, .55);
 }
 
 /* 页面级双栏 */

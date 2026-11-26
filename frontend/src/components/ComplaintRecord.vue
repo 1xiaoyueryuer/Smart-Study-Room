@@ -120,14 +120,17 @@ function eventLabel(event) {
 
 <style scoped>
 .complaint-record{display:grid;gap:14px;min-width:0;overflow-wrap:anywhere}
-.ticket-heading{display:flex;justify-content:space-between;align-items:center;gap:14px;padding:14px 16px;border:1px solid var(--border-strong);border-radius:var(--r-lg);background:var(--surface-2)}
+.ticket-heading{display:flex;justify-content:space-between;align-items:center;gap:14px;padding:0 0 14px;border:0;border-bottom:1px solid var(--hairline);border-radius:0;background:transparent}
 .ticket-number-label,.record-meta span{display:block;color:var(--text-3);font-size:var(--fs-caption)}
-.ticket-number{font-size:var(--fs-body);letter-spacing:.03em;color:var(--primary-active)}
+.ticket-number{font-size:var(--fs-body);letter-spacing:.03em;color:var(--text-1)}
 .ticket-status{display:grid;justify-items:end;gap:6px;color:var(--text-2);font-size:var(--fs-caption)}
-.record-section{display:grid;gap:10px;min-width:0;padding:14px 16px;border:1px solid var(--border-strong);border-radius:var(--r-lg);background:var(--surface)}
-.record-section h4,.record-section p{margin:0}
-.record-meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(220px,100%),1fr));gap:10px 18px}
-.record-meta b{display:block;margin-top:3px;font-weight:600;overflow-wrap:anywhere}
+/* 分区不再用嵌套卡片，正文以「标签左 / 值右」两栏行展示 */
+.record-section{display:grid;gap:12px;min-width:0;padding:0;border:0;border-radius:0;background:transparent}
+.record-section h4{margin:0;font-size:15px;color:var(--text-1);padding-top:6px;border-top:1px solid var(--hairline)}
+.record-section p{margin:0}
+.record-meta{display:grid;grid-template-columns:minmax(0,1fr);gap:16px}
+.record-meta > div{display:grid;grid-template-columns:150px minmax(0,1fr);gap:18px;align-items:baseline}
+.record-meta b{display:block;margin-top:0;font-weight:600;overflow-wrap:anywhere}
 .description{white-space:pre-wrap;line-height:1.65}
 .public-plan{padding:10px 12px;border-radius:var(--r-md);background:var(--surface-2);line-height:1.6}
 .closure-note,.record-disclaimer{color:var(--text-3);font-size:var(--fs-caption);line-height:1.6}

@@ -132,15 +132,17 @@ onBeforeUnmount(() => { alive = false; detailSequence++; pager.dispose() })
         <nav class="complaint-tabs" aria-label="求助类型">
           <button v-for="tab in categories" :key="tab.key" type="button" :class="{active: category === tab.key}" :disabled="loading" @click="selectCategory(tab.key)">{{ tab.label }}</button>
         </nav>
-        <p class="list-note">当前页共 {{ visibleItems.length }} 条；数量以服务端筛选结果为准。</p>
         <SBanner v-if="error" type="error" :title="error"><SButton size="sm" @click="load">重试列表</SButton></SBanner>
         <p v-if="loading" role="status">正在读取本人求助与投诉…</p>
         <ul v-if="!loading" class="ticket-list">
           <li v-for="item in visibleItems" :key="item.id">
             <button type="button" class="ticket-item" :class="{active: selectedId === item.id}" @click="selectItem(item)">
-              <span class="pill" :class="item.status === 'closed' ? 'pill-success' : item.status === 'submitted' ? 'pill-neutral' : 'pill-warning'">{{ complaintStatuses[item.status] || item.status }}</span>
-              <b>{{ titleOf(item) }}</b>
-              <small><b class="ticket-code">{{ complaintNumber(item.id) }}</b> · {{ categoryOf(item) }} · {{ roomOf(item) }}</small>
+              <span class="ticket-top">
+                <span class="pill" :class="item.status === 'closed' ? 'pill-success' : item.status === 'submitted' ? 'pill-neutral' : 'pill-warning'">{{ complaintStatuses[item.status] || item.status }}</span>
+                <b class="ticket-code">{{ complaintNumber(item.id) }}</b>
+              </span>
+              <b class="ticket-title">{{ titleOf(item) }}</b>
+              <small class="ticket-meta">{{ categoryOf(item) }} · {{ roomOf(item) }}</small>
               <small class="ticket-time">提交时间 {{ timeOf(item) }}</small>
             </button>
           </li>
@@ -185,7 +187,6 @@ onBeforeUnmount(() => { alive = false; detailSequence++; pager.dispose() })
 }
 .complaint-tabs button:hover { background: var(--surface-2); color: var(--text-1); }
 .complaint-tabs button.active { background: var(--primary-weak); color: var(--primary-active); font-weight: 600; }
-.list-note { color: var(--text-4); font-size: 11px; margin-bottom: 10px; }
 .ticket-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; min-height: 0; }
 .ticket-item {
   all: unset;
@@ -204,8 +205,13 @@ onBeforeUnmount(() => { alive = false; detailSequence++; pager.dispose() })
 .ticket-item.active { border-color: var(--primary); background: var(--primary-faint); }
 .ticket-item b { color: var(--text-1); font-size: 15px; font-weight: 600; line-height: 1.45; }
 .ticket-item small { color: var(--text-3); font-size: 11px; line-height: 1.5; }
-.ticket-item .ticket-code{color:var(--primary-active);font-size:11px;font-weight:700;font-variant-numeric:tabular-nums}.ticket-item .ticket-time{font-variant-numeric:tabular-nums}
-.ticket-item .pill { justify-self: start; }
+/* 参考图排版：状态与单号同一行（左右分布），标题、分类·位置、时间各占一行 */
+.ticket-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.ticket-item .ticket-top .pill { justify-self: auto; }
+.ticket-item .ticket-code { color: var(--text-3); font-size: 11.5px; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: .02em; }
+.ticket-item .ticket-title { color: var(--text-1); font-size: 15px; font-weight: 700; line-height: 1.45; }
+.ticket-item .ticket-meta { color: var(--text-2); font-size: 12px; }
+.ticket-item .ticket-time { color: var(--text-3); font-size: 11px; font-variant-numeric: tabular-nums; }
 .detail-panel { min-width: 0; min-height: 420px; }
 .detail-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 12px; margin-bottom: 14px; border-bottom: 1px solid var(--hairline); }
 .text-link { color: var(--primary); font-size: var(--fs-caption); text-decoration: none; }
