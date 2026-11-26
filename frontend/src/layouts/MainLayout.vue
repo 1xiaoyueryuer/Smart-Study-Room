@@ -48,8 +48,7 @@ const menus = computed(() => auth.isAdmin
       { index: '/', title: '首页', icon: 'home' },
       { index: '/booking', title: '座位预约', icon: 'booking' },
       { index: '/complaints', title: '求助与投诉', icon: 'ticket' },
-      { index: '/notifications', title: '消息', icon: 'notification-empty' },
-      { index: '/lan', title: '局域网', icon: 'lan' }
+      { index: '/notifications', title: '消息', icon: 'notification-empty' }
     ])
 
 const userLinks = computed(() => auth.isAdmin

@@ -46,12 +46,13 @@ for (const role of ['student', 'staff']) {
     assert.equal(store.isAdmin, false)
     assert.equal(store.roleLabel, role === 'staff' ? '教职工' : '学生')
     const navigation = await router(store)
-    for (const name of ['home', 'booking', 'mine', 'waitlist', 'notifications', 'complaints', 'complaint-detail', 'profile', 'lan']) {
+    for (const name of ['home', 'booking', 'mine', 'waitlist', 'notifications', 'complaints', 'complaint-detail', 'profile']) {
       const route = navigation.route(name)
       assert.equal(navigation.guard({ ...route, fullPath: route.path }), undefined)
     }
     assert.equal(navigation.guard(navigation.route('admin')), '/')
     assert.equal(navigation.guard(navigation.route('analytics')), '/')
+    assert.equal(navigation.guard(navigation.route('lan')), '/')
     assert.equal(store.isLoggedIn, true)
   })
 }

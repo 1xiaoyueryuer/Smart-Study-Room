@@ -65,7 +65,7 @@ const routes = [
         path: '/lan',
         name: 'lan',
         component: () => import('../views/LanView.vue'),
-        meta: { title: '局域网共同预约', requiresAuth: true, allowedRoles: ['student', 'staff', 'admin'] }
+        meta: { title: '局域网共同预约', requiresAuth: true, allowedRoles: ['admin'] }
       },
       {
         path: '/waitlist',
