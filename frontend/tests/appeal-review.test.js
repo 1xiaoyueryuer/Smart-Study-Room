@@ -37,8 +37,50 @@ test('bad receipt remains uncertain and leaving discards late preview or confirm
  const page=await dialog({confirmAppealReview:async(id,body)=>{const value=receipt(body);value.review.reason='其他审核内容';return{data:value}}});const result=page.run(70,intent());await tick();await page.confirm();assert.equal(page.unknown.value,true);page.cleanup.forEach(fn=>fn());assert.equal(await result,false)
  let release;const late=await dialog({previewAppealReview:()=>new Promise(resolve=>{release=()=>resolve({data:preview()})})});const waiting=late.run(70,intent());late.cleanup.forEach(fn=>fn());release();await tick();assert.equal(await waiting,false);assert.equal(late.preview.value,null)
 })
-test('actual original-batch summary preserves before/after statuses and original source order, without exposing private complaint facts',async()=>{
- const source=await readFile(new URL('../src/components/AppealRecalculationSummary.vue',import.meta.url),'utf8'),{descriptor}=parse(source),context=vm.createContext({defineProps:()=>({items:[recalc()]})}),state=new vm.SourceTextModule(descriptor.scriptSetup.content+'\nexport {violationLabels,outcomes,previewOutcomes,state,formatCampusDateTime}',{context});await state.link(specifier=>{const values=specifier.endsWith('/campusDateTime.js')?{formatCampusDateTime}: {violationLabels};return new vm.SyntheticModule(Object.keys(values),function(){for(const[key,value]of Object.entries(values))this.setExport(key,value)},{context})});await state.evaluate();const compiled=compileTemplate({source:descriptor.template.content,filename:'AppealRecalculationSummary.vue',id:'s22summary',ssr:true,ssrCssVars:[]}),module=new vm.SourceTextModule(compiled.code,{context});await module.link(specifier=>{const values=specifier==='vue'?vue:ssr;return new vm.SyntheticModule(Object.keys(values),function(){for(const[key,value]of Object.entries(values))this.setExport(key,value)},{context})});await module.evaluate();const html=await ssr.renderToString(vue.createSSRApp({props:['items','preview'],setup:()=>state.namespace,ssrRender:module.namespace.ssrRender},{items:[recalc()],preview:false}));assert.match(html,/3 → 2条/);assert.match(html,/审核前有效 → 审核后已撤销/);assert.ok(html.indexOf('违规#31')<html.indexOf('违规#12'));assert.ok(html.indexOf('违规#12')<html.indexOf('违规#25'));assert.match(html,/关联预约涉及他人，不公开编号/);assert.doesNotMatch(html,/DO_NOT_LEAK|投诉#999|#null/)
+async function renderRecalculation(items, preview = false) {
+  const file = '../src/components/AppealRecalculationSummary.vue'
+  const { page, context } = await script(file, {
+    '../composables/appealForm.js': { violationLabels },
+    '../composables/campusDateTime.js': { formatCampusDateTime }
+  }, 'violationLabels,outcomes,previewOutcomes,state,formatCampusDateTime,completeSources', { defineProps: () => ({ items, preview }) })
+  const { descriptor } = parse(await readFile(new URL(file, import.meta.url), 'utf8'))
+  const { code } = compileTemplate({ source: descriptor.template.content, filename: file, id: 'appeal-recalculation', ssr: true })
+  const module = new vm.SourceTextModule(code, { context })
+  await module.link(specifier => {
+    const values = specifier === 'vue' ? vue : ssr
+    return new vm.SyntheticModule(Object.keys(values), function () {
+      for (const [key, value] of Object.entries(values)) this.setExport(key, value)
+    }, { context })
+  })
+  await module.evaluate()
+  return ssr.renderToString(vue.createSSRApp({ props: ['items', 'preview'], setup: () => page, ssrRender: module.namespace.ssrRender }, { items, preview }))
+}
+test('actual original-batch summary preserves before/after statuses and original source order, without exposing private complaint facts', async () => {
+  const html = await renderRecalculation([recalc()])
+  assert.match(html, /3 → 2条/)
+  assert.match(html, /审核前有效 → 审核后已撤销/)
+  assert.ok(html.indexOf('违规#31') < html.indexOf('违规#12'))
+  assert.ok(html.indexOf('违规#12') < html.indexOf('违规#25'))
+  assert.match(html, /关联预约涉及他人，不公开编号/)
+  assert.doesNotMatch(html, /DO_NOT_LEAK|投诉#999|#null/)
+})
+test('credit round appeal renders later violations that retain the restriction and a remaining first violation that releases it', async () => {
+  const item = { ...recalc(), policy_version: 'credit_round_v1', threshold: 2, duration_hours: 360 }
+  const retained = await renderRecalculation([{ ...item, outcome: 'retained', status_after: 'active' }], true)
+  assert.match(retained, /将保留原批次/)
+  assert.match(retained, /本轮有效违规3 → 2条/)
+  assert.match(retained, /停约期间登记的违规/)
+  assert.match(retained, /违规#25/)
+  assert.doesNotMatch(retained, /来源数据不完整|DO_NOT_LEAK/)
+  const released = await renderRecalculation([{
+    ...item,
+    valid_count_before: 2,
+    valid_count_after: 1,
+    source_violations: item.source_violations.slice(0, 2)
+  }])
+  assert.match(released, /本次已解除原有效批次/)
+  assert.match(released, /本轮有效违规2 → 1条/)
+  assert.doesNotMatch(released, /来源数据不完整|违规#25/)
 })
 
 test('acknowledged administrative review with failed detail GET preserves receipt and locks further writes until GET-only recovery',async()=>{
@@ -68,8 +110,7 @@ test('actual preview and original-batch templates clearly distinguish proposed e
  const page=await dialog(),result=page.run(70,intent());await tick();const frozen=structuredClone(vue.toRaw(page.preview.value))
  const source=await readFile(new URL('../src/components/admin/AppealReviewConfirm.vue',import.meta.url),'utf8'),{descriptor}=parse(source),compiled=compileTemplate({source:descriptor.template.content,filename:'AppealReviewConfirm.vue',id:'s22previewcopy',ssr:true,ssrCssVars:[]}),context=vm.createContext({}),module=new vm.SourceTextModule(compiled.code,{context});await module.link(specifier=>{const values=specifier==='vue'?vue:ssr;return new vm.SyntheticModule(Object.keys(values),function(){for(const[key,value]of Object.entries(values))this.setExport(key,value)},{context})});await module.evaluate()
  const app=vue.createSSRApp({setup:()=>({...page.live,formatCampusDateTime}),ssrRender:module.namespace.ssrRender});app.component('SDialog',{render(){return vue.h('div',[this.$slots.default?.(),this.$slots.footer?.()])}});for(const name of ['SButton','SBanner','RestrictionRecord','AppealRecalculationSummary'])app.component(name,{render:()=>null});const html=await ssr.renderToString(app);assert.match(html,/拟同意申诉/);assert.match(html,/当前仅预览，尚未执行审核或纠错/);assert.doesNotMatch(html,/申诉#70 · 申诉成立/)
- const summarySource=await readFile(new URL('../src/components/AppealRecalculationSummary.vue',import.meta.url),'utf8'),summary=parse(summarySource).descriptor,summaryContext=vm.createContext({defineProps:()=>({items:[recalc()]})}),state=new vm.SourceTextModule(summary.scriptSetup.content+'\nexport {violationLabels,outcomes,previewOutcomes,state,formatCampusDateTime}',{context:summaryContext});await state.link(specifier=>{const values=specifier.endsWith('/campusDateTime.js')?{formatCampusDateTime}: {violationLabels};return new vm.SyntheticModule(Object.keys(values),function(){for(const[key,value]of Object.entries(values))this.setExport(key,value)},{context:summaryContext})});await state.evaluate();const rendering=compileTemplate({source:summary.template.content,filename:'AppealRecalculationSummary.vue',id:'s22copysummary',ssr:true,ssrCssVars:[]}),renderModule=new vm.SourceTextModule(rendering.code,{context:summaryContext});await renderModule.link(specifier=>{const values=specifier==='vue'?vue:ssr;return new vm.SyntheticModule(Object.keys(values),function(){for(const[key,value]of Object.entries(values))this.setExport(key,value)},{context:summaryContext})});await renderModule.evaluate()
- const render=mode=>ssr.renderToString(vue.createSSRApp({props:['items','preview'],setup:()=>state.namespace,ssrRender:renderModule.namespace.ssrRender},{items:[recalc()],preview:mode})),proposed=await render(true),actual=await render(false)
+ const proposed=await renderRecalculation([recalc()],true),actual=await renderRecalculation([recalc()])
  assert.match(proposed,/将解除原有效批次/);assert.match(proposed,/预计处置后已解除/);assert.match(proposed,/预计审核后已撤销/);assert.doesNotMatch(proposed,/本次已解除/);assert.match(actual,/本次已解除原有效批次/);assert.doesNotMatch(actual,/预计处置后|预计审核后/);assert.equal(JSON.stringify(vue.toRaw(page.preview.value)),JSON.stringify(frozen));assert.equal(page.calls.filter(call=>call[0]==='confirm').length,0);page.cancel();assert.equal(await result,false)
 })
 

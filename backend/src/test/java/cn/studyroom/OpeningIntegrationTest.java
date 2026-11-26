@@ -38,10 +38,9 @@ class OpeningIntegrationTest {
     @Autowired Clock clock;
     long room,seat1,seat2,student,admin;
     String remote;
-    static final List<String> TABLES=List.of("notifications","restriction_operations","restrictions","violations","complaint_target_events","complaint_targets","reminders","evidence_attachments","complaint_events","complaints","resource_change_operations","usage_records","seat_codes","resource_unavailability","opening_windows","opening_schedules","audit_events","credit_logs","waitlist","reservations","seats","rooms","users");
     @BeforeEach void setup() {
         assertEquals("studyroom_java_test",db.one("SELECT current_database() AS name").get("name"));
-        TABLES.forEach(t->db.update("DELETE FROM "+t));remote="s06-test-"+UUID.randomUUID();
+        TestDatabaseCleanup.clear(db);remote="s06-test-"+UUID.randomUUID();
         String hash=new BCryptPasswordEncoder().encode("S02-test-only-password");
         admin=db.insert("INSERT INTO users(username,password_hash,role) VALUES('s06_admin',?,'admin')",hash);
         student=db.insert("INSERT INTO users(username,password_hash,role) VALUES('s06_student',?,'student')",hash);
@@ -164,7 +163,7 @@ class OpeningIntegrationTest {
         var created=resources.save(admin,null,new Requests.Room("新默认空间",null,null,null,1,1,null,null,null,true,null,"默认安排测试"));
         long id=Store.id(created,"id");assertEquals(7,db.count("SELECT count(*) FROM opening_schedules WHERE room_id=?",id));
         assertEquals(List.of(new OpeningScheduleService.Window(480,1320)),opening.calendar(id).day(LocalDate.now(clock).plusDays(1),null).windows());
-        TABLES.forEach(t->db.update("DELETE FROM "+t));
+        TestDatabaseCleanup.clear(db);
         transactions.executeWithoutResult(tx->new SeedData(db,clock,true,opening,usage).run(null));
         assertEquals(12,db.count("SELECT count(*) FROM rooms"));assertEquals(84,db.count("SELECT count(*) FROM opening_schedules"));assertEquals(84,db.count("SELECT count(*) FROM opening_windows WHERE start_minute=480 AND end_minute=1320"));assertEquals(336,db.count("SELECT count(*) FROM reservations"));assertEquals(336,db.count("SELECT count(*) FROM usage_records WHERE origin='demo_seed' AND end_reason='demo_completed'"));assertEquals(0,db.count("SELECT count(*) FROM reservations WHERE checkin_at IS NOT NULL OR checkout_at IS NOT NULL"));
     }
