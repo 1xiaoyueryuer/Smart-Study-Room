@@ -338,13 +338,13 @@ onUnmounted(() => {
   flex-direction: column;
   background: var(--canvas);
 }
-/* 全站页面背景：阅览室照片固定铺满视口，70% 不透明度 */
+/* 全站页面背景：阅览室照片固定铺满视口，60% 透明（即 40% 不透明度） */
 .app-bg {
   position: fixed;
   inset: 0;
   z-index: 0;
   background: url('/images/booking-bg.jpg') center / cover no-repeat;
-  opacity: .7;
+  opacity: .4;
   pointer-events: none;
 }
 
