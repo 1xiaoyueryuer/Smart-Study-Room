@@ -194,5 +194,21 @@ class ResourceChangeIntegrationTest {
         resources.deleteSeat(admin,seat2,new Requests.ResourceDelete(1L,"无座位关联历史允许删除该空座"));assertEquals(0,db.count("SELECT count(*) FROM seats WHERE id=?",seat2));long id=db.insert("INSERT INTO reservations(user_id,seat_id,res_date,start_time,end_time,status,source) VALUES(?,?,?,'10:00','11:00','pending','waitlist')",student,seat1,java.sql.Date.valueOf(base.plusDays(1)));assertEquals(409,assertThrows(Api.Failure.class,()->resources.deleteSeat(admin,seat1,new Requests.ResourceDelete(1L,"递补预约关联保护座位"))).status);
         var preview=changes.preview(admin,proposal("seat.update",seat1,seatBody(seat1,"01",1,"maintenance","取消不移除历史")));confirm(preview,UUID.randomUUID().toString(),null);assertEquals("cancelled",row(id).get("status"));assertEquals(409,assertThrows(Api.Failure.class,()->resources.deleteSeat(admin,seat1,new Requests.ResourceDelete(2L,"取消后仍不可删除"))).status);
     }
+    @Test void pendingCancellationNotificationMustNotClaimUsageSettlement() {
+        long id=reservation(student,seat1);
+        var preview=changes.preview(admin,proposal("room.update",room,roomBody(false,"工程模拟：仅待签到预约的闭馆原因")));
+        assertEquals(1,((List<?>)preview.get("pending")).size());
+        assertEquals(0,((List<?>)preview.get("in_use")).size());
+        changes.confirm(admin,request(preview,UUID.randomUUID().toString(),null));
+        assertEquals("cancelled",row(id).get("status"));
+        assertEquals("admin_resource_change",row(id).get("termination_reason"));
+        assertEquals("工程模拟：仅待签到预约的闭馆原因",row(id).get("termination_note"));
+        assertEquals(0,db.count("SELECT count(*) FROM usage_records WHERE reservation_id=?",id));
+        assertEquals(0,db.count("SELECT count(*) FROM violations WHERE reservation_id=?",id));
+        assertEquals(0,db.count("SELECT count(*) FROM credit_logs WHERE reservation_id=?",id));
+        String content=Store.text(db.one("SELECT content FROM notifications WHERE reservation_id=? AND type='management_cancelled'",id),"content");
+        assertTrue(content.contains("工程模拟：仅待签到预约的闭馆原因"),"通知应包含公开管理原因："+content);
+        assertFalse(content.contains("已用时长"),"待签到预约没有使用记录，通知不应声称已结算已用时长："+content);
+    }
 
 }
