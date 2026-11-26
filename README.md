@@ -11,7 +11,7 @@
 | 后端 | Java 17 · Spring Boot 2.7.18 · Spring JDBC |
 | 前端 | Vue 3 · Vite · Pinia · ECharts · Three.js |
 | 存储 | PostgreSQL 17（Flyway 增量迁移）· Redis 7.2 |
-| 入口 | <http://127.0.0.1:8080>（应用仅监听本机回环地址） |
+| 入口 | <http://127.0.0.1:8080>（默认仅监听本机回环，可显式开启局域网监听） |
 | 许可 | [MIT](LICENSE) |
 
 ## 目录
@@ -52,6 +52,7 @@
 | F09 | 使用评价 | 本人对已结算的真实使用评价 1—5 星；管理员回复或有理由隐藏；登录角色可查看服务端白名单过滤后的匿名公开内容 |
 | F10 | 记录与消息查询 | 本人与管理记录的服务端条件筛选与稳定分页；站内消息分类筛选、已读标记与真实业务跳转；管理审计只读安全投影 |
 | F11 | 统计与整体验收 | 统一统计快照与近七日趋势、热力图；页面可见时每 10 秒刷新且失败保留上次数据；S01—S31 整体工程验收 |
+| F12 | 局域网接入与共同预约 | 一台设备作主机、同一局域网其他设备经内网地址登录同一系统；共享同一份座位与预约数据；展示接入地址/二维码、最近在线设备与各空间占座聚合；预约规则与权限不变 |
 
 各功能的规则边界、状态模型与验证记录见 `docs/features/Fxx-*/` 下的两份方案。
 
@@ -74,7 +75,7 @@
 应用分为四层，业务规则只在业务层实现一次，查询与提交共用同一套判定：
 
 1. **表现层**：`frontend/` 的 Vue 3 单页应用，vue-router 负责路由与角色守卫，Pinia 管理状态，Axios 统一封装请求（`baseURL='/api'`、注入 Bearer 令牌、统一拆包与错误提示，401 注销并跳转登录）。构建产物 `frontend/dist` 打包进 JAR 的 `static/`，运行时无需另起 Node 服务。
-2. **接口层**：`backend/src/main/java/cn/studyroom/` 下 19 个 `*Controller`，统一前缀 `/api`，返回 `{code, message, data}` 信封；参数类异常 400、上传超限 413、唯一键与外键冲突按 SQLState 转 409，其余 500 并记日志。
+2. **接口层**：`backend/src/main/java/cn/studyroom/` 下 21 个 `*Controller`，统一前缀 `/api`，返回 `{code, message, data}` 信封；参数类异常 400、上传超限 413、唯一键与外键冲突按 SQLState 转 409，其余 500 并记日志。
 3. **业务层**：`AuthService`、`UserService`、`UserImportService`、`ResourceService`、`OpeningScheduleService`、`BookingService`、`UsageService`、`AvailabilityService`、`ResourceChangeService`、`Complaint*Service`、`RestrictionPolicy` / `RestrictionWorkflow`、`ViolationService`、`AppealService` / `AppealReviewService`、`ReviewService`、`SeatCodeService`、`AttachmentService`、`NotificationService`、`AuditService`、`StatsService` 等，集中承载时长、日期、开放、冲突、资格与时限规则。
 4. **数据访问与存储层**：`Store.java` 封装 `JdbcTemplate`，是 SQL 与行映射的唯一入口（并对 PostgreSQL `TIME` 的 `24:00:00` 做保真读取）；结构由 Flyway 管理，Redis 用于限流与令牌撤销，审计与通知随原业务事务一起提交。
 
@@ -85,11 +86,11 @@
 └──────────────────────────────┬───────────────────────────────────────┘
                                │ HTTP JSON（snake_case 字段，Bearer 令牌）
 ┌──────────────────────────────▼───────────────────────────────────────┐
-│ Spring Boot 2.7.18（Java 17），仅监听 127.0.0.1:8080                   │
+│ Spring Boot 2.7.18（Java 17），默认监听 127.0.0.1:8080，可按需开启局域网监听 │
 │ WebSecurity 拦截器：health/OPTIONS 放行；登录按 IP 限 10 次/60 秒；     │
 │ 其余需 Bearer 令牌；/api/admin/** 与 /api/stats/** 强制 admin；        │
 │ 预约写操作限 2 次/秒                                                   │
-│ 19 个 Controller · Service 层业务规则 · Store 唯一 SQL 入口            │
+│ 21 个 Controller · Service 层业务规则 · Store 唯一 SQL 入口            │
 │ 定时任务：预约生命周期 10s · 投诉目标 60s · 确认期 60s · 材料清理 600s  │
 │ 时区统一 Asia/Shanghai                                                │
 └───────┬───────────────────────────────────────┬──────────────────────┘
@@ -111,7 +112,7 @@
 ```text
 Smart-Study-Room/
 ├── backend/                     # Java 17 / Spring Boot 服务端
-│   ├── src/main/java/cn/studyroom/     # 63 个类：Controller / Service / Policy / Store
+│   ├── src/main/java/cn/studyroom/     # 70 个类：Controller / Service / Policy / Store
 │   ├── src/main/resources/
 │   │   └── db/migration/               # Flyway V1—V31 增量迁移
 │   └── src/test/java/cn/studyroom/     # 单元与真实 PostgreSQL / Redis 集成测试
@@ -157,7 +158,17 @@ cd Smart-Study-Room
 ./scripts/Start.ps1
 ```
 
-打开 <http://127.0.0.1:8080> 即可使用。应用仅监听本机回环地址，这是有意的默认设置。
+打开 <http://127.0.0.1:8080> 即可使用。应用默认仅监听本机回环地址，这是有意的安全默认设置。
+
+### 局域网多设备访问（可选，F12）
+
+需要让同一局域网内的其他设备（手机、平板、另一台电脑）共同使用同一套系统时：
+
+1. 在主机 `.local/application-local.properties` 增加 `server.address=0.0.0.0`，或启动前设置环境变量 `STUDYROOM_SERVER_ADDRESS=0.0.0.0`；重启服务。
+2. 主机登录后打开“局域网”页，页面会显示可访问的内网地址、二维码、最近在线设备与共享座位看板；其他设备连接同一 Wi‑Fi 后扫码或输入该地址，使用各自校园账号登录。
+3. 所有设备共用同一份座位与预约数据；同一座位同一时段并发提交时，只有一方成功，另一方会看到冲突提示。撤回该配置并重启即恢复仅本机访问。
+
+该能力面向小范围教学演示：`0.0.0.0` 会把服务暴露到所在局域网，不包含 HTTPS、反向代理、校园统一认证或公网防护，不应直接用于生产环境。详细规则见 [F12 功能方案](docs/features/F12-局域网共同预约/局域网共同预约功能架构方案.md)。
 
 本机凭据（数据库口令、JWT 密钥）只保存在被 `.gitignore` 忽略的 `.local/` 目录中，不随仓库提交；如需手工调整，可复制 `application-local.example.properties` 到 `.local/application-local.properties` 后修改。
 
@@ -182,7 +193,7 @@ cd Smart-Study-Room
 
 前端热更新（可选）：在 `frontend/` 执行 `npm ci` 与 `npm run dev`，访问 <http://127.0.0.1:5173>，`/api` 自动代理到后端 8080 端口。
 
-常用环境变量：`STUDYROOM_HOST_PORT`（应用端口，默认 8080）、`STUDYROOM_DB_URL` / `_USERNAME` / `_PASSWORD`、`STUDYROOM_REDIS_HOST` / `_PORT` / `_PASSWORD` / `_DATABASE`、`STUDYROOM_JWT_SECRET`（必填，≥32 字符随机串）、`STUDYROOM_SEED`、`STUDYROOM_SCHEDULER_ENABLED`、`STUDYROOM_MAVEN`（指定 `mvn.cmd` 路径）。
+常用环境变量：`STUDYROOM_HOST_PORT`（应用端口，默认 8080）、`STUDYROOM_SERVER_ADDRESS`（监听地址，默认 127.0.0.1；局域网访问改为 0.0.0.0）、`STUDYROOM_DB_URL` / `_USERNAME` / `_PASSWORD`、`STUDYROOM_REDIS_HOST` / `_PORT` / `_PASSWORD` / `_DATABASE`、`STUDYROOM_JWT_SECRET`（必填，≥32 字符随机串）、`STUDYROOM_SEED`、`STUDYROOM_SCHEDULER_ENABLED`、`STUDYROOM_MAVEN`（指定 `mvn.cmd` 路径）。
 
 若本机没有名为 `my-redis` 的 Redis 容器，可改用 `docker compose --profile extra-redis up -d redis` 另起 6380 实例并同步修改本地配置，或连接自行管理的 Redis 7.x；`./scripts/Start.ps1 -SkipContainers` 可跳过容器启动。
 
@@ -243,6 +254,7 @@ S31 的 565/319/94 是历史批次，不与本轮 594/291/93 相加。批次、�
 |---|---|
 | [docs/README.md](docs/README.md) | 文档索引与唯一来源说明 |
 | [docs/requirements/01_需求规格说明书.md](docs/requirements/01_需求规格说明书.md) | 正式需求规格说明书（FR / BR / AC 编号来源） |
+| [F12 局域网接入与共同预约](docs/features/F12-局域网共同预约/局域网共同预约功能架构方案.md) | 局域网多设备接入、在线设备与共享看板的规则、接口与验证记录 |
 | [docs/features/](docs/features/) | 每项功能的架构方案与代码实施方案 |
 | [docs/VALIDATION.md](docs/VALIDATION.md) | 工程验证记录与实际批次 |
 | [docs/evidence/](docs/evidence/) | 脱敏验证证据与索引 |
