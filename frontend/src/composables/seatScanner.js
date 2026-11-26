@@ -64,7 +64,7 @@ export function createSeatScanner({ onCode, onError, onCamera = () => {}, reader
   async function camera(element) {
     if (locked) return
     stop(); const ticket = generation
-    if (globalThis.isSecureContext === false || !mediaDevices?.getUserMedia) { onError('摄像头需要HTTPS或localhost安全环境及浏览器支持；也可上传二维码图片。'); return }
+    if (globalThis.isSecureContext === false || !mediaDevices?.getUserMedia) { onError('摄像头需要 HTTPS 安全环境。手机请使用管理员提供的 https:// 局域网地址；电脑可用 localhost。也可上传二维码图片。'); return }
     onCamera(true)
     try {
       const acquired = await mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false })
