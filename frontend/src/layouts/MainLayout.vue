@@ -364,17 +364,17 @@ onUnmounted(() => {
   align-items: center;
   gap: 10px;
   cursor: pointer;
-  color: var(--text-1);
+  color: #23372d;
   flex: 0 0 auto;
 }
-.brand-mark { color: var(--primary); display: grid; place-items: center; }
+.brand-mark { color: #2f5d46; display: grid; place-items: center; }
 .brand-name {
   font-family: var(--font-display);
   font-size: 22px;
   font-weight: 600;
   letter-spacing: .06em;
   white-space: nowrap;
-  color: var(--text-1);
+  color: #23372d;
 }
 .topnav-links {
   flex: 1;
@@ -389,14 +389,14 @@ onUnmounted(() => {
   position: relative;
   padding: 10px 18px;
   border-radius: var(--r-md);
-  color: var(--text-2);
+  color: #4f5f54;
   font-size: 15px;
   cursor: pointer;
   white-space: nowrap;
   transition: color var(--dur-1) var(--ease), background var(--dur-1) var(--ease);
 }
-.nav-link:hover { color: var(--text-1); background: var(--surface-2); }
-.nav-link.active { color: var(--primary); font-weight: 600; }
+.nav-link:hover { color: #23372d; background: rgba(20, 40, 32, .06); }
+.nav-link.active { color: #2f5d46; font-weight: 600; }
 .nav-link.active::after {
   content: '';
   position: absolute;
@@ -405,7 +405,7 @@ onUnmounted(() => {
   bottom: 2px;
   height: 2px;
   border-radius: var(--r-full);
-  background: var(--primary);
+  background: #2f5d46;
 }
 .nav-unread {
   display: inline-grid;
@@ -415,8 +415,8 @@ onUnmounted(() => {
   margin-left: 6px;
   padding: 0 5px;
   border-radius: var(--r-full);
-  background: var(--primary);
-  color: var(--text-inverse);
+  background: #2f5d46;
+  color: #ffffff;
   font-size: 11px;
   line-height: 1;
   vertical-align: 2px;
@@ -429,12 +429,12 @@ onUnmounted(() => {
   border-radius: var(--r-full);
   display: grid;
   place-items: center;
-  color: var(--text-2);
+  color: #4f5f54;
   cursor: pointer;
   position: relative;
   transition: background var(--dur-1) var(--ease), color var(--dur-1) var(--ease);
 }
-.icon-btn:hover { background: var(--surface-2); color: var(--text-1); }
+.icon-btn:hover { background: rgba(20, 40, 32, .06); color: #23372d; }
 .bell-dot {
   position: absolute;
   top: 8px;
@@ -454,10 +454,10 @@ onUnmounted(() => {
   padding: 4px 10px 4px 4px;
   border-radius: var(--r-full);
   cursor: pointer;
-  color: var(--text-1);
+  color: #23372d;
   transition: background var(--dur-1) var(--ease);
 }
-.user-chip:hover { background: var(--surface-2); }
+.user-chip:hover { background: rgba(20, 40, 32, .06); }
 .avatar {
   width: 34px;
   height: 34px;
@@ -474,7 +474,7 @@ onUnmounted(() => {
 }
 .avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .user-chip-name { font-size: 14px; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.caret { color: var(--text-3); font-size: 11px; }
+.caret { color: #7b877d; font-size: 11px; }
 .user-pop {
   position: absolute;
   right: 0;
