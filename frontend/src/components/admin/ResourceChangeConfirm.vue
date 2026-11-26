@@ -1,4 +1,5 @@
 <script setup>
+import { formatCampusDateTime } from '../../composables/campusDateTime.js'
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { previewResourceChange, confirmResourceChange } from '../../api/resourceChange'
 import SDialog from '../ui/SDialog.vue'
@@ -82,13 +83,13 @@ defineExpose({ run })
         <ul class="change-summary"><li v-for="line in changeSummary" :key="line">{{ line }}</li></ul>
         <p>本次公开变更理由：{{ preview.normalized_proposal.payload.reason }}</p>
         <details><summary>核对规范变更内容、版本和指纹</summary><pre>{{ JSON.stringify(preview.normalized_proposal, null, 2) }}</pre><pre>{{ JSON.stringify(preview.versions, null, 2) }}</pre><p class="fingerprint">影响指纹：{{ preview.impact_hash }}</p></details>
-        <p class="muted">预览时刻：{{ preview.server_now }}（{{ preview.campus_zone }}）。操作ID：{{ operationId }}</p>
+        <p class="muted">预览时刻：{{ formatCampusDateTime(preview.server_now) }}（{{ preview.campus_zone }}）。操作ID：{{ operationId }}</p>
         <SBanner type="warning" title="确认将立即取消整条受影响预约，使用中按确认时刻结算。即使临停安排在未来，也会立即结束受影响的当前使用；如需继续使用，请稍后执行。" />
         <p v-if="preview.summary.warning">{{ preview.summary.warning }}</p>
         <p>待签到{{ preview.pending.length }}条，使用中{{ preview.in_use.length }}条；不新增违规。</p>
         <div v-for="group in [{label:'待签到，将立即管理取消',rows:preview.pending},{label:'使用中，将立即终止并结算，需现场协调',rows:preview.in_use}]" :key="group.label">
           <h4>{{ group.label }}</h4><p v-if="!group.rows.length" class="muted">本次无该类受影响预约。</p>
-          <div v-else class="table-wrap"><div class="table-scroll" tabindex="0" :aria-label="group.label"><table class="table impact-table"><thead><tr><th>预约 / 使用者</th><th>座位</th><th>日期 / 原时段</th><th>原状态 / 已登记签到</th></tr></thead><tbody><tr v-for="row in group.rows" :key="row.reservation_id"><td>#{{ row.reservation_id }} · {{ row.real_name || `用户${row.user_id}` }}</td><td>{{ row.seat_no }}</td><td>{{ row.date }} {{ row.start_time }}–{{ row.end_time }}</td><td>{{ row.status === 'checked_in' ? '使用中' : '待签到' }}<div>{{ row.checkin_at || '无使用签到记录' }}</div></td></tr></tbody></table></div></div>
+          <div v-else class="table-wrap"><div class="table-scroll" tabindex="0" :aria-label="group.label"><table class="table impact-table"><thead><tr><th>预约 / 使用者</th><th>座位</th><th>日期 / 原时段</th><th>原状态 / 已登记签到</th></tr></thead><tbody><tr v-for="row in group.rows" :key="row.reservation_id"><td>#{{ row.reservation_id }} · {{ row.real_name || `用户${row.user_id}` }}</td><td>{{ row.seat_no }}</td><td>{{ row.date }} {{ row.start_time }}–{{ row.end_time }}</td><td>{{ row.status === 'checked_in' ? '使用中' : '待签到' }}<div>{{ row.checkin_at ? formatCampusDateTime(row.checkin_at) : '无使用签到记录' }}</div></td></tr></tbody></table></div></div>
         </div>
         <div v-if="preview.in_use.length" class="coordination">
           <label><input v-model="coordinationConfirmed" type="checkbox" :disabled="locked || stale" /> 我已现场协调，并确认立即终止上述使用中预约（管理员自报）</label>

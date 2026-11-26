@@ -7,6 +7,11 @@ export function minuteValue(value, end = false) {
 export function minuteText(value) {
   return `${String(Math.floor(value / 60)).padStart(2,'0')}:${String(value % 60).padStart(2,'0')}`
 }
+export function normalizeStartTime(value) {
+  const match = String(value || '').trim().match(/^(0?[0-9]|1[0-9]|2[0-3])(?::([0-5][0-9]))?$/)
+  if (!match) throw new Error('请输入有效的24小时制开始时间，例如9或9:00')
+  return `${String(Number(match[1])).padStart(2,'0')}:${match[2] || '00'}`
+}
 export function serverStartMinute(policy) {
   const match = policy.server_now?.match(/T([01][0-9]|2[0-3]):([0-5][0-9])(?::([0-5][0-9])(?:\.([0-9]+))?)?\+08:00$/)
   if (!match || policy.campus_zone !== 'Asia/Shanghai') throw new Error('服务端校园时间格式无效，请重新读取预约政策')
@@ -29,4 +34,15 @@ export function validateOpeningWindow(windows, start, minutes) {
     throw new Error(`结束时间 ${minuteText(finish)} 超出该空间开放时段 ${ranges}，请缩短学习时长或调整开始时间`)
   }
   return finish
+}
+
+export function validateAvailabilitySnapshot(date, start, minutes, snapshot) {
+  if (!snapshot || snapshot.campus_zone !== 'Asia/Shanghai' || typeof snapshot.server_now !== 'string' || typeof snapshot.campus_today !== 'string' || !snapshot.room || !Array.isArray(snapshot.room.opening_windows)) {
+    throw new Error('连续空档响应缺少当前服务端时刻或空间开放信息，请重新查询')
+  }
+  const currentMinute = serverStartMinute(snapshot)
+  if (date === snapshot.campus_today && minuteValue(start) < currentMinute) {
+    throw new Error(`开始时间不能早于当前服务端时刻 ${minuteText(currentMinute)}，请调整后重新查询`)
+  }
+  validateOpeningWindow(snapshot.room.opening_windows, start, minutes)
 }

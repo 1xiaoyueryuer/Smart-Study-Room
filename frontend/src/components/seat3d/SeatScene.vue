@@ -7,7 +7,7 @@ import { buildRoom } from './models'
 import { seatType, seatState, stateLabels, zoneName, seatPosition } from './seatPresentation'
 import { useThemeStore } from '../../stores/theme'
 
-const props = defineProps({ room: Object, seats: Array, selectedId: Number, view: String, blocked: Boolean })
+const props = defineProps({ room: Object, seats: Array, selectedId: Number, preferences: Array, view: String, blocked: Boolean })
 const emit = defineEmits(['select', 'error', 'ready', 'manual-view', 'exit-first-person'])
 const host = ref(null)
 const tip = ref(null)
@@ -110,7 +110,7 @@ function rebuild() {
   model = buildRoom(props.room, props.seats, theme.isDark)
   scene.add(model.root)
   scene.background = new THREE.Color(theme.isDark ? '#1c2632' : '#f1f3f0')
-  model.updateSelection(props.selectedId)
+  model.updateSelection(props.selectedId, props.preferences)
   tip.value = null
   if (!seated) setView(props.view, false)
   invalidate()
@@ -152,7 +152,11 @@ function onUp(e) {
 function cancel() { down = null; pointerCount = 0; tip.value = null }
 function contextLost(e) { e.preventDefault(); emit('error', '3D 显示已中断，请返回平面图后重试。') }
 function manual() { tip.value = null; if (!seated) emit('manual-view') }
-watch(() => props.selectedId, id => { model?.updateSelection(id); if (props.view === 'firstPerson') enterSeat(); invalidate() })
+watch(() => [props.selectedId, props.preferences], ([id, preferences]) => {
+  model?.updateSelection(id, preferences)
+  if (props.view === 'firstPerson') enterSeat()
+  invalidate()
+})
 watch(() => [props.room, props.seats, theme.isDark], rebuild)
 watch(() => props.view, value => { if (value) setView(value) })
 watch(() => props.blocked, () => { cancel(); syncControls() })
@@ -189,7 +193,7 @@ onBeforeUnmount(() => {
 <template>
   <div ref="host" class="scene-host" tabindex="0" aria-label="三维座位场景，坐席体验中可拖动或使用方向键环视" @keydown="onKey" @pointerdown="onDown" @pointermove="onMove" @pointerup="onUp" @pointercancel="cancel" @pointerleave="cancel">
     <div v-if="tip" class="model-tip" :style="{ left: `${tip.x}px`, top: `${tip.y}px` }">
-      <strong>{{ tip.seat.seat_no }} · {{ stateLabels[seatState(tip.seat, selectedId)] }}</strong>
+      <strong>{{ tip.seat.seat_no }} · {{ stateLabels[seatState(tip.seat, selectedId, preferences)] }}</strong>
       <span>{{ seatType(tip.seat) }} · {{ zoneName[tip.seat.zone] }}</span>
       <span v-if="tip.seat.near_window">靠窗座位</span>
       <span>全部空闲时间：{{ tip.seat.all_windows?.map(window => `${window.available_start}–${window.available_end}`).join('、') || '无' }}</span>

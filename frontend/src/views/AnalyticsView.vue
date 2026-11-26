@@ -1,4 +1,5 @@
 <script setup>
+import { formatCampusDateTime } from '../composables/campusDateTime.js'
 import PageHelp from '../components/PageHelp.vue'
 import SAnimatedNumber from '../components/ui/SAnimatedNumber.vue'
 import {ref,computed,onMounted,nextTick,watch,onUnmounted} from 'vue'
@@ -40,7 +41,7 @@ const dayMetrics=computed(()=>overview.value ? [
  {label:'当日累计使用（人·小时）',text:usageHours(overview.value.day.usage_seconds).toFixed(2)},
  {label:'当日有效违规',value:overview.value.day.active_violation_count}
 ] : [])
-function snapshotText(value){return value ? new Date(value).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',hour12:false})+'（校园时区）' : '尚未读取'}
+function snapshotText(value){return value ? formatCampusDateTime(value) : '尚未读取'}
 function createChart(element,height=320){if(!element?.clientWidth)return null;return echarts.init(element,null,{width:element.clientWidth,height:element.clientHeight||height})}
 async function renderOverview(){
  const data=overview.value

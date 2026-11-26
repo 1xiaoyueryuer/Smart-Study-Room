@@ -1,3 +1,5 @@
+import { formatCampusDateTime } from './campusDateTime.js'
+
 /**
  * 签到截止时间的唯一前端展示口径。
  *
@@ -6,21 +8,10 @@
  */
 const pad = value => String(value).padStart(2, '0')
 
-function timeText(value) {
-  if (!value) return ''
-  if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(value)) {
-    const [h, m, s = '00'] = value.split(':')
-    return `${pad(h)}:${m}:${s.slice(0, 2)}`
-  }
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return String(value)
-  return new Intl.DateTimeFormat('zh-CN', {
-    timeZone: 'Asia/Shanghai',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false
-  }).format(date)
+function timeOnlyText(value) {
+  const match = typeof value === 'string' && value.trim().match(/^([01]?\d|2[0-3]):([0-5]\d)(?::([0-5]\d))?$/)
+  if (!match) return ''
+  return `${pad(match[1])}:${match[2]}:${match[3] || '00'}`
 }
 
 function fallbackBaseText(row) {
@@ -32,14 +23,23 @@ function fallbackBaseText(row) {
   if (![y, mo, d, h, mi].every(Number.isFinite)) return ''
   const at = new Date(Date.UTC(y, mo - 1, d, h, mi, Number(s) || 0))
   at.setUTCMinutes(at.getUTCMinutes() + 15)
-  return `${pad(at.getUTCHours())}:${pad(at.getUTCMinutes())}:${pad(at.getUTCSeconds())}`
+  return `${at.getUTCFullYear()}-${pad(at.getUTCMonth() + 1)}-${pad(at.getUTCDate())} ${pad(at.getUTCHours())}:${pad(at.getUTCMinutes())}:${pad(at.getUTCSeconds())}`
+}
+
+function deadlineText(value, reservationDate) {
+  const time = timeOnlyText(value)
+  if (time) {
+    return /^\d{4}-\d{2}-\d{2}$/.test(reservationDate || '') ? `${reservationDate} ${time}` : ''
+  }
+  const formatted = formatCampusDateTime(value)
+  return formatted === '—' ? '' : formatted
 }
 
 export function checkinDeadlineOf(row) {
   if (!row) return null
   const apiDeadline = row.checkin_deadline || row.deadline || ''
   const baseText = fallbackBaseText(row)
-  const text = timeText(apiDeadline) || baseText
+  const text = apiDeadline ? deadlineText(apiDeadline, row.res_date) : baseText
   if (!text) return null
   return {
     text,
@@ -55,7 +55,7 @@ export function checkinDeadlineOf(row) {
 
 export function deadlineLabel(value) {
   if (!value) return '—'
-  if (typeof value === 'string') return timeText(value) || value
+  if (typeof value === 'string') return formatCampusDateTime(value)
   return value.text || '—'
 }
 

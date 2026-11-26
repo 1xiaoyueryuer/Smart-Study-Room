@@ -1,4 +1,5 @@
 <script setup>
+import { formatCampusDateTime } from '../composables/campusDateTime.js'
 import { onMounted, onBeforeUnmount, ref } from 'vue'
 import { listMyReminders } from '../api/complaint'
 import SButton from './ui/SButton.vue'
@@ -19,7 +20,7 @@ onBeforeUnmount(()=>{alive=false;sequence++})
       <ul v-if="loaded&&items.length" class="reminder-list">
         <li v-for="item in items" :key="item.id">
           {{ item.public_note }}
-          <p>事实发生：{{ item.occurred_at }}；登记：{{ item.registered_at }}。不计违规。</p>
+          <p>事实发生：{{ formatCampusDateTime(item.occurred_at) }}；登记：{{ formatCampusDateTime(item.registered_at) }}。不计违规。</p>
         </li>
       </ul>
       <SEmpty v-else-if="loaded&&!loading&&!error" description="暂无本人提醒记录" />

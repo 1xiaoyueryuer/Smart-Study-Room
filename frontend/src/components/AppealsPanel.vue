@@ -1,4 +1,5 @@
 <script setup>
+import { formatCampusDateTime } from '../composables/campusDateTime.js'
 import {onBeforeUnmount,onMounted} from 'vue'
 import {createRecordPager,recordFields} from '../composables/recordPage.js'
 import RecordFilters from '../components/RecordFilters.vue'
@@ -24,7 +25,7 @@ onMounted(refresh);onBeforeUnmount(pager.dispose)
       <ul v-if="loaded&&items.length" class="appeal-list">
         <li v-for="item in items" :key="item.id">
           <RouterLink :to="`/appeals/${item.id}`">申诉#{{item.id}} · 违规#{{item.violation_id}} · {{appealStatuses[item.status]||item.status}}</RouterLink>
-          <p>{{item.submitted_at}}</p>
+          <p>{{ formatCampusDateTime(item.submitted_at) }}</p>
         </li>
       </ul>
       <SEmpty v-else-if="loaded&&!error&&!loading" description="本次查询尚无本人申诉" />

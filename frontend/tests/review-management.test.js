@@ -5,6 +5,7 @@ import {readFile} from 'node:fs/promises'
 import * as vue from 'vue'
 import * as ssr from 'vue/server-renderer'
 import {parse,compileTemplate} from '@vue/compiler-sfc'
+import {formatCampusDateTime} from '../src/composables/campusDateTime.js'
 import * as helpers from '../src/composables/reviewManagement.js'
 const tick=()=>new Promise(resolve=>setImmediate(resolve))
 const review=(id=8,extra={})=>({id,reservation_id:id+62,rating:4,content:'原评价',version:1,created_at:'2026-10-30T10:00+08:00',updated_at:'2026-10-30T10:00+08:00',admin_reply:null,replied_at:null,hidden:false,hidden_reason:null,hidden_at:null,room_id:1,room_name:'工程空间',subject:{id:2,username:'PRIVATE_USER',real_name:'PRIVATE_NAME',campus_id:'PRIVATE_CAMPUS'},...extra})
@@ -37,7 +38,7 @@ test('public SFC renders anonymous text and reply and never renders extra inject
  const source=await readFile(new URL('../src/views/RoomReviewsView.vue',import.meta.url),'utf8'),{descriptor}=parse(source),compiled=compileTemplate({source:descriptor.template.content,filename:'RoomReviewsView.vue',id:'s25-public',ssr:true,ssrCssVars:[]});assert.equal(compiled.errors.length,0)
  const context=vm.createContext({}),module=new vm.SourceTextModule(compiled.code,{context});await module.link(specifier=>{const values=specifier==='vue'?vue:ssr;return new vm.SyntheticModule(Object.keys(values),function(){for(const[k,v]of Object.entries(values))this.setExport(k,v)},{context})});await module.evaluate()
  const snapshot=list([{id:8,rating:4,content:'公开评价原文',updated_at:'2026-10-30T11:00+08:00',admin_reply:'公开管理回复',replied_at:'2026-10-30T11:00+08:00',username:'PRIVATE_USERNAME',reservation_id:99999,hidden_reason:'PRIVATE_REASON'}])
- const app=vue.createSSRApp({setup:()=>({rooms:[{id:1,name:'A'}],room:1,snapshot,snapshotRoom:{id:1,name:'A'},loading:false,roomLoading:false,error:'',roomError:'',load(){},loadRooms(){}}),ssrRender:module.namespace.ssrRender})
+ const app=vue.createSSRApp({setup:()=>({rooms:[{id:1,name:'A'}],room:1,snapshot,snapshotRoom:{id:1,name:'A'},loading:false,roomLoading:false,error:'',roomError:'',load(){},loadRooms(){},formatCampusDateTime}),ssrRender:module.namespace.ssrRender})
  for(const name of ['SButton','SSelect','SBanner'])app.component(name,{render(){return vue.h('div',this.$slots.default?.())}})
  const html=await ssr.renderToString(app);assert.match(html,/匿名评价 · 4星/);assert.match(html,/公开评价原文/);assert.match(html,/公开管理回复/);assert.doesNotMatch(html,/PRIVATE_USERNAME|PRIVATE_REASON|99999/)
 })

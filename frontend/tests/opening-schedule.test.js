@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises'
 import { ref, computed } from 'vue'
 import { operationReason } from '../src/components/admin/userForm.js'
 import { seatState } from '../src/components/seat3d/seatPresentation.js'
+import * as campusDateTime from '../src/composables/campusDateTime.js'
 
 async function schedule(overrides = {}) {
   const calls = []
@@ -21,7 +22,7 @@ async function schedule(overrides = {}) {
   const context = vm.createContext({ defineProps: () => ({ roomId: 1 }), defineEmits: () => () => {} })
   const source = (await readFile(new URL('../src/components/admin/OpeningManagement.vue', import.meta.url), 'utf8')).split('<script setup>')[1].split('</script>')[0]
   const module = new vm.SourceTextModule(source + '\nexport { loadAll, mode, weekday, date, windows, scheduleReason, saveSchedule, formError, error, version, editBlock, blockId, blockForm, saveBlock, blocks, openCancellation, cancellation, cancelReason, cancelBlock, changeConfirm, success }', { context })
-  const mocks = { vue: { ref, computed, onMounted() {}, onBeforeUnmount() {} }, '../../api/admin': api, './userForm.js': { operationReason } }
+  const mocks = { vue: { ref, computed, onMounted() {}, onBeforeUnmount() {} }, '../../api/admin': api, './userForm.js': { operationReason }, '../../composables/campusDateTime.js': campusDateTime }
   await module.link(specifier => {
     const values = mocks[specifier] || (specifier.endsWith('.vue') ? { default: {} } : null)
     assert.ok(values, specifier)

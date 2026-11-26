@@ -6,6 +6,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { useAuthStore } from '../src/stores/auth.js'
 import * as statsForm from '../src/composables/statsForm.js'
 import {createStatsRefresh} from '../src/composables/statsRefresh.js'
+import * as campusDateTime from '../src/composables/campusDateTime.js'
 import {statsClock} from './helpers/statsClock.js'
 
 async function auth(role) {
@@ -20,8 +21,8 @@ async function sourceModule(source, mocks, extra = {}) {
   const context = vm.createContext({ console, ...extra })
   const module = new vm.SourceTextModule(source, { context })
   await module.link(specifier => {
-    assert.ok(specifier in mocks || specifier.endsWith('/checkinDeadline.js'), `Unmocked import: ${specifier}`)
-    const exports = mocks[specifier] || { checkinDeadlineOf: () => null, deadlineLabel: () => '' }
+    assert.ok(specifier in mocks || specifier.endsWith('/checkinDeadline.js') || specifier.endsWith('/campusDateTime.js'), `Unmocked import: ${specifier}`)
+    const exports = mocks[specifier] || (specifier.endsWith('/campusDateTime.js') ? campusDateTime : { checkinDeadlineOf: () => null, deadlineLabel: () => '' })
     return new vm.SyntheticModule(Object.keys(exports), function () {
       for (const [name, value] of Object.entries(exports)) this.setExport(name, value)
     }, { context })
