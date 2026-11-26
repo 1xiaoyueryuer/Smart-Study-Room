@@ -17,7 +17,8 @@ public class WebSecurity implements WebMvcConfigurer {
     private final AuthService auth;
     private final StringRedisTemplate redis;
     private final ObjectMapper json;
-    public WebSecurity(AuthService auth,StringRedisTemplate redis,ObjectMapper json) { this.auth=auth;this.redis=redis;this.json=json; }
+    private final LanService lan;
+    public WebSecurity(AuthService auth,StringRedisTemplate redis,ObjectMapper json,LanService lan) { this.auth=auth;this.redis=redis;this.json=json;this.lan=lan; }
     @Override public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(new HandlerInterceptor() {
             @Override public boolean preHandle(HttpServletRequest req,HttpServletResponse resp,Object handler) throws Exception {
@@ -32,6 +33,7 @@ public class WebSecurity implements WebMvcConfigurer {
                     Api.require(header!=null&&header.startsWith("Bearer "),401,"请先登录");
                     String token=header.substring(7);
                     Map<String,Object> user=auth.authenticate(token); req.setAttribute("user",user);req.setAttribute("token",token);
+                    lan.touch(token,req.getRemoteAddr(),req.getHeader("User-Agent"),user);
                     if(path.startsWith("/api/admin/")||path.startsWith("/api/stats/")) Api.require("admin".equals(user.get("role")),403,"需要管理员权限");
                     if ("POST".equals(req.getMethod())&&(path.equals("/api/reservations")||path.startsWith("/api/reservations/")||path.equals("/api/waitlist")||path.startsWith("/api/waitlist/")))
                         Api.require(AuthService.isOrdinary(user.get("role")),403,"仅学生和教职工可操作本人预约或候补");

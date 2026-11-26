@@ -1,12 +1,5 @@
 package cn.studyroom;
 
-import com.google.zxing.BarcodeFormat;
-import com.google.zxing.EncodeHintType;
-import com.google.zxing.WriterException;
-import com.google.zxing.qrcode.QRCodeWriter;
-import java.awt.image.BufferedImage;
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
@@ -56,12 +49,7 @@ public class SeatCodeService {
     public byte[] png(long actor,long seat,Long expectedVersion) {
         requireAdmin(actor);requireSeat(seat);var row=required(seat);if(expectedVersion!=null) version(row,expectedVersion);
         String code=Store.text(row,"code_value");
-        try {
-            var matrix=new QRCodeWriter().encode(code,BarcodeFormat.QR_CODE,384,384,Map.of(EncodeHintType.MARGIN,4,EncodeHintType.CHARACTER_SET,"UTF-8"));
-            var image=new BufferedImage(matrix.getWidth(),matrix.getHeight(),BufferedImage.TYPE_INT_RGB);
-            for(int y=0;y<matrix.getHeight();y++) for(int x=0;x<matrix.getWidth();x++) image.setRGB(x,y,matrix.get(x,y)?0x000000:0xffffff);
-            var output=new ByteArrayOutputStream();if(!ImageIO.write(image,"PNG",output)) throw new IllegalStateException("PNG编码器不可用");return output.toByteArray();
-        } catch(WriterException|IOException e) { throw new IllegalStateException("座位码图片生成失败",e); }
+        return QrImages.png(code,384);
     }
     /** 调用方先锁 booking_mutex，再验证；轮换和签到不能交错。 */
     @Transactional(propagation=Propagation.MANDATORY)

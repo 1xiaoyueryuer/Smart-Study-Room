@@ -41,7 +41,8 @@ const menus = computed(() => auth.isAdmin
   ? [
       { index: '/', title: '首页', icon: 'home' },
       { index: '/analytics', title: '热力图统计', icon: 'analytics' },
-      { index: '/admin', title: '管理端', icon: 'admin' }
+      { index: '/admin', title: '管理端', icon: 'admin' },
+      { index: '/lan', title: '局域网', icon: 'lan' }
     ]
   : [
       { index: '/', title: '首页', icon: 'home' },
