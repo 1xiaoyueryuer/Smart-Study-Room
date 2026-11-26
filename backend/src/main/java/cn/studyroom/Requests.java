@@ -20,6 +20,8 @@ public final class Requests {
     public record ResourceChangeConfirm(@javax.validation.Valid @NotNull ResourceChangeProposal proposal,@JsonProperty("impact_hash") @NotBlank String impactHash,@JsonProperty("operation_id") @NotBlank String operationId,Coordination coordination) {}
     public record SeatCodeChange(@NotNull @Min(0) Long version,@NotBlank @Size(max=1000) String reason) {}
     public record SeatCodeStatus(@NotNull @Positive Long version,@NotNull Boolean enabled,@NotBlank @Size(max=1000) String reason) {}
+    /** 批量补齐缺失座位码；已有码座位不改写。 */
+    public record SeatCodeBatch(@NotBlank @Size(max=1000) String reason) {}
     public record Login(@NotBlank String username,@NotBlank String password) {}
     public record Register(@NotBlank @Size(min=3,max=50) String username,@NotBlank @Size(min=6,max=64) String password,
                            @JsonProperty("real_name") @NotBlank @Size(max=50) String realName,@JsonProperty("student_no") @Size(max=20) String studentNo) {}

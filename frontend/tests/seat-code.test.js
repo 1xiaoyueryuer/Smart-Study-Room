@@ -121,6 +121,11 @@ test('mine navigates to scan route instead of old bodyless checkin; printing use
   assert.doesNotMatch(admin,/document.write|innerHTML/);assert.match(admin,/image.onload = .*popup.print/);assert.match(admin,/if \(!imageReady.value/)
 })
 
+test('configured seat code panel imports the campus timestamp formatter used by its template',async()=>{
+  const panel=await readFile(new URL('../src/components/admin/SeatCodePanel.vue',import.meta.url),'utf8')
+  assert.match(panel,/import \{ formatCampusDateTime \} from '\.\.\/\.\.\/composables\/campusDateTime\.js'/)
+  assert.match(panel,/formatCampusDateTime\(metadata\.created_at\)/)
+})
 
 test('seat code panel uses code version for writes, preserves reasons on conflict, and revokes replaced PNG URLs',async()=>{
   const calls=[],revoked=[];let version=0,configured=false,fail=false,pngFailure=false
@@ -134,7 +139,8 @@ test('seat code panel uses code version for writes, preserves reasons on conflic
   let cleanup
   const page=await view('../src/components/admin/SeatCodePanel.vue',{
     vue:{ref,onMounted(){},onBeforeUnmount:handler=>{cleanup=handler}},'../../api/admin':api,
-    './userForm.js':{operationReason:text=>{if(!text.trim())throw new Error('请填写操作理由');return text.trim()}}
+    './userForm.js':{operationReason:text=>{if(!text.trim())throw new Error('请填写操作理由');return text.trim()}},
+    '../../composables/campusDateTime.js':{formatCampusDateTime:value=>String(value)}
   },'load,mutate,reason,metadata,imageUrl,imageReady,pngError,printCode,error,formError,saving',{defineProps:()=>({seat:{id:3,version:99,seat_no:'A1'},roomName:'测试空间'}),defineEmits:()=>()=>{},URL:{createObjectURL:()=> 'blob:png',revokeObjectURL:url=>revoked.push(url)}})
   await page.load();assert.equal(page.metadata.value.configured,false)
   await page.mutate('create');assert.match(page.formError.value,/理由/);assert.equal(calls.length,0)

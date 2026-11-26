@@ -53,6 +53,7 @@
 | F10 | 记录与消息查询 | 本人与管理记录的服务端条件筛选与稳定分页；站内消息分类筛选、已读标记与真实业务跳转；管理审计只读安全投影 |
 | F11 | 统计与整体验收 | 统一统计快照与近七日趋势、热力图；页面可见时每 10 秒刷新且失败保留上次数据；S01—S31 整体工程验收 |
 | F12 | 局域网接入与共同预约 | 一台设备作主机、同一局域网其他设备经内网地址登录同一系统；共享同一份座位与预约数据；管理端展示接入地址/二维码、最近在线设备与各空间占座聚合；预约规则与权限不变 |
+| F13 | 批量生成座位二维码 | 管理员一次为所有缺少座位码的座位补齐当前二维码，已有码座位跳过且不改写；与单座位首次生成同格式，可重复执行且幂等 |
 
 各功能的规则边界、状态模型与验证记录见 `docs/features/Fxx-*/` 下的两份方案。
 
@@ -75,7 +76,7 @@
 应用分为四层，业务规则只在业务层实现一次，查询与提交共用同一套判定：
 
 1. **表现层**：`frontend/` 的 Vue 3 单页应用，vue-router 负责路由与角色守卫，Pinia 管理状态，Axios 统一封装请求（`baseURL='/api'`、注入 Bearer 令牌、统一拆包与错误提示，401 注销并跳转登录）。构建产物 `frontend/dist` 打包进 JAR 的 `static/`，运行时无需另起 Node 服务。
-2. **接口层**：`backend/src/main/java/cn/studyroom/` 下 21 个 `*Controller`，统一前缀 `/api`，返回 `{code, message, data}` 信封；参数类异常 400、上传超限 413、唯一键与外键冲突按 SQLState 转 409，其余 500 并记日志。
+2. **接口层**：`backend/src/main/java/cn/studyroom/` 下 22 个 `*Controller`，统一前缀 `/api`，返回 `{code, message, data}` 信封；参数类异常 400、上传超限 413、唯一键与外键冲突按 SQLState 转 409，其余 500 并记日志。
 3. **业务层**：`AuthService`、`UserService`、`UserImportService`、`ResourceService`、`OpeningScheduleService`、`BookingService`、`UsageService`、`AvailabilityService`、`ResourceChangeService`、`Complaint*Service`、`RestrictionPolicy` / `RestrictionWorkflow`、`ViolationService`、`AppealService` / `AppealReviewService`、`ReviewService`、`SeatCodeService`、`AttachmentService`、`NotificationService`、`AuditService`、`StatsService` 等，集中承载时长、日期、开放、冲突、资格与时限规则。
 4. **数据访问与存储层**：`Store.java` 封装 `JdbcTemplate`，是 SQL 与行映射的唯一入口（并对 PostgreSQL `TIME` 的 `24:00:00` 做保真读取）；结构由 Flyway 管理，Redis 用于限流与令牌撤销，审计与通知随原业务事务一起提交。
 
@@ -90,7 +91,7 @@
 │ WebSecurity 拦截器：health/OPTIONS 放行；登录按 IP 限 10 次/60 秒；     │
 │ 其余需 Bearer 令牌；/api/admin/** 与 /api/stats/** 强制 admin；        │
 │ 预约写操作限 2 次/秒                                                   │
-│ 21 个 Controller · Service 层业务规则 · Store 唯一 SQL 入口            │
+│ 22 个 Controller · Service 层业务规则 · Store 唯一 SQL 入口            │
 │ 定时任务：预约生命周期 10s · 投诉目标 60s · 确认期 60s · 材料清理 600s  │
 │ 时区统一 Asia/Shanghai                                                │
 └───────┬───────────────────────────────────────┬──────────────────────┘
@@ -112,7 +113,7 @@
 ```text
 Smart-Study-Room/
 ├── backend/                     # Java 17 / Spring Boot 服务端
-│   ├── src/main/java/cn/studyroom/     # 70 个类：Controller / Service / Policy / Store
+│   ├── src/main/java/cn/studyroom/     # 71 个类：Controller / Service / Policy / Store
 │   ├── src/main/resources/
 │   │   └── db/migration/               # Flyway V1—V31 增量迁移
 │   └── src/test/java/cn/studyroom/     # 单元与真实 PostgreSQL / Redis 集成测试
@@ -255,6 +256,7 @@ S31 的 565/319/94 是历史批次，不与本轮 594/291/93 相加。批次、�
 | [docs/README.md](docs/README.md) | 文档索引与唯一来源说明 |
 | [docs/requirements/01_需求规格说明书.md](docs/requirements/01_需求规格说明书.md) | 正式需求规格说明书（FR / BR / AC 编号来源） |
 | [F12 局域网接入与共同预约](docs/features/F12-局域网共同预约/局域网共同预约功能架构方案.md) | 局域网多设备接入、在线设备与共享看板的规则、接口与验证记录 |
+| [F13 批量生成座位二维码](docs/features/F13-批量生成座位二维码/批量生成座位二维码功能架构方案.md) | 批量补齐缺失座位码的接口、幂等、审计与验证记录 |
 | [docs/features/](docs/features/) | 每项功能的架构方案与代码实施方案 |
 | [docs/VALIDATION.md](docs/VALIDATION.md) | 工程验证记录与实际批次 |
 | [docs/evidence/](docs/evidence/) | 脱敏验证证据与索引 |
