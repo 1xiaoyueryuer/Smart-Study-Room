@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
+import { useAuthStore } from '../stores/auth'
 import { listMyComplaints, getComplaint } from '../api/complaint'
 import { complaintStatuses, complaintCategory, complaintNumber, isFacilityRepair, parseRepair } from '../composables/complaintForm.js'
 import { formatCampusDateTime } from '../composables/campusDateTime.js'
@@ -14,6 +15,7 @@ import {createRecordPager,recordFields} from '../composables/recordPage.js'
 import RecordPageControls from '../components/RecordPageControls.vue'
 
 const route = useRoute()
+const auth = useAuthStore()
 const pager = createRecordPager(listMyComplaints, { initial: { type: '' } })
 const fields = recordFields('complaint')
 const {items, loading, loaded, error, filters, snapshot, snapshotQuery} = pager
@@ -25,6 +27,37 @@ const detail = ref(null)
 const detailLoading = ref(false)
 const detailError = ref('')
 let detailSequence = 0, alive = true
+
+// 本次记录保留在前端页面：列表快照、分类与选中项缓存在 sessionStorage（按账号隔离）
+const cacheKey = () => `studyroom:complaints:${auth.user?.id || 'anonymous'}`
+function readCache() {
+  try {
+    const raw = sessionStorage.getItem(cacheKey())
+    if (!raw) return null
+    const value = JSON.parse(raw)
+    return value && Array.isArray(value.items) && value.snapshot ? value : null
+  } catch { return null }
+}
+function writeCache() {
+  try {
+    if (!loaded.value || !snapshot.value) return
+    sessionStorage.setItem(cacheKey(), JSON.stringify({
+      items: items.value, snapshot: snapshot.value, snapshotQuery: snapshotQuery.value,
+      category: category.value, selectedId: selectedId.value, detail: detail.value,
+      savedAt: Date.now()
+    }))
+  } catch { /* 存储不可用时不影响页面 */ }
+}
+function restoreCache(value) {
+  category.value = value.category || 'all'
+  // 先恢复选中项与详情，再恢复列表，避免列表监听器自动改选第一条
+  if (value.detail) { detail.value = value.detail; selectedId.value = value.selectedId ?? value.detail.id }
+  else if (value.selectedId) selectedId.value = value.selectedId
+  items.value = value.items
+  snapshot.value = value.snapshot
+  snapshotQuery.value = value.snapshotQuery
+  loaded.value = true
+}
 
 const targetClock = useServiceTargetClock({records: items, blocked: computed(() => loading.value || !!formComponent.value?.targetReadBlocked), onDue: () => load()})
 const load = () => pager.refresh()
@@ -56,11 +89,10 @@ function timeOf(item) {
   return formatCampusDateTime(item.submitted_at)
 }
 
+// 切换分类只在已加载的记录里筛选，保留页面上的记录、不重新请求后端
 function selectCategory(key) {
   if (loading.value) return
   category.value = key
-  filters.value = {...filters.value, type: key === 'occupation' ? 'occupation' : (key === 'facility' || key === 'other') ? 'service' : ''}
-  pager.apply()
 }
 
 async function selectItem(item) {
@@ -90,9 +122,13 @@ function closeDetail() {
 
 function created(id) {
   formOpen.value = false
+  const previous = selectedId.value
   return load().then(() => {
     const target = items.value.find(item => item.id === id)
-    if (target) selectItem(target)
+    if (target) return selectItem(target)
+    // 新记录不在当前页时，保留原选中项，不跳页、不清空详情
+    const kept = previous && items.value.find(item => item.id === previous)
+    if (kept) return selectItem(kept)
   })
 }
 
@@ -101,16 +137,31 @@ function toggleForm() {
 }
 
 watch(items, (value) => {
-  if (!value.length) { detail.value = null; selectedId.value = null; return }
-  if (!selectedId.value || !value.some(item => item.id === selectedId.value)) selectItem(value[0])
+  if (!value.length) {
+    if (!detail.value) selectedId.value = null
+    return
+  }
+  if (!selectedId.value && !detail.value) selectItem(value[0])
 }, {immediate: true})
+
+watch([items, snapshot, category, selectedId, detail], writeCache)
 
 watch(() => route.query, (query) => {
   if (query.reservation_id || query.type) formOpen.value = true
 }, {immediate: true})
 
-onMounted(load)
-onBeforeUnmount(() => { alive = false; detailSequence++; pager.dispose() })
+const CACHE_FRESH_MS = 2 * 60 * 1000
+onMounted(() => {
+  const cached = readCache()
+  if (!cached) { load(); return }
+  restoreCache(cached)
+  // 2 分钟内的缓存直接使用；更久则先用缓存渲染，再后台静默刷新（列表不隐藏）
+  if (!cached.savedAt || Date.now() - cached.savedAt > CACHE_FRESH_MS) void load()
+})
+onBeforeUnmount(() => {
+  writeCache()
+  alive = false; detailSequence++; pager.dispose()
+})
 </script>
 
 <template>
@@ -133,8 +184,8 @@ onBeforeUnmount(() => { alive = false; detailSequence++; pager.dispose() })
           <button v-for="tab in categories" :key="tab.key" type="button" :class="{active: category === tab.key}" :disabled="loading" @click="selectCategory(tab.key)">{{ tab.label }}</button>
         </nav>
         <SBanner v-if="error" type="error" :title="error"><SButton size="sm" @click="load">重试列表</SButton></SBanner>
-        <p v-if="loading" role="status">正在读取本人求助与投诉…</p>
-        <ul v-if="!loading" class="ticket-list">
+        <p v-if="loading && !loaded" role="status">正在读取本人求助与投诉…</p>
+        <ul v-if="items.length" class="ticket-list">
           <li v-for="item in visibleItems" :key="item.id">
             <button type="button" class="ticket-item" :class="{active: selectedId === item.id}" @click="selectItem(item)">
               <span class="ticket-top">
@@ -147,7 +198,7 @@ onBeforeUnmount(() => { alive = false; detailSequence++; pager.dispose() })
             </button>
           </li>
         </ul>
-        <SEmpty v-if="loaded && !loading && !error && !visibleItems.length" description="该分类暂无记录，可新建求助" />
+        <SEmpty v-if="loaded && !error && !visibleItems.length" :description="items.length ? '该分类暂无记录，可切换「全部」查看' : '暂无记录，可新建求助'" />
         <RecordPageControls :snapshot="snapshot" :query="snapshotQuery" :fields="fields" :disabled="loading" @page="pager.turn" />
       </section>
 
