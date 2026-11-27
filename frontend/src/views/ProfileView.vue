@@ -1,7 +1,7 @@
 <script setup>
 import { usePagination } from '../composables/usePagination'
 import SPagination from '../components/ui/SPagination.vue'
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onBeforeUnmount, onMounted, watch } from 'vue'
 import { fetchProfile, updateProfile, changePassword } from '../api/auth'
 import { contactPayload } from '../components/admin/userForm.js'
 import { message } from '../components/ui/feedback'
@@ -22,12 +22,37 @@ import { formatCampusDateTime } from '../composables/campusDateTime.js'
 const auth = useAuthStore()
 const overview = ref(null)
 const creditLoading = ref(false), creditError = ref('')
+const restrictionsPanel = ref(null)
+let creditRefreshTimer
+let active = true
+
+function scheduleCreditRefresh(snapshot) {
+  clearTimeout(creditRefreshTimer)
+  const delay = Date.parse(snapshot?.reset_at) - Date.parse(snapshot?.server_now)
+  if (delay > 0) {
+    creditRefreshTimer = setTimeout(() => {
+      void loadCredit()
+      void restrictionsPanel.value?.refresh()
+    }, delay)
+  }
+}
+
 async function loadCredit() {
+  if (!active || creditLoading.value) return
   creditLoading.value = true
   creditError.value = ''
-  try { const response = await getCreditOverview(); overview.value = response.data }
-  catch (failure) { creditError.value = failure.message }
-  finally { creditLoading.value = false }
+  try {
+    const { data } = await getCreditOverview()
+    if (!active) return
+    overview.value = data
+    scheduleCreditRefresh(data)
+  } catch (failure) {
+    if (!active) return
+    overview.value = null
+    creditError.value = failure.message
+  } finally {
+    if (active) creditLoading.value = false
+  }
 }
 const contacts = ref({ phone: '', email: '' })
 const profileLoading = ref(false)
@@ -105,7 +130,18 @@ onMounted(async () => {
   if (!auth.isOrdinary) return
   await loadCredit()
 })
-const creditLogs = computed(() => overview.value?.logs || [])
+onBeforeUnmount(() => {
+  active = false
+  clearTimeout(creditRefreshTimer)
+})
+const creditLogs = computed(() => {
+  const current = overview.value?.history_only ? [] : overview.value?.logs ?? []
+  const historical = overview.value?.historical_logs ?? (overview.value?.history_only ? overview.value.logs ?? [] : [])
+  return [
+    ...current.map(row => ({ ...row, recordKey: `current:${row.id}`, historical: false })),
+    ...historical.map(row => ({ ...row, recordKey: `historical:${row.id}`, historical: true }))
+  ]
+})
 const { page, pages, pageItems } = usePagination(creditLogs, null)
 
 // 头像：后端暂无上传接口，先保存在本机浏览器；导航与正文共用同一 store。
@@ -143,7 +179,7 @@ const profileTabs = [
   { key: 'violations', label: '违规记录', title: '本人独立违规记录' },
   { key: 'appeals', label: '申诉进度', title: '本人申诉进度' },
   { key: 'reminders', label: '提醒', title: '本人提醒（不计违规）' },
-  { key: 'credit', label: '信用流水', title: '历史信用流水（只读）' }
+  { key: 'credit', label: '信誉流水', title: '本人信誉分变动记录' }
 ]
 const profileTab = ref('restrictions')
 const mountedProfileTabs = ref(new Set(['restrictions']))
@@ -159,7 +195,7 @@ function selectProfileTab(key) {
   <div v-reveal class="page-view">
     <header class="view-heading" data-page-title>
       <h1>个人中心</h1>
-      <p class="heading-sub">账户联系方式、本人违规与历史信用资料</p>
+      <p class="heading-sub">账户联系方式、预约资格、本人违规与信誉记录</p>
     </header>
     <div class="split profile-split" :class="{ 'profile-admin': auth.isAdmin }">
     <div class="split-left">
@@ -193,14 +229,18 @@ function selectProfileTab(key) {
             <div class="info-row"><span>角色</span><span class="info-value">{{ auth.roleLabel }}</span></div>
             <div class="info-row"><span>账号状态</span><span class="info-value" :class="{ 'status-off': auth.user?.status !== 'active' }">{{ auth.user?.status === 'active' ? '正常' : '已禁用' }}</span></div>
             <div v-if="auth.isOrdinary" class="info-row credit-row">
-              <span>历史信用（只读）</span>
+              <span>{{ overview?.history_only ? '历史信誉分' : '当前信誉分' }}</span>
               <span class="credit-inline">
                 <b>{{ overview?.score ?? '—' }}</b>
                 <SButton size="sm" variant="ghost" :loading="creditLoading" @click="loadCredit">刷新</SButton>
               </span>
             </div>
-            <p v-if="auth.isOrdinary" class="credit-note">历史信用分和信用流水为只读数据，当前预约资格按有效预约限制核对。</p>
-            <p v-if="creditError" class="credit-error">历史信用读取失败；不影响当前预约资格。</p>
+            <template v-if="auth.isOrdinary && overview && !overview.history_only">
+              <p class="credit-note">本轮有效违规 {{ overview.violation_count }} 次，每次扣 {{ overview.deduction_per_violation }} 分。</p>
+              <p v-if="overview.reset_at" class="credit-note">当前预计恢复满分时间 {{ formatCampusDateTime(overview.reset_at) }}</p>
+              <p v-else class="credit-note">暂无待恢复的扣分。</p>
+            </template>
+            <p v-if="creditError" class="credit-error" role="alert">信誉分读取失败，请刷新重试。</p>
           </div>
 
           <div class="profile-edit">
@@ -228,43 +268,45 @@ function selectProfileTab(key) {
       <nav class="profile-tabs" role="tablist" aria-label="本人记录">
         <button v-for="tab in profileTabs" :key="tab.key" type="button" role="tab" :aria-selected="profileTab===tab.key" :class="{active:profileTab===tab.key}" :title="tab.title" @click="selectProfileTab(tab.key)">{{tab.label}}</button>
       </nav>
-      <RestrictionsPanel v-if="mountedProfileTabs.has('restrictions')" v-show="profileTab==='restrictions'" />
+      <RestrictionsPanel v-if="mountedProfileTabs.has('restrictions')" v-show="profileTab==='restrictions'" ref="restrictionsPanel" />
       <ViolationsPanel v-if="mountedProfileTabs.has('violations')" v-show="profileTab==='violations'" />
       <AppealsPanel v-if="mountedProfileTabs.has('appeals')" v-show="profileTab==='appeals'" />
       <RemindersPanel v-if="mountedProfileTabs.has('reminders')" v-show="profileTab==='reminders'" />
       <section v-if="mountedProfileTabs.has('credit')" v-show="profileTab==='credit'" class="card">
         <div class="card-title-row">
-          <h3>历史信用流水（只读）</h3>
+          <h3>信誉分变动记录</h3>
           <SButton size="sm" :loading="creditLoading" @click="loadCredit">刷新</SButton>
         </div>
-        <p v-if="creditLoading" role="status">正在读取历史流水…</p><p v-else-if="creditError" class="muted">历史流水未读取成功，请点击右上角刷新重试。</p>
-        <div v-list-motion="pageItems.map(row => row.id + row.status).join()" class="table-wrap">
-          <div class="table-scroll" tabindex="0" aria-label="信用分流水表格，可左右滑动">
+        <p v-if="creditLoading" role="status">正在读取信誉流水…</p><p v-else-if="creditError" class="muted">信誉流水未读取成功，请点击右上角刷新重试。</p>
+        <div v-if="creditLogs.length" v-list-motion="pageItems.map(row => row.recordKey).join()" class="table-wrap">
+          <div class="table-scroll" tabindex="0" aria-label="信誉分流水表格，可左右滑动">
             <table class="table credit-table">
               <thead>
                 <tr>
                   <th style="width:180px">时间</th>
                   <th style="width:100px">变动</th>
-                  <th style="min-width:240px">事由</th>
-                  <th style="width:110px">关联预约</th>
+                  <th style="width:110px">变动后分数</th>
+                  <th style="min-width:220px">事由</th>
+                  <th style="width:110px">关联记录</th>
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="row in pageItems" :key="row.id">
+                <tr v-for="row in pageItems" :key="row.recordKey">
                   <td class="num">{{ formatCampusDateTime(row.created_at) }}</td>
                   <td>
-                    <span :class="row.delta > 0 ? 'up' : 'down'">
+                    <span :class="{ up: row.delta > 0, down: row.delta < 0 }">
                       {{ row.delta > 0 ? '+' + row.delta : row.delta }}
                     </span>
                   </td>
-                  <td>{{ row.reason }}</td>
-                  <td class="num">#{{ row.reservation_id ?? '—' }}</td>
+                  <td class="num">{{ row.score_after ?? '—' }}</td>
+                  <td><span v-if="row.historical" class="muted">历史 · </span>{{ row.reason }}</td>
+                  <td class="num">{{ row.violation_id ? '违规 #' + row.violation_id : row.reservation_id ? '预约 #' + row.reservation_id : '—' }}</td>
                 </tr>
               </tbody>
             </table>
-            <SEmpty v-if="!creditLoading && !creditError && overview && !overview.logs.length" description="尚无已保存的历史信用流水" />
           </div>
         </div>
+        <SEmpty v-else-if="!creditLoading && !creditError && overview" description="尚无信誉分变动记录" />
         <SPagination v-model="page" :pages="pages" :total="creditLogs.length" />
       </section>
     </div>

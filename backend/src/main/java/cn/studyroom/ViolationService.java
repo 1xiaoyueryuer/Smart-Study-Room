@@ -14,14 +14,17 @@ import org.springframework.transaction.annotation.*;
 @Service
 public class ViolationService {
     private final NotificationService messages;
+    private final CreditRoundService credit;
     private final Store db;private final AuthService auth;private final AuditService audit;private final ObjectMapper json;private final Clock clock;
-    public ViolationService(Store db,AuthService auth,AuditService audit,ObjectMapper json,Clock clock,NotificationService messages) {this.messages=messages;this.db=db;this.auth=auth;this.audit=audit;this.json=json;this.clock=clock;}
+    public ViolationService(Store db,AuthService auth,AuditService audit,ObjectMapper json,Clock clock,NotificationService messages,CreditRoundService credit) {this.messages=messages;this.db=db;this.auth=auth;this.audit=audit;this.json=json;this.clock=clock;this.credit=credit;}
     @Transactional(propagation=Propagation.MANDATORY)
     public long recordUnused(long userId,long reservationId,String type,LocalDateTime occurredAt,LocalDateTime registeredAt,String reason) {
-        db.lockBookings();return db.insert("INSERT INTO violations(user_id,reservation_id,type,event_key,occurred_at,registered_at,reason,source) VALUES(?,?,?,?,?,?,?,'automatic')",userId,reservationId,type,"unused:"+reservationId,Timestamp.valueOf(occurredAt),Timestamp.valueOf(registeredAt),reason);
+        db.lockBookings();
+        long violation = db.insert("INSERT INTO violations(user_id,reservation_id,type,event_key,occurred_at,registered_at,reason,source) VALUES(?,?,?,?,?,?,?,'automatic')",userId,reservationId,type,"unused:"+reservationId,Timestamp.valueOf(occurredAt),Timestamp.valueOf(registeredAt),reason);
+        notifyViolation(userId, violation, "未使用预约已结束", reason+"，已释放时段并登记一条独立违规，可在本人违规记录查看。", registeredAt);
+        credit.recordViolation(userId,violation,registeredAt);
+        return violation;
     }
-    @Transactional(propagation=Propagation.MANDATORY)
-    public void notifyUnused(long user,long violation,String reason,LocalDateTime now){notifyViolation(user,violation,"未使用预约已结束",reason+"，已释放时段并登记一条独立违规，可在本人违规记录查看。",now);}
     @Transactional
     public Map<String,Object> registerManual(long actor,long eventId,Requests.ManualViolation request) {return registerManual(actor,eventId,request,now());}
     @Transactional(propagation=Propagation.MANDATORY)
@@ -33,6 +36,7 @@ public class ViolationService {
         long user=Store.id(source,"subject_user_id"),reservation=Store.id(source,"reservation_id");var occurred=LocalDateTime.parse(Store.text(source,"occurred_at"));
         long id=db.insert("INSERT INTO violations(user_id,reservation_id,type,event_key,occurred_at,registered_at,status,reason,source,registrant_id,source_event_id,operation_id,request_hash) VALUES(?,?,'occupation_refusal',?,?,?,'active',?,'manual',?,?,CAST(? AS UUID),?)",user,reservation,"verified_refusal:"+eventId,Timestamp.valueOf(occurred),Timestamp.valueOf(now),reason,actor,eventId,operation,hash);
         long notification=notifyViolation(user,id,"违规通知","管理员登记了经核实的拒不配合占座违规。\n公开事实说明：\n"+reason+"\n可在本人违规记录查看事实说明及登记、通知时间。",now);
+        credit.recordViolation(user,id,now);
         audit.record(actor,"violation.register_manual","violation",Long.toString(id),reason,Map.of(),Map.of("user_id",user,"reservation_id",reservation,"type","occupation_refusal","source_event_id",eventId,"occurred_at",occurred.toString(),"registered_at",now.toString(),"notification_id",notification,"source","manual","status","active"));return receipt(id,operation,false);
     }
     @Transactional(readOnly=true)

@@ -45,7 +45,7 @@ test('before-start cancellation and after-start abandonment have distinct truthf
   assert.deepEqual(cancellation.calls,['cancel','mine'])
   const abandonment=await mine()
   await abandonment.doAction(waiting(['abandon']),'abandon')
-  assert.match(abandonment.confirmations[0],/登记一次未使用违约/)
+  assert.match(abandonment.confirmations[0],/登记一次违规，扣 10 分/)
   assert.deepEqual(abandonment.calls,['abandon','mine'])
 })
 test('action in-flight guard includes confirmation dialog and prevents duplicate abandonment',async()=>{
@@ -111,16 +111,57 @@ test('violation failure is separate from empty data and can recover through actu
   assert.match(source,/尚未读取本人独立违规记录/)
   assert.match(source,/尚无已登记的独立违规记录/)
 })
-test('historical credit remains read-only while independent restriction eligibility replaces its legacy flag as the current source',async()=>{
+test('profile displays current credit and restoration separately from server booking eligibility',async()=>{
   for(const file of ['ProfileView','HomeView','LoginView','MyReservationsView']){
     const source=await readFile(new URL(`../src/views/${file}.vue`,import.meta.url),'utf8')
     assert.doesNotMatch(source,/履约加分|违约扣分|低于 60|可正常预约|按期履约 \+1|不足 30 分钟的取消将扣除/)
     if(file==='ProfileView'){
       assert.doesNotMatch(source,/overview\.legacy_ban_active === true/);assert.match(source,/<RestrictionsPanel/)
-      assert.match(source,/历史信用（只读）/)
+      assert.match(source,/当前信誉分/)
+      assert.match(source,/当前预计恢复满分时间/)
       assert.doesNotMatch(source,/new Date\(until\)|scoreColor/)
     }
   }
+})
+
+test('profile reloads authoritative credit and booking eligibility at the server-provided recovery time', async () => {
+  let mounted, unmount, refreshCallback, refreshDelay
+  let creditReads = 0
+  let eligibilityReads = 0
+  const data = {
+    score: 90,
+    server_now: '2026-11-26T12:00:00+08:00',
+    reset_at: '2026-11-27T12:00:00+08:00',
+    violation_count: 1,
+    deduction_per_violation: 10,
+    logs: [{ id: 1, delta: -10 }],
+    historical_logs: [{ id: 1, delta: 1 }]
+  }
+  const profile = await script('../src/views/ProfileView.vue', {
+    vue: { ref, computed, onMounted: callback => { mounted = callback }, onBeforeUnmount: callback => { unmount = callback } },
+    '../api/auth': { fetchProfile: async () => ({ data: {} }), updateProfile() {}, changePassword() {} },
+    '../api/credit': { getCreditOverview: async () => ({ data: ++creditReads === 1 ? data : { ...data, score: 100, reset_at: null } }) },
+    '../stores/auth': { useAuthStore: () => ({ isOrdinary: true, setUser() {} }) },
+    '../stores/avatar': { useAvatarStore: () => ({ load() {} }) },
+    '../components/admin/userForm.js': { contactPayload() {} },
+    '../components/ui/feedback': { message: {} },
+    '../composables/usePagination': { usePagination: items => ({ page: ref(1), pages: ref(1), pageItems: items }) }
+  }, 'overview,creditLogs,restrictionsPanel', {
+    setTimeout(callback, delay) { refreshCallback = callback; refreshDelay = delay; return 1 },
+    clearTimeout() { refreshCallback = undefined }
+  })
+  profile.restrictionsPanel.value = { refresh() { eligibilityReads++ } }
+  await mounted()
+  assert.equal(profile.overview.value.score, 90)
+  assert.deepEqual(Array.from(profile.creditLogs.value, row => row.recordKey), ['current:1', 'historical:1'])
+  assert.equal(refreshDelay, 24 * 60 * 60 * 1000)
+  refreshCallback()
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(creditReads, 2)
+  assert.equal(eligibilityReads, 1)
+  assert.equal(profile.overview.value.score, 100)
+  assert.equal(refreshCallback, undefined)
+  unmount()
 })
 
 test('an older mine response cannot restore pending actions after a newer deadline refresh',async()=>{
@@ -152,7 +193,7 @@ test('deferred violation panel stays uninitialized rather than claiming zero bef
 
 test('only current checkout action is available and confirmation prevents duplicate early checkout before real refresh',async()=>{
   let release
-  const page=await mine({confirmDialog:text=>{assert.match(text,/释放剩余时段/);assert.match(text,/不新增信用奖惩/);return new Promise(resolve=>{release=resolve})},listMyReservations:async()=>({data:[{id:10,status:'completed',termination_reason:'early_checkout',allowed_actions:[],usage_record:{id:1,checkin_at:'2026-10-30T08:00:00',ended_at:'2026-10-30T08:01:00.5',duration_seconds:60.5,origin:'seat_code'}}]})})
+  const page=await mine({confirmDialog:text=>{assert.match(text,/释放剩余时段/);assert.match(text,/正常提前签退和到期均不扣分/);return new Promise(resolve=>{release=resolve})},listMyReservations:async()=>({data:[{id:10,status:'completed',termination_reason:'early_checkout',allowed_actions:[],usage_record:{id:1,checkin_at:'2026-10-30T08:00:00',ended_at:'2026-10-30T08:01:00.5',duration_seconds:60.5,origin:'seat_code'}}]})})
   assert.deepEqual(Array.from(page.actionsOf({allowed_actions:['leave','return','checkout']}),action=>action.key),['checkout'])
   const attempt=page.doAction({id:10,status:'checked_in',allowed_actions:['checkout']},'checkout')
   await page.doAction({id:10,status:'checked_in',allowed_actions:['checkout']},'checkout')

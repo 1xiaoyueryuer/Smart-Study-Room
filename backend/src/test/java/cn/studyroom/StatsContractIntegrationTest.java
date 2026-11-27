@@ -31,6 +31,8 @@ class StatsContractIntegrationTest {
     static class CountingClock extends MinuteBookingIntegrationTest.TestClock {
         final java.util.concurrent.atomic.AtomicInteger captures=new java.util.concurrent.atomic.AtomicInteger();
         @Override public Instant instant(){captures.incrementAndGet();return super.instant();}
+        // LAN presence samples milliseconds. The statistics snapshot uses instant().
+        @Override public long millis(){return super.instant().toEpochMilli();}
     }
     @TestConfiguration static class TimeConfig {
         @Bean @Primary CountingClock testClock(){var c=new CountingClock();c.set(LocalDate.now(BookingPolicy.CAMPUS_ZONE).minusDays(1).atTime(12,0));return c;}
@@ -71,7 +73,7 @@ class StatsContractIntegrationTest {
     List<Map<String,Object>> rows(String table){return db.list("SELECT to_jsonb(x)::text AS row FROM "+table+" x ORDER BY id");}
 
     @Test void schemaScopeUsesCampusTodayAndPreviousSixDaysEvenWhenSelectedDateDiffers()throws Exception {
-        clock.set(base.atTime(12,0,0,123456789));clock.captures.set(0);var value=data("/api/stats/overview?date="+base.minusDays(2));assertEquals(1,clock.captures.get(),"a successful overview captures the injected application Clock once; authentication itself does not use it");
+        clock.set(base.atTime(12,0,0,123456789));clock.captures.set(0);var value=data("/api/stats/overview?date="+base.minusDays(2));assertEquals(1,clock.captures.get(),"a successful overview takes one statistics snapshot from the application clock");
         assertEquals(TOP,keys(value));assertEquals(DAY,keys(value.path("day")));assertEquals(CURRENT,keys(value.path("current")));
         assertEquals("Asia/Shanghai",value.path("campus_zone").asText());var scope=value.path("scope");assertEquals(Set.of("room_id","selected_date","trend_from","trend_to"),keys(scope));assertTrue(scope.path("room_id").isNull());assertEquals(base.minusDays(2).toString(),scope.path("selected_date").asText());assertEquals(base.minusDays(6).toString(),scope.path("trend_from").asText());assertEquals(base.toString(),scope.path("trend_to").asText());
         var snapshot=OffsetDateTime.parse(value.path("snapshot_at").asText());assertEquals(base.atTime(12,0,0,123456000).atZone(BookingPolicy.CAMPUS_ZONE).toInstant(),snapshot.toInstant());assertEquals(ZoneOffset.ofHours(8),snapshot.getOffset());

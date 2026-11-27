@@ -19,7 +19,7 @@ LAYOUT = {
     "自习空间": (130, 260), "座位": (130, 930),
     "投诉": (800, 260), "预约": (800, 930), "评价": (800, 1570),
     "用户": (1440, 620), "违规": (1440, 1410), "申诉": (1440, 1920),
-    "预约限制": (2320, 930),
+    "预约限制": (2450, 1410), "信誉分轮次": (2450, 440),
 }
 
 def read_model():
@@ -78,11 +78,11 @@ def render():
     image = Image.new("RGB", SIZE, "#F8FAFC"); draw = ImageDraw.Draw(image)
     navy, ink, line, teal = "#17324D", "#233D56", "#6B829B", "#0F766E"
     draw.text((100, 58), "DM-01 核心领域类图", fill=navy, font=font(64, True))
-    draw.text((100, 148), "配套规格 v0.27 · 投诉自动分级与自动处罚来源约束", fill="#536C83", font=font(31))
+    draw.text((100, 148), "配套规格 v0.31 · 信誉分、违规与预约限制", fill="#536C83", font=font(31))
     labels = []
     for a, left, right, b, caption in edges:
         p, q = point_on_box(a, b), point_on_box(b, a)
-        highlight = caption == "自动处罚来源"
+        highlight = caption == "当轮自动限制"
         color = teal if highlight else line
         draw.line([p, q], fill=color, width=8 if highlight else 5)
         dx, dy = q[0]-p[0], q[1]-p[1]; length = math.hypot(dx,dy)
@@ -95,7 +95,7 @@ def render():
     for name, attributes in classes.items():
         x, y = LAYOUT[name]; w, h = BOX
         if 77 + len(attributes)*43 + 28 > h: raise ValueError("Attributes exceed node height: " + name)
-        emphasized = name in {"违规", "预约限制"}
+        emphasized = name in {"违规", "预约限制", "信誉分轮次"}
         draw.rounded_rectangle([x,y,x+w,y+h], radius=19, fill="#F0FDFA" if emphasized else "white", outline=teal if emphasized else "#7A96B0", width=4)
         draw.line([(x+2,y+76),(x+w-2,y+76)], fill="#B8CCDB", width=2)
         draw.text((x+w/2,y+38), name, anchor="mm", fill=navy, font=font(42, True))
@@ -108,7 +108,7 @@ def render():
         draw.rounded_rectangle((box[0]-8,box[1]-5,box[2]+8,box[3]+5), radius=7, fill="#F8FAFC")
         draw.text(point, value, anchor="mm", font=face, fill=color)
     draw.rounded_rectangle([100,2220,3020,2430], radius=18, fill="#EAF7F4", outline="#71AAA1", width=3)
-    draw.text((125,2243), "基数与永久消费约束（0..3 为混合来源范围）", font=font(34, True), fill=teal)
+    draw.text((125,2243), "新旧自动限制的来源规则", font=font(34, True), fill=teal)
     for index, note in enumerate(notes):
         draw.text((125,2300+index*48), note, font=font(30), fill=ink)
     digest = hashlib.sha256(model.encode("utf-8")).hexdigest()[:12]

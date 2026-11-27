@@ -55,7 +55,7 @@ class MigrationIntegrationTest {
     }
     @Test void emptyInstallationAndRepeatedStartup() throws Exception {
         var f=flyway(); DatabaseMigrations.migrate(f,false); DatabaseMigrations.migrate(f,false);
-        assertEquals(31,count("SELECT count(*) FROM "+schema+".flyway_schema_history WHERE success"));
+        assertEquals(32,count("SELECT count(*) FROM "+schema+".flyway_schema_history WHERE success"));
         assertEquals(1,count("SELECT count(*) FROM "+schema+".booking_mutex WHERE id=1"));
         assertEquals(0,count("SELECT count(*) FROM "+schema+".audit_events"));
         assertEquals(0,count("SELECT count(*) FROM "+schema+".seat_codes"));
@@ -71,7 +71,7 @@ class MigrationIntegrationTest {
         assertEquals(1,count("SELECT count(*) FROM "+schema+".reservations WHERE id=1 AND user_id=2 AND seat_id=1"));
         assertEquals(4,count("SELECT count(*) FROM "+schema+".audit_events WHERE action='user.identity.normalize'"));
         assertEquals(1,count("SELECT count(*) FROM "+schema+".audit_events WHERE object_id='2' AND before_values->>'username'='stu01' AND after_values->>'username'='202600001'"));
-        assertEquals(31,count("SELECT count(*) FROM "+schema+".flyway_schema_history WHERE success"));
+        assertEquals(32,count("SELECT count(*) FROM "+schema+".flyway_schema_history WHERE success"));
         assertEquals(1,count("SELECT count(*) FROM "+schema+".audit_events WHERE object_id='4' AND reason='恢复本项目确认的内置演示管理员9位校园编号' AND before_values->>'campus_id' IS NULL AND after_values->>'campus_id'='202630001'"));
     }
     @Test void legacyRequiresExplicitAdoptionAndPreservesData() throws Exception {
@@ -86,7 +86,7 @@ class MigrationIntegrationTest {
         assertEquals(1,count("SELECT count(*) FROM "+schema+".seats WHERE version=1 AND resource_reason IS NULL"));
         assertEquals(1,count("SELECT count(*) FROM "+schema+".reservations WHERE user_id=1 AND seat_id=1 AND status='pending'"));
         assertEquals(0,count("SELECT count(*) FROM "+schema+".seat_codes"),"历史座位不能被伪造成已经配置真实贴码");
-        assertEquals(31,count("SELECT count(*) FROM "+schema+".flyway_schema_history WHERE success"));
+        assertEquals(32,count("SELECT count(*) FROM "+schema+".flyway_schema_history WHERE success"));
         assertEquals(1,count("SELECT count(*) FROM "+schema+".users WHERE username='known-campus' AND campus_id='OLD-01' AND student_no='OLD-01'"));
         assertEquals(1,count("SELECT count(*) FROM "+schema+".flyway_schema_history WHERE type='BASELINE'"));
     }
@@ -278,6 +278,35 @@ class MigrationIntegrationTest {
     String validReview(String decision){boolean approve=decision.equals("approved");return (approve?"UPDATE violations SET status='revoked' WHERE id=1;":"")+"INSERT INTO appeal_reviews(id,appeal_id,user_id,violation_id,actor_id,decision,reason,verification_note,facts_confirmed,reviewed_at,appeal_version_before,violation_status_before,violation_action,operation_id,request_hash,impact_hash,booking_effects) VALUES(1,1,1,1,3,'"+decision+"','public review','private verified basis',true,'2026-10-29 12:00',1,'active','"+(approve?"revoked":"unchanged")+"','d2222222-2222-4222-8222-222222222222',repeat('a',64),repeat('b',64),"+(approve?"'{\"cancelled_pending\":[],\"settled_unused_count\":0,\"continued_checked_in_count\":0}'":"NULL")+");UPDATE appeals SET status='"+decision+"',version=2 WHERE id=1;";}
     void originalReviewBatch()throws Exception{transactionSql("INSERT INTO reservations(id,user_id,seat_id,res_date,start_time,end_time,status) VALUES(3,1,1,'2026-10-29','10:30','11:00','unused_ended');INSERT INTO violations(id,user_id,reservation_id,type,event_key,occurred_at,registered_at,reason,source) VALUES(3,1,3,'no_show','unused:3','2026-10-29 10:45','2026-10-29 10:46','original source three','automatic');INSERT INTO restrictions(id,user_id,source,starts_at,ends_at,reason,created_at,effects_applied_at,version) VALUES(1,1,'automatic','2026-10-29 11:00','2026-11-05 11:00','original batch','2026-10-29 11:00','2026-10-29 11:00',2);INSERT INTO restriction_evaluations(restriction_id,user_id,evaluated_at,window_start,window_end) VALUES(1,1,'2026-10-29 11:00','2026-09-29 11:00','2026-10-29 11:00');INSERT INTO restriction_evaluation_sources(restriction_id,user_id,violation_id,source_order,violation_snapshot) SELECT 1,1,id,id,jsonb_build_object('id',id,'status','active','occurred_at',occurred_at) FROM violations WHERE id BETWEEN 1 AND 3;");}
     String validRecalculation(){return "INSERT INTO restriction_recalculations(review_id,user_id,violation_id,restriction_id,status_before,status_after,outcome,valid_count_before,valid_count_after,evaluated_at,window_start,window_end,starts_at,ends_at,source_violations) VALUES(1,1,1,1,'active','released','released',3,2,'2026-10-29 11:00','2026-09-29 11:00','2026-10-29 11:00','2026-10-29 11:00','2026-11-05 11:00','[{\"id\":1,\"status\":\"active\",\"status_after\":\"revoked\"},{\"id\":2,\"status\":\"active\",\"status_after\":\"active\"},{\"id\":3,\"status\":\"active\",\"status_after\":\"active\"}]');";}
+    @Test void creditRoundMigrationPreservesPreviousCreditRestrictionAndReviewHistory() throws Exception {
+        var previous = Flyway.configure().dataSource(source).defaultSchema(schema).schemas(schema)
+            .cleanDisabled(true).target("31").locations("classpath:db/migration").load();
+        DatabaseMigrations.migrate(previous, false);
+        reviewFacts();
+        originalReviewBatch();
+        transactionSql(validRecalculation() + validReview("approved") + """
+            UPDATE users SET credit_score=84,credit_banned_until='2026-11-01 12:34:56' WHERE id=1;
+            INSERT INTO credit_logs(user_id,delta,reason) VALUES(1,-16,'旧版信誉分流水');
+            INSERT INTO notifications(id,user_id,type,title,content,appeal_id,created_at)
+            VALUES(2,1,'appeal_reviewed','审核结果','旧版审核通知',1,'2026-10-29 12:00');
+            """);
+        var queries = new LinkedHashMap<String,String>();
+        var previousRows = new LinkedHashMap<String,String>();
+        for (var table : List.of("users", "credit_logs", "violations", "restrictions", "restriction_evaluations",
+            "restriction_evaluation_sources", "appeals", "appeal_reviews", "restriction_recalculations", "notifications")) {
+            var query = "SELECT jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text)::text FROM " + schema + "." + table + " t";
+            queries.put(table, query);
+            previousRows.put(table, readText(query));
+        }
+        DatabaseMigrations.migrate(flyway(), false);
+        for (var entry : queries.entrySet()) {
+            assertEquals(previousRows.get(entry.getKey()), readText(entry.getValue()), entry.getKey());
+        }
+        for (var table : List.of("credit_rounds", "credit_round_violations", "credit_round_events",
+            "credit_restriction_evaluations", "credit_restriction_recalculations")) {
+            assertEquals(0, count("SELECT count(*) FROM " + schema + "." + table), table);
+        }
+    }
     @org.junit.jupiter.params.ParameterizedTest @org.junit.jupiter.params.provider.ValueSource(strings={"owner_mismatch","target_mismatch","actor_null","note_null","facts_false","approved_effects_null","rejected_effects_present","action_mismatch","review_before_submission","version_mismatch","terminal_without_review","review_without_terminal","submitted_event_owner","submitted_event_time"})
     void reviewConstraintsPreserveActualDecisionOwnerAndOriginalSubmissionSafety(String problem)throws Exception{
         DatabaseMigrations.migrate(flyway(),false);reviewFacts();String base=validReview(problem.equals("rejected_effects_present")?"rejected":"approved");String invalid=switch(problem){case "owner_mismatch"->base.replace("VALUES(1,1,1,1,3,","VALUES(1,1,2,1,3,");case "target_mismatch"->base.replace("VALUES(1,1,1,1,3,","VALUES(1,1,1,2,3,");case "actor_null"->base.replace("VALUES(1,1,1,1,3,","VALUES(1,1,1,1,NULL,");case "note_null"->base.replace("'private verified basis'","NULL");case "facts_false"->base.replace(",true,",",false,");case "approved_effects_null"->base.replace("'{\"cancelled_pending\":[],\"settled_unused_count\":0,\"continued_checked_in_count\":0}'","NULL");case "rejected_effects_present"->base.replace("repeat('b',64),NULL","repeat('b',64),'{}'");case "action_mismatch"->base.replace("'active','revoked'","'active','already_revoked'");case "review_before_submission"->base.replace("2026-10-29 12:00","2026-10-29 09:16");case "version_mismatch"->base.replace("'2026-10-29 12:00',1,","'2026-10-29 12:00',2,");case "terminal_without_review"->"UPDATE appeals SET status='approved',version=2 WHERE id=1;";case "review_without_terminal"->base.replace("UPDATE appeals SET status='approved',version=2 WHERE id=1;","");case "submitted_event_owner"->"UPDATE appeal_events SET actor_id=2 WHERE appeal_id=1;";default->"UPDATE appeal_events SET occurred_at='2026-10-29 09:18' WHERE appeal_id=1;";};assertThrows(SQLException.class,()->transactionSql(invalid));assertEquals(1,count("SELECT count(*) FROM "+schema+".appeals WHERE status='submitted' AND version=1"));assertEquals(0,count("SELECT count(*) FROM "+schema+".appeal_reviews"));
@@ -294,7 +323,7 @@ class MigrationIntegrationTest {
         var error=assertThrows(FlywayException.class,()->DatabaseMigrations.migrate(broken,false));
         assertTrue(error.getMessage().contains("V9999__broken.sql"));
         assertEquals(0,count("SELECT count(*) FROM information_schema.tables WHERE table_schema='"+schema+"' AND table_name='rollback_probe'"));
-        assertEquals(31,count("SELECT count(*) FROM "+schema+".flyway_schema_history WHERE success"));
+        assertEquals(32,count("SELECT count(*) FROM "+schema+".flyway_schema_history WHERE success"));
     }
 
     @Test void reviewModerationUpgradePreservesOldReceiptAndBindsFunctionsToTheirOwnSchema()throws Exception{
