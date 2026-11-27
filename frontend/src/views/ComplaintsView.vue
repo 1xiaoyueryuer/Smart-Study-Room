@@ -85,6 +85,8 @@ function closeDetail() {
   selectedId.value = null
   detail.value = null
   detailError.value = ''
+  // 取消在途详情的加载状态：sequence 递增后响应会被丢弃，避免一直停在「正在读取」
+  detailLoading.value = false
   detailSequence++
 }
 
@@ -100,8 +102,9 @@ function toggleForm() {
   formOpen.value = !formOpen.value
 }
 
-watch(items, (value) => {
-  if (!value.length) { detail.value = null; selectedId.value = null; return }
+// 选中项跟随当前分类的可见记录：分类下没有记录时清空右侧详情，而不是保留别的分类的记录
+watch(visibleItems, (value) => {
+  if (!value.length) { closeDetail(); return }
   if (!selectedId.value || !value.some(item => item.id === selectedId.value)) selectItem(value[0])
 }, {immediate: true})
 
