@@ -1,6 +1,11 @@
 import { gsap } from 'gsap'
 
-const reduced = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches
+const hasWindow = () => typeof window !== 'undefined'
+const hasMatchMedia = () => hasWindow() && typeof window.matchMedia === 'function'
+const hasDom = () => typeof document !== 'undefined' && typeof MutationObserver !== 'undefined' && typeof ResizeObserver !== 'undefined'
+
+// 无 window/matchMedia 的环境（SSR、Node 测试、预渲染）按允许动效处理，不访问缺失的全局。
+const reduced = () => hasMatchMedia() && window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
 export const pageMotion = {
   enter(el, done) {
@@ -17,6 +22,7 @@ export const pageMotion = {
 // Explicitly applied to page roots, never to 3D scenes.
 export const revealDirective = {
   mounted(el) {
+    if (!hasMatchMedia()) return
     const media = gsap.matchMedia()
     media.add('(prefers-reduced-motion: no-preference)', () => {
       const targets = [...el.querySelectorAll('.split-left > .card, .split-right > .card, .hero-brand, .study-art, .hero-title, .hero-desc, .auth-card')].slice(0, 7)
@@ -43,6 +49,7 @@ export const listMotionDirective = {
 // A single moving background, with resize support for wrapping filter tabs.
 export const activeTrackDirective = {
   mounted(el) {
+    if (!hasDom()) return
     const track = document.createElement('span')
     track.className = 'active-track'
     track.setAttribute('aria-hidden', 'true')

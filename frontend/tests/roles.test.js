@@ -112,33 +112,72 @@ for (const role of ['student', 'staff', 'admin']) {
     cleanup.forEach(fn=>fn());assert.equal(clock.timers.size,0);assert.equal(clock.listeners.size,0)
   })
 }
-test('homepage reads each room opening for campus date and shows a real open room rather than old daily fields', async () => {
-  const store = await auth('staff')
-  const calls = []
-  const clock=statsClock()
+test('ordinary homepage loads own reservations and recent management cancellations without reading room opening windows', async () => {
+  const store = await auth('student')
+  const calls = { reservations: [], notifications: [], stats: 0 }
+  const slot = { res_date: '2026-11-20', start_time: '19:30:00', end_time: '21:30:00' }
+  const source = (await readFile(new URL('../src/views/HomeView.vue', import.meta.url), 'utf8')).split('<script setup>')[1].split('</script>')[0]
+  const mocks = {
+    vue: { ref: value => ({ value }), computed: getter => ({get value(){return getter()}}), onMounted(){}, onUnmounted(){} },
+    'vue-router': { useRouter: () => ({push(){}}) },
+    '../stores/auth': { useAuthStore: () => store },
+    '../stores/notification': { useNotificationStore: () => ({unread:2,refresh(){}}) },
+    '../api/reservation': { listMyReservations: async query => { calls.reservations.push(query); return { data: { items: [{status:'pending',...slot},{status:'checked_in',...slot},{status:'completed',...slot}] } } } },
+    '../api/stats': { getOverview: async () => { calls.stats++; return {data:{}} } },
+    '../api/notification': { listNotifications: async query => { calls.notifications.push(query); return {data:{items:[{id:1,type:'management_cancelled'},{id:2,type:'system'}]}} } },
+    '../composables/statsForm.js': statsForm,
+    '../composables/statsRefresh.js': {createStatsRefresh:()=>({refresh(){calls.stats++},select(){},start(){},stop(){}})},
+    '../components/StudyTips.vue': {default:{}},
+    '../components/ui/SBanner.vue': {default:{}},
+    '../components/ui/SButton.vue': {default:{}}
+  }
+  const page = await sourceModule(source+'\nexport {loadReservations,loadCancellations,reservations,cancellations,activeReservations,pendingCount,checkedInCount,completedCount,zones,statusText,timeText}',mocks)
+  // 首页不再展示每间自习室的开放时段：不再引入房间/开放安排接口
+  assert.doesNotMatch(source,/getRooms|getOpeningWindows|roomOpeningText|open_time|close_time/)
+  await page.loadReservations()
+  assert.deepEqual({...calls.reservations[0]},{page:1,page_size:20})
+  assert.equal(page.reservations.value.length,3)
+  assert.equal(page.activeReservations.value.length,2)
+  assert.equal(page.pendingCount.value,1)
+  assert.equal(page.checkedInCount.value,1)
+  assert.equal(page.completedCount.value,1)
+  assert.deepEqual(Array.from(page.zones, zone => zone.name),['A区','B区','C区','D区'])
+  assert.equal(page.statusText({status:'pending'}),'待签到')
+  assert.equal(page.statusText({status:'checked_in'}),'使用中')
+  assert.equal(page.statusText({status:'completed'}),'已结束')
+  assert.equal(page.timeText(slot),'2026-11-20 19:30—21:30')
+  await page.loadCancellations()
+  assert.deepEqual({...calls.notifications[0]},{page:1,page_size:3,type:'management_cancelled'})
+  assert.equal(page.cancellations.value.length,1)
+  assert.equal(page.cancellations.value[0].id,1)
+  assert.equal(calls.stats,0)
+})
+
+test('administrator homepage skips personal reservation reads and loads the real stats snapshot instead', async () => {
+  const store = await auth('admin')
+  const calls = { reservations: 0, notifications: 0, refreshes: [] }
   const source = (await readFile(new URL('../src/views/HomeView.vue', import.meta.url), 'utf8')).split('<script setup>')[1].split('</script>')[0]
   const mocks = {
     vue: { ref: value => ({ value }), computed: getter => ({get value(){return getter()}}), onMounted(){}, onUnmounted(){} },
     'vue-router': { useRouter: () => ({push(){}}) },
     '../stores/auth': { useAuthStore: () => store },
     '../stores/notification': { useNotificationStore: () => ({unread:0,refresh(){}}) },
-    '../api/room': {
-      getRooms: async () => ({data:[{id:1,name:'闭馆空间',enabled:true,open_time:'01:00',close_time:'23:00'},{id:2,name:'分段空间',enabled:true,open_time:'01:00',close_time:'23:00'}]}),
-      getOpeningWindows: async (id,date) => { calls.push({id,date}); return {data:{windows:id===1?[]:[{start:'09:00',end:'12:00'},{start:'14:00',end:'18:00'}],closed_reasons:id===1?['日期闭馆']:[]}} }
-    },
+    '../api/reservation': { listMyReservations: async () => { calls.reservations++; return {data:{items:[]}} } },
     '../api/stats': { getOverview: async () => ({data:{}}) },
-    '../api/reservation': { listMyReservations: async () => ({ data: [] }) },
+    '../api/notification': { listNotifications: async () => { calls.notifications++; return {data:{items:[]}} } },
     '../composables/statsForm.js': statsForm,
-    '../composables/statsRefresh.js': {createStatsRefresh:options=>createStatsRefresh({...options,...clock.options})},
-    '../api/credit': { getCreditOverview: async () => ({data:{score:100}}) }
-    ,'../api/notification': { listNotifications: async () => ({data:[]}) }
+    '../composables/statsRefresh.js': {createStatsRefresh:()=>({refresh:key=>calls.refreshes.push(key),select(){},start(){},stop(){}})},
+    '../components/StudyTips.vue': {default:{}},
+    '../components/ui/SBanner.vue': {default:{}},
+    '../components/ui/SButton.vue': {default:{}}
   }
-  for (const component of ['StudyTips','ui/SAnimatedNumber','AppIcon','ui/SBanner','ui/SButton']) mocks[`../components/${component}.vue`]={default:{}}
-  const page = await sourceModule(source+'\nexport {loadRooms,rooms,roomOpeningText}',mocks)
-  await page.loadRooms()
-  assert.equal(calls.length,2)
-  assert.match(calls[0].date,/^\d{4}-\d{2}-\d{2}$/)
-  assert.equal(page.rooms.value.length,2)
-  assert.equal(page.roomOpeningText(page.rooms.value[1]),'09:00–12:00、14:00–18:00')
-  assert.match(page.roomOpeningText(page.rooms.value[0]),/当日闭馆/)
+  const page = await sourceModule(source+'\nexport {loadReservations,loadCancellations,loadStats,reservations,cancellations}',mocks)
+  await page.loadReservations()
+  await page.loadCancellations()
+  assert.equal(calls.reservations,0)
+  assert.equal(calls.notifications,0)
+  assert.equal(page.reservations.value.length,0)
+  assert.equal(page.cancellations.value.length,0)
+  await page.loadStats()
+  assert.deepEqual(calls.refreshes,['overview'])
 })
