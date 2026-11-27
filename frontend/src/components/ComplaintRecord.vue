@@ -38,7 +38,7 @@ function eventLabel(event) {
     </header>
 
     <section class="record-section record-summary">
-      <div class="record-meta">
+      <div class="record-meta ruled rule-bottom">
         <div><span>提交时间</span><b>{{ formatCampusDateTime(record.submitted_at) }}</b></div>
         <div v-if="record.handler"><span>首受理人</span><b>{{ record.handler.display_name }}<small v-if="record.accepted_at"> · {{ formatCampusDateTime(record.accepted_at) }}</small></b></div>
       </div>
@@ -64,12 +64,18 @@ function eventLabel(event) {
       <p class="muted">等级用于处理排序，不代表维修期限或完成承诺。</p>
     </section>
     <section v-else-if="record.service_kind === 'other_service'" class="record-section">
-      <h4>服务类别</h4><p>{{ serviceTopics[record.service_topic] || record.service_topic || '其他服务问题' }}</p>
+      <div class="record-meta rule-top">
+        <div><span>服务类别</span><b>{{ serviceTopics[record.service_topic] || record.service_topic || '其他服务问题' }}</b></div>
+      </div>
     </section>
 
     <section v-if="record.context_snapshot" class="record-section">
-      <h4>关联位置</h4>
-      <p>{{ record.context_snapshot.room_name }}<span v-if="record.context_snapshot.building"> · {{ record.context_snapshot.building }}</span><span v-if="record.context_snapshot.floor"> · {{ record.context_snapshot.floor }}</span><span v-if="record.context_snapshot.location"> · {{ record.context_snapshot.location }}</span></p>
+      <div class="record-meta ruled rule-top">
+        <div>
+          <span>关联位置</span>
+          <b>{{ record.context_snapshot.room_name }}<template v-if="record.context_snapshot.building"> · {{ record.context_snapshot.building }}</template><template v-if="record.context_snapshot.floor"> · {{ record.context_snapshot.floor }}</template><template v-if="record.context_snapshot.location"> · {{ record.context_snapshot.location }}</template></b>
+        </div>
+      </div>
       <p v-if="record.context_snapshot.reservation_id" class="muted">关联预约 #{{ record.context_snapshot.reservation_id }} · 座位 {{ record.context_snapshot.seat_no }} · {{ record.context_snapshot.date }} {{ record.context_snapshot.start_time }}—{{ record.context_snapshot.end_time }} · 提交时{{ reservationStatuses[record.context_snapshot.status_at_submission] || record.context_snapshot.status_at_submission }}</p>
     </section>
 
@@ -77,7 +83,7 @@ function eventLabel(event) {
       <h4>最新正式回复</h4>
       <p class="description"><b>处理结果：</b>{{ record.current_feedback.result }}</p>
       <p class="description"><b>回复说明：</b>{{ record.current_feedback.basis }}</p>
-      <div class="record-meta">
+      <div class="record-meta ruled">
         <div><span>回复时间</span><b>{{ formatCampusDateTime(record.current_feedback.feedback_at) }}</b></div>
         <div v-if="record.current_feedback.deadline && record.status === 'awaiting_confirmation'"><span>确认截止</span><b>{{ formatCampusDateTime(record.current_feedback.deadline) }}</b></div>
       </div>
@@ -119,23 +125,27 @@ function eventLabel(event) {
 </template>
 
 <style scoped>
-.complaint-record{display:grid;gap:14px;min-width:0;overflow-wrap:anywhere}
+.complaint-record{--ticket-rule:color-mix(in srgb, var(--text-1) 20%, transparent);display:grid;gap:14px;min-width:0;overflow-wrap:anywhere}
 /* 详情头两行：每行左标签、右值，行间用浅色细线分隔（随主题深浅自适应，浅色下不刺眼、深色下不消失） */
-.ticket-heading{--ticket-rule:color-mix(in srgb, var(--text-1) 20%, transparent);display:grid;padding:0;border:0;border-bottom:1px solid var(--ticket-rule);border-radius:0;background:transparent}
+.ticket-heading{display:grid;padding:0;border:0;border-bottom:1px solid var(--ticket-rule);border-radius:0;background:transparent}
 .ticket-row{display:flex;align-items:center;justify-content:space-between;gap:14px;min-height:40px;padding:0 0 12px}
 .ticket-row+.ticket-row{padding:12px 0;border-top:1px solid var(--ticket-rule)}
 .ticket-type{color:var(--text-1);font-size:15px;font-weight:600;min-width:0}
 .ticket-heading .pill-status{font-size:13px;padding:3px 11px}
-.ticket-number-label,.record-meta span{display:block;color:var(--text-3);font-size:var(--fs-caption)}
-.ticket-number-label{font-size:13.5px}
+.ticket-number-label{display:block;color:var(--text-3);font-size:13.5px}
 .ticket-number{font-size:17px;font-weight:700;letter-spacing:.03em;color:var(--text-1);font-variant-numeric:tabular-nums}
 /* 分区不再用嵌套卡片，正文以「标签左 / 值右」两栏行展示 */
 .record-section{display:grid;gap:12px;min-width:0;padding:0;border:0;border-radius:0;background:transparent}
-.record-section h4{margin:0;font-size:15px;color:var(--text-1);padding-top:6px;border-top:1px solid var(--hairline)}
+.record-section h4{margin:0;font-size:15px;color:var(--text-1);padding-top:6px;border-top:1px solid var(--ticket-rule)}
 .record-section p{margin:0}
-.record-meta{display:grid;grid-template-columns:minmax(0,1fr);gap:16px}
-.record-meta > div{display:grid;grid-template-columns:150px minmax(0,1fr);gap:18px;align-items:baseline}
-.record-meta b{display:block;margin-top:0;font-weight:600;overflow-wrap:anywhere}
+/* 元信息行：问题（标签）在左、加粗且字号一致；回答（值）在右、不加粗；ruled 时行间用与详情头一致的细线 */
+.record-meta{display:grid;min-width:0}
+.record-meta>div{display:flex;align-items:baseline;justify-content:space-between;gap:24px;min-width:0;padding:9px 0}
+.record-meta.ruled>div+div{border-top:1px solid var(--ticket-rule)}
+.record-meta.rule-top>div:first-child{border-top:1px solid var(--ticket-rule)}
+.record-meta.rule-bottom>div:last-child{border-bottom:1px solid var(--ticket-rule)}
+.record-meta>div>span{flex:0 0 auto;color:var(--text-1);font-size:14px;font-weight:600;line-height:1.5}
+.record-meta b{min-width:0;font-weight:400;text-align:right;overflow-wrap:anywhere}
 .description{white-space:pre-wrap;line-height:1.65}
 .public-plan{padding:10px 12px;border-radius:var(--r-md);background:var(--surface-2);line-height:1.6}
 .closure-note,.record-disclaimer{color:var(--text-3);font-size:var(--fs-caption);line-height:1.6}
@@ -147,5 +157,5 @@ function eventLabel(event) {
 .progress-heading{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap}
 .progress-heading time{color:var(--text-3);font-size:var(--fs-caption);font-variant-numeric:tabular-nums}
 .feedback-record{border-color:var(--primary-weak)}
-@media(max-width:560px){.ticket-row{gap:10px}.record-section{padding:12px}}
+@media(max-width:560px){.ticket-row{gap:10px}.record-meta>div{flex-wrap:wrap;gap:2px 16px;padding:8px 0}.record-meta b{text-align:left}.record-section{padding:12px}}
 </style>
