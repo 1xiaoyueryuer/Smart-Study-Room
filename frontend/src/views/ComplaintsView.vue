@@ -36,14 +36,16 @@ const categories = [
   {key: 'other', label: '其他服务'}
 ]
 
+// 设施报修以服务端 service_kind 为准，缺少该字段时才回退到说明文字前缀
+function isRepair(item) { return item?.service_kind ? item.service_kind === 'facility_repair' : !!parseRepair(item?.description) }
 const visibleItems = computed(() => {
   if (category.value === 'all') return items.value
   if (category.value === 'occupation') return items.value.filter(item => item.type === 'occupation')
-  if (category.value === 'facility') return items.value.filter(item => item.type === 'service' && !!parseRepair(item.description))
-  return items.value.filter(item => item.type === 'service' && !parseRepair(item.description))
+  if (category.value === 'facility') return items.value.filter(item => item.type === 'service' && isRepair(item))
+  return items.value.filter(item => item.type === 'service' && !isRepair(item))
 })
 
-function categoryOf(item) { return complaintCategory(item.type, item.description) }
+function categoryOf(item) { return complaintCategory(item.type, item.description, item.service_kind) }
 function roomOf(item) { return item.context_snapshot?.room_name || (item.room_id ? `空间#${item.room_id}` : '未关联空间') }
 function titleOf(item) {
   const repair = parseRepair(item.description)
