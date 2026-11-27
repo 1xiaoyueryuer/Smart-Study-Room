@@ -485,9 +485,9 @@ function timeText(row) {
 /* 自习室列表 */
 .zone-section { margin-bottom: 26px; }
 .zone-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 2px 18px; }
-.zone-head h3 { display: flex; align-items: center; margin: 0; font-size: 26px; font-weight: 700; color: #182420; font-family: var(--font-display); }
-.zone-head h3::before { content: ''; width: 6px; height: 26px; border-radius: 3px; background: #135e4d; margin-right: 14px; flex: 0 0 auto; }
-.zone-head-meta { display: inline-flex; align-items: center; gap: 7px; color: #5d6f68; font-size: 13px; }
+.zone-head h3 { display: flex; align-items: center; margin: 0; font-size: 26px; font-weight: 700; color: var(--text-1); font-family: var(--font-display); }
+.zone-head h3::before { content: ''; width: 6px; height: 26px; border-radius: 3px; background: var(--primary); margin-right: 14px; flex: 0 0 auto; }
+.zone-head-meta { display: inline-flex; align-items: center; gap: 7px; color: var(--text-2); font-size: 13px; }
 .zone-head-meta svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .zone-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; }
 .zone-card { background: #ffffff; border: 0; border-radius: 16px; overflow: hidden; box-shadow: 0 6px 20px rgba(30, 50, 44, .08); transition: transform var(--dur-2) var(--ease), box-shadow var(--dur-2) var(--ease); }
