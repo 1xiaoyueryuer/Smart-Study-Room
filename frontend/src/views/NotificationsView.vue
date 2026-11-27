@@ -264,7 +264,9 @@ onMounted(pager.refresh);onBeforeUnmount(()=>{alive=false;pager.dispose()})
 .msg-side { display: flex; flex-direction: column; align-items: flex-end; gap: 5px; }
 .msg-side time { color: var(--text-4); font-size: 10px; white-space: nowrap; }
 .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--red); }
-.notif-detail-panel { min-width: 0; min-height: 420px; height: 100%; }
+.notif-detail-panel { display: flex; flex-direction: column; min-width: 0; min-height: 420px; height: 100%; }
+/* 未选中消息时，空态在详情卡片内上下居中 */
+.notif-detail-panel :deep(.empty-state) { flex: 1 1 auto; }
 .detail-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--hairline); margin-bottom: 14px; }
 .detail-head time { color: var(--text-4); font-size: var(--fs-caption); }
 .notif-detail-panel h3 { font-size: 26px; color: var(--text-1); margin-bottom: 12px; }
