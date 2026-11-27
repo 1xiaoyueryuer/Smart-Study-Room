@@ -195,3 +195,10 @@ test('info failures surface a visible error without blocking the rest of the pag
   assert.equal(harness.page.qrUrl.value, '')
   assert.equal(harness.calls.devices, 1, '接入信息失败不影响设备读取')
 })
+
+test('the board title falls back to the raw date beyond the third booking day', async () => {
+  const harness = await loadLanView()
+  harness.page.dates.value = ['2026-11-28', '2026-11-29', '2026-11-30', '2026-12-01']
+  assert.equal(harness.page.campusDateLabel('2026-11-30'), '后天 2026-11-30')
+  assert.equal(harness.page.campusDateLabel('2026-12-01'), '2026-12-01', '第 4 天及以后不再显示“后天”')
+})

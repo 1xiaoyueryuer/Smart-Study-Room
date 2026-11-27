@@ -50,7 +50,10 @@ const dateChips = computed(() => dates.value.map((date, index) => ({
 
 function campusDateLabel(date) {
   const index = dates.value.indexOf(date)
-  return index >= 0 ? `${index === 0 ? '今天' : index === 1 ? '明天' : '后天'} ${date}` : date
+  if (index === 0) return `今天 ${date}`
+  if (index === 1) return `明天 ${date}`
+  if (index === 2) return `后天 ${date}`
+  return date
 }
 
 async function loadPolicy() {
