@@ -7,12 +7,17 @@ import SButton from '../ui/SButton.vue'
 import { feedbackState } from '../ui/feedback'
 import { matchesSeatPreferences, rankSeatsByPreference, seatState, stateLabels, stateColors } from './seatPresentation'
 
-const props = defineProps({ origin: Object, room: Object, seats: Array, preferences: Array, selectedId: Number, selectedWindow: Object, date: String, start: String, end: String, requestedStart: String, loading: Boolean, submitting: Boolean, submitError: String, restrictionFailure: Object, policyReady: Boolean, strategyLabel: String, requiredMinutes: Number, shortfall: String })
+const props = defineProps({ origin: Object, room: Object, seats: Array, preferences: Array, selectedId: Number, selectedWindow: Object, date: String, start: String, end: String, requestedStart: String, loading: Boolean, submitting: Boolean, browsingOnly: Boolean, submitError: String, restrictionFailure: Object, policyReady: Boolean, strategyLabel: String, requiredMinutes: Number, shortfall: String })
 const emit = defineEmits(['select', 'update:start', 'update:end', 'submit', 'closed'])
 const panel = ref(null), backdrop = ref(null), content = ref(null), snapshot = ref(null)
 const Scene = shallowRef(null), error = ref(''), ready = ref(false), closing = ref(false), opening = ref(true), view = ref('overview')
 const selected = computed(() => props.seats.find(s => s.id === props.selectedId))
 const rankedSeats = computed(() => rankSeatsByPreference(props.seats, props.preferences))
+const legendLabels = computed(() => ({
+  ...stateLabels,
+  available: props.browsingOnly ? '当天有空档' : stateLabels.available,
+  no_window: props.browsingOnly ? '当天无空档' : stateLabels.no_window,
+}))
 const sceneRef = ref(null)
 const canExperience = computed(() => ready.value && props.room?.enabled && !error.value && selected.value?.status === 'available' && selected.value?.matching_windows?.length > 0)
 watch(canExperience, valid => { if (!valid && view.value === 'firstPerson') view.value = 'overview' })
@@ -153,7 +158,7 @@ onBeforeUnmount(() => {
         <div ref="snapshot" class="explorer-snapshot" aria-hidden="true" />
         <div ref="content" class="explorer-content">
           <header class="explorer-head">
-            <div><div class="explorer-eyebrow">SPACE / 3D SEATING</div><h3 id="explorer-title">{{ room?.name || '自习室' }} <span>3D 选座</span></h3><p>{{ date }} · {{ selectedWindow ? start + ' – ' + end + '（本次预约）' : '请选择连续空档' }} <span class="layout-note">· {{ strategyLabel }} · 座位布局示意</span></p></div>
+            <div><div class="explorer-eyebrow">SPACE / 3D SEATING</div><h3 id="explorer-title">{{ room?.name || '自习室' }} <span>{{ browsingOnly ? '3D 浏览' : '3D 选座' }}</span></h3><p>{{ date }} · {{ browsingOnly ? '当天空档只读浏览' : selectedWindow ? start + ' – ' + end + '（本次预约）' : '请选择连续空档' }} <span v-if="!browsingOnly" class="layout-note">· {{ strategyLabel }} ·</span> <span class="layout-note">座位布局示意</span></p></div>
             <button class="explorer-close" aria-label="关闭 3D 选座" :disabled="submitting" @click="close()">×</button>
           </header>
           <div class="explorer-toolbar">
@@ -162,18 +167,18 @@ onBeforeUnmount(() => {
               <button :class="{ active: view === 'top' }" :disabled="busy" @click="view = 'top'">▦ 俯视</button>
               <button :class="{ active: view === 'firstPerson' }" :disabled="busy || !canExperience" :title="canExperience ? '从所选座位环视室内' : '请先选择有连续空档的座位'" @click="view = 'firstPerson'">坐席体验</button>
             </div>
-            <div class="explorer-legend"><span v-for="(label, state) in Object.fromEntries(Object.entries(stateLabels).filter(([state]) => state !== 'occupied'))" :key="state"><i :style="{ background: stateColors[state] }" />{{ label }}</span></div>
+            <div class="explorer-legend"><span v-for="(label, state) in Object.fromEntries(Object.entries(legendLabels).filter(([state]) => state !== 'occupied'))" :key="state"><i :style="{ background: stateColors[state] }" />{{ label }}</span></div>
           </div>
           <div class="explorer-stage" :aria-busy="!ready || loading">
-            <component :is="Scene" v-if="Scene && !error && room" ref="sceneRef" :room="room" :seats="seats" :preferences="preferences" :selected-id="selectedId" :view="view" :blocked="busy || !room?.enabled" @select="emit('select', $event)" @ready="ready = true" @error="error = $event" @manual-view="view = ''" @exit-first-person="view = 'overview'" />
+            <component :is="Scene" v-if="Scene && !error && room" ref="sceneRef" :room="room" :seats="seats" :preferences="preferences" :selected-id="selectedId" :view="view" :blocked="busy || !room?.enabled" :selection-enabled="!browsingOnly && !loading && !submitting" :browsing-only="browsingOnly" @select="emit('select', $event)" @ready="ready = true" @error="error = $event" @manual-view="view = ''" @exit-first-person="view = 'overview'" />
             <div v-if="error || !ready || loading" class="scene-message" role="status"><strong>{{ error ? '暂时无法显示 3D' : loading ? '正在更新座位' : '正在搭建你的自习空间' }}</strong><p>{{ error || '窗户、桌椅和座位正在就位…' }}</p><SButton v-if="error" @click="close()">返回座位平面图</SButton></div>
             <div v-if="ready && !error && view === 'firstPerson'" class="seated-tools"><span aria-live="polite">正在体验 {{ selected?.seat_no }}</span><button :disabled="busy" @click="sceneRef?.resetLook()">回正视线</button></div>
-            <div v-if="ready && !error" class="scene-hint">{{ view === 'firstPerson' ? '拖动 / 方向键环视 · 点击总览退出体验' : '拖动旋转 · 滚轮 / 双指缩放 · 点击桌椅选座' }}</div>
+            <div v-if="ready && !error" class="scene-hint">{{ browsingOnly ? '拖动旋转 · 滚轮 / 双指缩放 · 填写预约条件后可选座' : view === 'firstPerson' ? '拖动 / 方向键环视 · 点击总览退出体验' : '拖动旋转 · 滚轮 / 双指缩放 · 点击桌椅选座' }}</div>
           </div>
           <p v-if="shortfall" role="status" class="explorer-shortfall">{{ shortfall }}；本次预约已短于筛选时长。</p><p v-if="requiredMinutes" class="explorer-required">筛选条件：从{{ requestedStart }}开始，连续学习{{ requiredMinutes }}分钟。</p>
           <p v-if="submitError" role="alert" class="explorer-submit-error">{{ submitError }}</p><details v-if="restrictionFailure" class="explorer-restrictions"><summary>查看服务端确认的{{restrictionFailure.active_restrictions.length}}条有效预约限制</summary><div><p>核对时刻：{{ formatCampusDateTime(restrictionFailure.server_now) }}（{{restrictionFailure.campus_zone}}），解除一条不代表其他记录也已解除。</p><RestrictionRecord v-for="record in restrictionFailure.active_restrictions" :key="record.id" :record="record" /><RouterLink to="/profile#restrictions">查看本人限制与当前资格</RouterLink></div></details>
           <footer class="explorer-footer">
-            <label class="seat-list"><span class="sr-only">按编号选择座位</span><select :value="selectedId ?? ''" :disabled="busy || !!error" @change="chooseFromList"><option value="" disabled>按编号选座</option><option v-for="s in rankedSeats" :key="s.id" :value="s.id" :disabled="s.status !== 'available' || !s.matching_windows?.length">{{ s.seat_no }} · {{ stateLabels[seatState(s, selectedId, preferences)] }}{{ matchesSeatPreferences(s, preferences) ? ' · 偏好' : '' }}</option></select></label>
+            <label class="seat-list"><span class="sr-only">按编号选择座位</span><select :value="selectedId ?? ''" :disabled="busy || !!error || browsingOnly" @change="chooseFromList"><option value="" disabled>按编号选座</option><option v-for="s in rankedSeats" :key="s.id" :value="s.id" :disabled="browsingOnly || s.status !== 'available' || !s.matching_windows?.length">{{ s.seat_no }} · {{ legendLabels[seatState(s, selectedId, preferences, browsingOnly)] }}{{ matchesSeatPreferences(s, preferences) ? ' · 偏好' : '' }}</option></select></label>
             <SButton variant="primary" size="lg" :disabled="!policyReady || !room?.enabled || !selected || !selectedWindow || busy || !!error" :loading="submitting" @click="emit('submit')">提交预约</SButton>
           </footer>
         </div>

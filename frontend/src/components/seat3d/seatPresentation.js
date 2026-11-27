@@ -38,15 +38,11 @@ export function rankSeatsByPreference(seats, preferences = []) {
     .map(({ seat }) => seat)
 }
 
-export function seatState(s, selectedId, preferences = []) {
+export function seatState(s, selectedId, preferences = [], browsingOnly = false) {
   if (s.status !== 'available') return s.status === 'maintenance' ? 'maintenance' : 'disabled'
-  if (Array.isArray(s.matching_windows)) {
-    if (!s.matching_windows.length) return 'no_window'
-    if (s.id === selectedId) return 'selected'
-    return matchesSeatPreferences(s, preferences) ? 'preferred' : 'available'
-  }
-  if (Array.isArray(s.available_windows)) {
-    if (!s.available_windows.length) return 'no_window'
+  const windows = browsingOnly ? s.all_windows : s.matching_windows ?? s.available_windows
+  if (Array.isArray(windows)) {
+    if (!windows.length) return 'no_window'
     if (s.id === selectedId) return 'selected'
     return matchesSeatPreferences(s, preferences) ? 'preferred' : 'available'
   }

@@ -36,12 +36,23 @@ test('3D preference ranking keeps eligible seats first and ranks them stably', (
   assert.equal(seatState(seats[3], null, ['window', 'power']), 'no_window')
 })
 
+test('3D read-only browsing shows all-day availability while preserving unavailable states', () => {
+  const available = { id: 1, status: 'available', matching_windows: [], all_windows: [{}] }
+  const unavailable = { id: 2, status: 'maintenance', matching_windows: [], all_windows: [{}] }
+
+  assert.equal(seatState(available, null), 'no_window')
+  assert.equal(seatState(available, null, [], true), 'available')
+  assert.equal(seatState(unavailable, null, [], true), 'maintenance')
+})
+
 test('3D selector exposes preference ordering without obsolete time-segment controls', async () => {
   const source = await readFile(new URL('../src/components/seat3d/SeatExplorer.vue', import.meta.url), 'utf8')
   const scene = await readFile(new URL('../src/components/seat3d/SeatScene.vue', import.meta.url), 'utf8')
   assert.match(source, /rankSeatsByPreference\(props\.seats, props\.preferences\)/)
   assert.match(source, /matchesSeatPreferences\(s, preferences\)/)
   assert.match(source, /:preferences="preferences"/)
-  assert.match(scene, /model\.updateSelection\(props\.selectedId, props\.preferences\)/)
+  assert.match(scene, /model\.updateSelection\(props\.selectedId, props\.preferences, props\.browsingOnly\)/)
+  assert.match(scene, /props\.selectionEnabled && seat\?\.status === 'available'/)
+  assert.match(scene, /props\.selectionEnabled && !props\.blocked/)
   assert.doesNotMatch(source, /explorer-slot|select-window|explorer-selection/)
 })

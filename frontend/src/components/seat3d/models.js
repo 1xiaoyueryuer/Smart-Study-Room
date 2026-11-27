@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { getWindowSides, seatState, stateColors, seatPosition } from './seatPresentation'
 
 // Model parts are batched by material. Every instance retains its seat identity.
-export function buildRoom(room, seats, dark) {
+export function buildRoom(room, seats, dark, browsingOnly = false) {
   const root = new THREE.Group()
   const geometry = new THREE.BoxGeometry(1, 1, 1)
   const batches = new Map()
@@ -131,11 +131,11 @@ export function buildRoom(room, seats, dark) {
     })
     root.add(wall); walls.push({ side, mesh: wall, window: windowSides[side], facadeMaterials, faded: false })
   }
-  function updateSelection(selectedId, preferences = []) {
-    markers.forEach((p, i) => statusMesh.setColorAt(i, new THREE.Color(stateColors[seatState(p.seat, selectedId, preferences)])))
+  function updateSelection(selectedId, preferences = [], readOnly = browsingOnly) {
+    markers.forEach((p, i) => statusMesh.setColorAt(i, new THREE.Color(stateColors[seatState(p.seat, selectedId, preferences, readOnly)])))
     if (statusMesh.instanceColor) statusMesh.instanceColor.needsUpdate = true
   }
-  updateSelection(null)
+  updateSelection(null, [], browsingOnly)
   return { root, pickables, width, depth, updateSelection,
     updateWalls(camera, firstPerson = false) {
       for (const wall of walls) {

@@ -1,5 +1,22 @@
 import { minuteValue, validateSlot } from './bookingPolicy.js'
 export const windowKey = window => window ? `${window.room_id}:${window.seat_id}:${window.available_start}:${window.available_end}` : ''
+export function buildBrowseWindowRows(seats, roomEnabled) {
+  if (!roomEnabled || !Array.isArray(seats)) return []
+
+  return seats
+    .filter(seat => seat.status === 'available' && Array.isArray(seat.all_windows))
+    .flatMap(seat => seat.all_windows.map(window => ({
+      ...window,
+      seat_no: seat.seat_no,
+      row_no: seat.row_no,
+      col_no: seat.col_no,
+    })))
+    .sort((left, right) => left.available_start.localeCompare(right.available_start)
+      || (left.row_no ?? 0) - (right.row_no ?? 0)
+      || (left.col_no ?? 0) - (right.col_no ?? 0)
+      || String(left.seat_no).localeCompare(String(right.seat_no)))
+}
+
 export function validateWindowSlot(policy, date, start, end, window) {
   const duration = validateSlot(policy, date, start, end)
   if (!window || minuteValue(start) < minuteValue(window.available_start) || minuteValue(end, true) > minuteValue(window.available_end, true)) throw new Error('本次预约起止须完整位于所选连续空档内，请调整时间或重新选择片段')

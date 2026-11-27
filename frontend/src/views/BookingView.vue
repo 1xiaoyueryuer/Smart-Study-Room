@@ -10,7 +10,7 @@ import { getRooms } from '../api/room'
 import { createReservation, getBookingPolicy } from '../api/reservation'
 import { getAvailability } from '../api/availability'
 import { getBookingEligibility } from '../api/restriction'
-import { windowKey, validateWindowSlot, shortfallText } from '../composables/availabilitySelection.js'
+import { windowKey, validateWindowSlot, shortfallText, buildBrowseWindowRows } from '../composables/availabilitySelection.js'
 import { MISSING_LOCATION, locationValue, locationOptions } from '../composables/bookingLocation.js'
 import { bookingRestrictionDetails, activeBookingRestrictions, isBookingRestricted } from '../composables/restrictionForm.js'
 import RestrictionRecord from '../components/RestrictionRecord.vue'
@@ -75,6 +75,8 @@ function togglePreference(value) {
 }
 function isPreferredSeat(seat) { return matchesSeatPreferences(seat, preferences.value) }
 const seatById = computed(() => new Map(seats.value.map(seat => [seat.id, seat])))
+const browseWindows = computed(() => buildBrowseWindowRows(seats.value, room.value?.enabled))
+const readOnlyBrowse = computed(() => queryDirty.value || !filterApplied.value)
 const rankedResults = computed(() => {
   if (!preferences.value.length) return results.value
   return [...results.value].sort((left, right) => seatPreferenceCount(seatById.value.get(right.seat_id), preferences.value) - seatPreferenceCount(seatById.value.get(left.seat_id), preferences.value))
@@ -298,7 +300,7 @@ function currentQueryMatches(query) {
 }
 function clearSelection() { selected.value = null; selectedWindow.value = null; start.value = ''; end.value = '' }
 function hasWindows(seat) {
-  const windows = filterApplied.value ? seat?.matching_windows : seat?.all_windows
+  const windows = filterApplied.value && !queryDirty.value ? seat?.matching_windows : seat?.all_windows
   return Array.isArray(windows) && windows.length > 0
 }
 function chooseWindow(window) {
@@ -326,7 +328,7 @@ const mapError = ref(false)
 const mapErrorText = ref('')
 let mapRequest = 0
 function open3D() {
-  if (submitting.value || queryDirty.value || !room.value || loading.value || mapError.value || !seats.value.length) return
+  if (submitting.value || !room.value || loading.value || mapError.value || !seats.value.length) return
   hoverTip.value = null
   show3D.value = true
 }
@@ -451,7 +453,6 @@ function nearWindowSide(s) {
 function seatClass(s) {
   let cls
   if (!room.value?.enabled || s.status !== 'available') cls = 'seat seat-disabled'
-  else if (queryDirty.value) cls = 'seat seat-filtered-out'
   else if (!hasWindows(s)) cls = 'seat seat-filtered-out'
   else if (selected.value?.id === s.id) cls = 'seat seat-selected'
   else cls = 'seat seat-free'
@@ -706,7 +707,7 @@ onMounted(async () => {
             <h3>选择座位</h3>
             <div class="row-actions">
               <SButton size="sm" :variant="presentation === 'map' ? 'primary' : 'secondary'" @click="presentation='map'">平面图</SButton>
-              <SButton size="sm" :disabled="submitting || queryDirty || !room || loading || mapError || !seats.length" aria-label="打开 3D 选座" @click="open3D">3D</SButton>
+              <SButton size="sm" :disabled="submitting || !room || loading || mapError || !seats.length" aria-label="打开 3D 座位浏览" @click="open3D">3D</SButton>
               <SButton size="sm" :variant="presentation === 'list' ? 'primary' : 'secondary'" @click="presentation='list'">空档列表</SButton>
               <SButton size="sm" :disabled="submitting || !roomId || !policy || loading" @click="refreshSeatMap(true)">刷新</SButton>
             </div>
@@ -717,13 +718,49 @@ onMounted(async () => {
         <SBanner v-if="room?.closed_reasons?.length" type="warning" :title="room.closed_reasons.join('；')" />
         <SBanner v-if="room && !room.enabled" type="warning" :title="`空间已停用：${room.resource_reason || '未提供原因'}`" />
         <SBanner v-if="mapError && !inputError" type="error" :title="mapErrorText || '座位查询失败，请核对条件并重试'"><SButton size="sm" :disabled="submitting" @click="refreshSeatMap(true)">重试</SButton></SBanner>
-        <p v-if="!loading && !mapError && !queryDirty && availability && !results.length" role="status">当前条件下没有可约空档，请调整时间或空间。</p>
+        <p v-if="!loading && !mapError && !readOnlyBrowse && availability && !results.length" role="status">当前条件下没有可约空档，请调整时间或空间。</p>
         <p v-if="loading" role="status">正在查询可约空档…</p>
-        <p v-else-if="roomId && date && !hasSearchInputs && !restricted && !mapError" role="status">填写开始时间和学习时长后，座位将自动更新。</p>
-        <div v-if="!loading && !mapError && results.length && presentation === 'list'" class="table-wrap"><div class="table-scroll" tabindex="0" aria-label="连续空档列表，可左右滑动"><table class="table availability-table"><thead><tr><th>顺序 / 座位</th><th>位置</th><th>完整空档</th><th>完整连续时长 / 建议</th><th>等待</th><th>选择</th></tr></thead><tbody><tr v-for="(window,index) in rankedResults" :key="windowKey(window)" :class="{ 'earliest-row': index === 0, 'chosen-row': windowKey(window) === windowKey(selectedWindow) }"><td>{{ index + 1 }} · {{ window.seat_no }}<STag v-if="index===0">首选</STag><STag v-if="isPreferredSeat(seatById.get(window.seat_id))" type="warning">偏好</STag></td><td>{{ window.row_no }}行{{ window.col_no }}列</td><td>{{ window.available_start }}–{{ window.available_end }}</td><td>{{ window.duration_minutes }}分钟<div>建议{{ window.suggested_start }}–{{ window.suggested_end }}</div></td><td>{{ window.wait_minutes }}分钟</td><td><SButton size="sm" :disabled="submitting || restricted" @click="chooseWindow(window)">选择该片段</SButton></td></tr></tbody></table></div></div>
-        <div class="responsive-scroll" tabindex="0" aria-label="座位平面图，可左右滑动">
+        <p v-else-if="roomId && date && !hasSearchInputs && !restricted && !mapError" role="status">当天空档可先浏览；填写开始时间和学习时长后即可选座。</p>
+        <p v-if="presentation === 'list' && !loading && !mapError && readOnlyBrowse && !browseWindows.length" role="status">当前空间当天没有可用空档。</p>
+        <div v-if="presentation === 'list' && !loading && !mapError && (readOnlyBrowse ? browseWindows.length : results.length)" class="table-wrap">
+          <div class="table-scroll" tabindex="0" aria-label="空档列表，可左右滑动">
+            <table class="table availability-table">
+              <thead>
+                <tr>
+                  <th v-if="!readOnlyBrowse">顺序</th>
+                  <th>座位</th>
+                  <th>位置</th>
+                  <th>空档时间</th>
+                  <th>连续时长</th>
+                  <th v-if="readOnlyBrowse">状态</th>
+                  <th v-else>选择</th>
+                </tr>
+              </thead>
+              <tbody v-if="readOnlyBrowse">
+                <tr v-for="window in browseWindows" :key="windowKey(window)">
+                  <td>{{ window.seat_no }}</td>
+                  <td>{{ window.row_no }}行{{ window.col_no }}列</td>
+                  <td>{{ window.available_start }}–{{ window.available_end }}</td>
+                  <td>{{ window.duration_minutes }}分钟</td>
+                  <td>当天有空档</td>
+                </tr>
+              </tbody>
+              <tbody v-else>
+                <tr v-for="(window, index) in rankedResults" :key="windowKey(window)" :class="{ 'earliest-row': index === 0, 'chosen-row': windowKey(window) === windowKey(selectedWindow) }">
+                  <td>{{ index + 1 }}</td>
+                  <td>{{ window.seat_no }}<STag v-if="index === 0">首选</STag><STag v-if="isPreferredSeat(seatById.get(window.seat_id))" type="warning">偏好</STag></td>
+                  <td>{{ window.row_no }}行{{ window.col_no }}列</td>
+                  <td>{{ window.available_start }}–{{ window.available_end }}</td>
+                  <td>{{ window.duration_minutes }}分钟<div>建议{{ window.suggested_start }}–{{ window.suggested_end }}</div></td>
+                  <td><SButton size="sm" :disabled="submitting || restricted" @click="chooseWindow(window)">选择该片段</SButton></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div v-if="presentation === 'map'" class="responsive-scroll" tabindex="0" aria-label="座位平面图，可左右滑动">
         <div v-loading="loading" class="seat-grid-wrap" @mouseover="onGridOver" @mouseleave="onGridLeave">
-          <div v-if="!room" class="empty-tip muted">请先选择自习室并设置预约条件</div>
+          <div v-if="!room" class="empty-tip muted">请先选择自习室和日期</div>
           <div v-else :style="frameStyle" class="room-frame">
             <!-- 顶部：窗或墙 -->
             <div class="wall wall-top" :class="{ window: windowSides.top }" aria-hidden="true"></div>
@@ -745,7 +782,7 @@ onMounted(async () => {
                 @click="onSeatClick(s)"
               >
                 <SeatPlanDesk :computer="s.zone === 'computer'" :power="s.has_power" />
-                <span class="seat-no">{{ s.seat_no }}<span v-if="rankedResults[0]?.seat_id === s.id"> · 首选</span></span><span v-if="!queryDirty && s.matching_windows?.length && isPreferredSeat(s)" class="seat-preference">偏好</span>
+                <span class="seat-no">{{ s.seat_no }}<span v-if="!queryDirty && rankedResults[0]?.seat_id === s.id"> · 首选</span></span><span v-if="!queryDirty && s.matching_windows?.length && isPreferredSeat(s)" class="seat-preference">偏好</span>
               </button>
             </div>
             <!-- 右：窗或墙 -->
@@ -766,7 +803,7 @@ onMounted(async () => {
     </div>
   </div>
 
-  <SeatExplorer v-if="show3D" ref="explorer" :origin="seatCard" :room="room" :seats="seats" :preferences="preferences" :selected-id="selected?.id" :selected-window="selectedWindow" :date="date" :start="start" :end="end" :requested-start="searchStart" :loading="loading" :submitting="submitting" :submit-error="bookingError || policyError" :restriction-failure="restrictionFailure" :policy-ready="!!policy && !policyLoading && !queryDirty" :strategy-label="strategyLabel" :required-minutes="availability?.learning_minutes" :shortfall="shortfall" @select="onSeatClick" @submit="confirmBooking" @closed="show3D = false" />
+  <SeatExplorer v-if="show3D" ref="explorer" :origin="seatCard" :room="room" :seats="seats" :preferences="preferences" :selected-id="selected?.id" :selected-window="selectedWindow" :date="date" :start="start" :end="end" :requested-start="searchStart" :loading="loading" :submitting="submitting" :browsing-only="readOnlyBrowse" :submit-error="bookingError || policyError" :restriction-failure="restrictionFailure" :policy-ready="!!policy && !policyLoading && !queryDirty" :strategy-label="strategyLabel" :required-minutes="availability?.learning_minutes" :shortfall="shortfall" @select="onSeatClick" @submit="confirmBooking" @closed="show3D = false" />
 
   <!-- 座位悬浮提示 -->
   <Teleport to="body">
