@@ -181,3 +181,19 @@ test('administrator homepage skips personal reservation reads and loads the real
   await page.loadStats()
   assert.deepEqual(calls.refreshes,['overview'])
 })
+
+test('setUser persists the refreshed profile without touching the token, and logout clears both', async () => {
+  const store = await auth('student')
+  store.setLogin({ token: 't1', user: { role: 'student', credit_score: 100 } })
+  store.setUser({ role: 'student', credit_score: 88 })
+  assert.equal(store.user.credit_score, 88)
+  assert.equal(store.token, 't1')
+  assert.equal(JSON.parse(localStorage.getItem('user')).credit_score, 88)
+  assert.equal(localStorage.getItem('token'), 't1')
+
+  store.logout()
+  assert.equal(store.token, '')
+  assert.equal(store.user, null)
+  assert.equal(localStorage.getItem('token'), null)
+  assert.equal(localStorage.getItem('user'), null)
+})
