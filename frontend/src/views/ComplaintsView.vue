@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { listMyComplaints, getComplaint } from '../api/complaint'
-import { complaintStatuses, complaintCategory, complaintNumber, parseRepair } from '../composables/complaintForm.js'
+import { complaintStatuses, complaintCategory, complaintNumber, isFacilityRepair, parseRepair } from '../composables/complaintForm.js'
 import { formatCampusDateTime } from '../composables/campusDateTime.js'
 import { useServiceTargetClock } from '../composables/useServiceTargetClock.js'
 import ComplaintForm from '../components/ComplaintForm.vue'
@@ -39,11 +39,11 @@ const categories = [
 const visibleItems = computed(() => {
   if (category.value === 'all') return items.value
   if (category.value === 'occupation') return items.value.filter(item => item.type === 'occupation')
-  if (category.value === 'facility') return items.value.filter(item => item.type === 'service' && !!parseRepair(item.description))
-  return items.value.filter(item => item.type === 'service' && !parseRepair(item.description))
+  if (category.value === 'facility') return items.value.filter(item => item.type === 'service' && isFacilityRepair(item))
+  return items.value.filter(item => item.type === 'service' && !isFacilityRepair(item))
 })
 
-function categoryOf(item) { return complaintCategory(item.type, item.description) }
+function categoryOf(item) { return complaintCategory(item.type, item.description, item.service_kind) }
 function roomOf(item) { return item.context_snapshot?.room_name || (item.room_id ? `空间#${item.room_id}` : '未关联空间') }
 function titleOf(item) {
   const repair = parseRepair(item.description)
@@ -85,6 +85,8 @@ function closeDetail() {
   selectedId.value = null
   detail.value = null
   detailError.value = ''
+  // 取消在途详情的加载状态：sequence 递增后响应会被丢弃，避免一直停在「正在读取」
+  detailLoading.value = false
   detailSequence++
 }
 
@@ -100,8 +102,9 @@ function toggleForm() {
   formOpen.value = !formOpen.value
 }
 
-watch(items, (value) => {
-  if (!value.length) { detail.value = null; selectedId.value = null; return }
+// 选中项跟随当前分类的可见记录：分类下没有记录时清空右侧详情，而不是保留别的分类的记录
+watch(visibleItems, (value) => {
+  if (!value.length) { closeDetail(); return }
   if (!selectedId.value || !value.some(item => item.id === selectedId.value)) selectItem(value[0])
 }, {immediate: true})
 
@@ -151,7 +154,7 @@ onBeforeUnmount(() => { alive = false; detailSequence++; pager.dispose() })
         <RecordPageControls :snapshot="snapshot" :query="snapshotQuery" :fields="fields" :disabled="loading" @page="pager.turn" />
       </section>
 
-      <section class="card detail-panel">
+      <section class="card detail-panel" :class="{'align-empty': !detail && !visibleItems.length}">
         <div class="detail-head">
           <h3>详情</h3>
           <div class="row-actions">
@@ -173,8 +176,9 @@ onBeforeUnmount(() => { alive = false; detailSequence++; pager.dispose() })
 .view-heading.with-action { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; }
 .form-panel { margin-bottom: 20px; }
 .complaints-page>.card,.complaint-workbench>.card{border:1px solid var(--border-strong);box-shadow:0 3px 14px rgba(50,45,34,.055)}
-.complaint-workbench { display: grid; grid-template-columns: minmax(300px, 380px) minmax(0, 1fr); gap: 20px; align-items: start; }
-.list-panel { display: flex; flex-direction: column; min-width: 0; max-height: calc(100vh - 240px); }
+/* 两栏等高：由较高的一侧撑开行高，另一侧拉伸到同一底线 */
+.complaint-workbench { display: grid; grid-template-columns: minmax(300px, 380px) minmax(0, 1fr); gap: 20px; align-items: stretch; }
+.list-panel { display: flex; flex-direction: column; min-width: 0; }
 .complaint-tabs { display: flex; flex-wrap: wrap; gap: 4px; padding-bottom: 12px; border-bottom: 1px solid var(--hairline); margin-bottom: 10px; }
 .complaint-tabs button {
   all: unset;
@@ -187,7 +191,7 @@ onBeforeUnmount(() => { alive = false; detailSequence++; pager.dispose() })
 }
 .complaint-tabs button:hover { background: var(--surface-2); color: var(--text-1); }
 .complaint-tabs button.active { background: var(--primary-weak); color: var(--primary-active); font-weight: 600; }
-.ticket-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; min-height: 0; }
+.ticket-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; min-height: 0; flex: 1 1 auto; }
 .ticket-item {
   all: unset;
   display: grid;
@@ -212,13 +216,18 @@ onBeforeUnmount(() => { alive = false; detailSequence++; pager.dispose() })
 .ticket-item .ticket-title { color: var(--text-1); font-size: 15px; font-weight: 700; line-height: 1.45; }
 .ticket-item .ticket-meta { color: var(--text-2); font-size: 12px; }
 .ticket-item .ticket-time { color: var(--text-3); font-size: 11px; font-variant-numeric: tabular-nums; }
-.detail-panel { min-width: 0; min-height: 420px; }
+.detail-panel { display: flex; flex-direction: column; min-width: 0; min-height: 420px; }
+/* 未选中记录时，空态在详情卡片内上下居中 */
+.detail-panel :deep(.empty-state) { flex: 1 1 auto; }
+/* 左栏也没有记录时，右栏空态与左侧「该分类暂无记录」对齐：底部预留分页控件的位置（78px 按钮 + 12px 间距） */
+.detail-panel.align-empty :deep(.empty-state) { flex: 0 0 auto; margin-top: auto; margin-bottom: 90px; }
 .detail-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 12px; margin-bottom: 14px; border-bottom: 1px solid var(--hairline); }
 .text-link { color: var(--primary); font-size: var(--fs-caption); text-decoration: none; }
 .text-link:hover { text-decoration: underline; }
 @media (max-width: 960px) {
   .complaint-workbench { grid-template-columns: 1fr; }
-  .list-panel { max-height: none; }
+  /* 单列排列时右栏独立成卡，空态恢复居中 */
+  .detail-panel.align-empty :deep(.empty-state) { flex: 1 1 auto; margin: 0; }
   .view-heading.with-action { align-items: flex-start; flex-direction: column; }
 }
 </style>
