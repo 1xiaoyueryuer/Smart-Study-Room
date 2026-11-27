@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
-import { minuteValue, minuteText, normalizeStartTime, serverStartMinute, validateSlot, validateOpeningWindow, validateAvailabilitySnapshot } from '../src/composables/bookingPolicy.js'
+import { minuteValue, minuteText, normalizeStartTime, parseLearningDuration, serverStartMinute, validateSlot, validateOpeningWindow, validateAvailabilitySnapshot } from '../src/composables/bookingPolicy.js'
 import { activeBookingRestrictions, isBookingRestricted } from '../src/composables/restrictionForm.js'
 import { windowKey, validateWindowSlot, shortfallText } from '../src/composables/availabilitySelection.js'
 
@@ -24,6 +24,18 @@ test('booking start input accepts hour-only and single-digit hour forms', () => 
   assert.throws(() => normalizeStartTime('9:60'), /有效的24小时制/)
   assert.throws(() => normalizeStartTime('9:'), /有效的24小时制/)
   assert.throws(() => normalizeStartTime('24:00'), /有效的24小时制/)
+})
+
+test('typed learning duration respects the same limits as the picker', () => {
+  const parse = value => parseLearningDuration(value, 30, 840)
+  assert.equal(parse('0:30'), 30)
+  assert.equal(parse('1'), 60)
+  assert.equal(parse('1：30'), 90)
+  assert.equal(parse('14:00'), 840)
+  assert.throws(() => parse(''), /有效的学习时长/)
+  assert.throws(() => parse('1:60'), /有效的学习时长/)
+  assert.throws(() => parse('00:29'), /00:30–14:00/)
+  assert.throws(() => parse('14:01'), /00:30–14:00/)
 })
 
 test('date range is D, D+1 and D+2 only', () => {
@@ -89,7 +101,8 @@ test('BookingView uses fixed start + duration + optional preference and no strat
   assert.doesNotMatch(source, /strategyOptions/)
   assert.match(source, /normalizeStartTime\(searchStart\.value\)/)
   assert.match(source, /inputmode="text" maxlength="5" placeholder="9、9:00 或 09:00"/)
-  assert.match(source, /startMinute < 8 \* 60 \|\| startMinute > 22 \* 60/)
+  assert.match(source, /openingHour = 8, lastStartHour = 22/)
+  assert.match(source, /startMinute < openingHour \* 60 \|\| startMinute > lastStartHour \* 60/)
   assert.doesNotMatch(source, /formatCampusDateTime\(window\.(?:available|suggested)_/)
 })
 
