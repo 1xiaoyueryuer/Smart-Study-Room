@@ -164,6 +164,71 @@ test('profile reloads authoritative credit and booking eligibility at the server
   unmount()
 })
 
+test('profile reacts only to a changed current score previously seen by the same account', async () => {
+  const auth = { isOrdinary: true, user: { id: 1 }, setUser() {} }
+  const scores = new Map()
+  let response = { score: 90 }
+  let failed = false
+  async function openProfile() {
+    return script('../src/views/ProfileView.vue', {
+      vue: { ref, computed, onMounted() {}, onBeforeUnmount() {} },
+      '../api/auth': { fetchProfile() {}, updateProfile() {}, changePassword() {} },
+      '../api/credit': {
+        async getCreditOverview() {
+          if (failed) throw new Error('读取失败')
+          return { data: response }
+        }
+      },
+      '../stores/auth': { useAuthStore: () => auth },
+      '../stores/avatar': { useAvatarStore: () => ({ load() {} }) },
+      '../components/admin/userForm.js': { contactPayload() {} },
+      '../components/ui/feedback': { message: {} },
+      '../composables/usePagination': { usePagination: items => ({ page: ref(1), pages: ref(1), pageItems: items }) }
+    }, 'loadCredit, creditChange, creditError', {
+      sessionStorage: {
+        getItem: key => scores.get(key) ?? null,
+        setItem: (key, value) => scores.set(key, value)
+      },
+      setTimeout() { return 1 },
+      clearTimeout() {}
+    })
+  }
+
+  const firstVisit = await openProfile()
+  await firstVisit.loadCredit()
+  assert.equal(firstVisit.creditChange.value, 0)
+  response = { score: 65, history_only: true }
+  await firstVisit.loadCredit()
+  assert.equal(firstVisit.creditChange.value, 0)
+  response = { score: 80 }
+  await firstVisit.loadCredit()
+  assert.equal(firstVisit.creditChange.value, -10)
+  await firstVisit.loadCredit()
+  assert.equal(firstVisit.creditChange.value, 0)
+
+  const returnVisit = await openProfile()
+  failed = true
+  await returnVisit.loadCredit()
+  assert.equal(returnVisit.creditError.value, '读取失败')
+  assert.equal(returnVisit.creditChange.value, 0)
+  failed = false
+  response = { score: 100 }
+  await returnVisit.loadCredit()
+  assert.equal(returnVisit.creditChange.value, 20)
+
+  auth.user = { id: 2 }
+  response = { score: 0 }
+  const anotherAccount = await openProfile()
+  await anotherAccount.loadCredit()
+  assert.equal(anotherAccount.creditChange.value, 0)
+  response = { score: 25 }
+  await anotherAccount.loadCredit(false)
+  assert.equal(anotherAccount.creditChange.value, 0)
+  response = { score: 35 }
+  await anotherAccount.loadCredit()
+  assert.equal(anotherAccount.creditChange.value, 10)
+})
+
 test('an older mine response cannot restore pending actions after a newer deadline refresh',async()=>{
   const pending=[]
   const page=await mine({listMyReservations:()=>new Promise(resolve=>pending.push(resolve))})

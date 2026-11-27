@@ -22,33 +22,64 @@ import { formatCampusDateTime } from '../composables/campusDateTime.js'
 const auth = useAuthStore()
 const overview = ref(null)
 const creditLoading = ref(false), creditError = ref('')
+const creditHintOpen = ref(false)
+const creditChange = ref(0)
 const restrictionsPanel = ref(null)
 let creditRefreshTimer
+let creditChangeTimer
+let lastCredit
 let active = true
+
+function rememberCredit(userId, score) {
+  const key = `studyroom.profile-credit.${userId}`
+  let previous = lastCredit?.key === key ? lastCredit.score : null
+  try {
+    const stored = sessionStorage.getItem(key)
+    if (previous === null && stored !== null && Number.isFinite(Number(stored))) {
+      previous = Number(stored)
+    }
+    sessionStorage.setItem(key, String(score))
+  } catch {
+    // Continue comparing within this visit if browser storage is unavailable.
+  }
+  lastCredit = { key, score }
+  return previous === null ? 0 : score - previous
+}
 
 function scheduleCreditRefresh(snapshot) {
   clearTimeout(creditRefreshTimer)
   const delay = Date.parse(snapshot?.reset_at) - Date.parse(snapshot?.server_now)
   if (delay > 0) {
     creditRefreshTimer = setTimeout(() => {
-      void loadCredit()
+      void loadCredit(false)
       void restrictionsPanel.value?.refresh()
     }, delay)
   }
 }
 
-async function loadCredit() {
+async function loadCredit(announceChange = true) {
   if (!active || creditLoading.value) return
+  const userId = auth.user?.id
   creditLoading.value = true
   creditError.value = ''
+  clearTimeout(creditChangeTimer)
+  creditChange.value = 0
   try {
     const { data } = await getCreditOverview()
-    if (!active) return
+    if (!active || auth.user?.id !== userId) return
     overview.value = data
+    if (userId != null && !data?.history_only && Number.isFinite(data?.score)) {
+      const change = rememberCredit(userId, data.score)
+      if (announceChange && change) {
+        creditChange.value = change
+        creditChangeTimer = setTimeout(() => { creditChange.value = 0 }, 3600)
+      }
+    }
     scheduleCreditRefresh(data)
   } catch (failure) {
-    if (!active) return
+    if (!active || auth.user?.id !== userId) return
     overview.value = null
+    creditHintOpen.value = false
     creditError.value = failure.message
   } finally {
     if (active) creditLoading.value = false
@@ -133,6 +164,7 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   active = false
   clearTimeout(creditRefreshTimer)
+  clearTimeout(creditChangeTimer)
 })
 const creditLogs = computed(() => {
   const current = overview.value?.history_only ? [] : overview.value?.logs ?? []
@@ -229,17 +261,49 @@ function selectProfileTab(key) {
             <div class="info-row"><span>角色</span><span class="info-value">{{ auth.roleLabel }}</span></div>
             <div class="info-row"><span>账号状态</span><span class="info-value" :class="{ 'status-off': auth.user?.status !== 'active' }">{{ auth.user?.status === 'active' ? '正常' : '已禁用' }}</span></div>
             <div v-if="auth.isOrdinary" class="info-row credit-row">
-              <span>{{ overview?.history_only ? '历史信誉分' : '当前信誉分' }}</span>
-              <span class="credit-inline">
-                <b>{{ overview?.score ?? '—' }}</b>
-                <SButton size="sm" variant="ghost" :loading="creditLoading" @click="loadCredit">刷新</SButton>
-              </span>
+              <div class="credit-label">
+                <span>{{ overview?.history_only ? '历史信誉分' : '当前信誉分' }}</span>
+                <div
+                  v-if="overview && !overview.history_only"
+                  class="credit-help"
+                  @pointerenter="$event.pointerType !== 'touch' && (creditHintOpen = true)"
+                  @pointerleave="$event.pointerType !== 'touch' && (creditHintOpen = false)"
+                >
+                  <button
+                    type="button"
+                    class="credit-help-button"
+                    aria-label="信誉分温馨提示"
+                    :aria-describedby="creditHintOpen ? 'profile-credit-help' : undefined"
+                    @focus="$event.target.matches(':focus-visible') && (creditHintOpen = true)"
+                    @blur="creditHintOpen = false"
+                    @click="creditHintOpen = $event.pointerType === 'touch' ? !creditHintOpen : true"
+                    @keydown.esc.stop="creditHintOpen = false"
+                  >!</button>
+                  <div v-show="creditHintOpen" id="profile-credit-help" class="credit-help-popup" role="tooltip">
+                    <p>本轮有效违规 {{ overview.violation_count }} 次，每次扣 {{ overview.deduction_per_violation }} 分。</p>
+                    <p v-if="overview.reset_at">
+                      当前预计恢复满分时间
+                      <time :datetime="overview.reset_at">{{ formatCampusDateTime(overview.reset_at) }}</time>
+                    </p>
+                    <p v-else>暂无待恢复的扣分。</p>
+                  </div>
+                </div>
+              </div>
+              <div class="credit-inline">
+                <div class="credit-score">
+                  <b class="credit-score-value">{{ overview?.score ?? '—' }}</b>
+                  <div class="credit-feedback-live" role="status">
+                    <Transition name="credit-reaction">
+                      <div v-if="creditChange" class="credit-feedback" :class="creditChange > 0 ? 'credit-feedback--up' : 'credit-feedback--down'">
+                        <span class="credit-emoji" aria-hidden="true">{{ creditChange > 0 ? '🎉' : '😢' }}</span>
+                        <strong>信誉分{{ creditChange > 0 ? '增加' : '减少' }} {{ Math.abs(creditChange) }} 分</strong>
+                      </div>
+                    </Transition>
+                  </div>
+                </div>
+                <SButton size="sm" variant="ghost" :loading="creditLoading" @click="loadCredit()">刷新</SButton>
+              </div>
             </div>
-            <template v-if="auth.isOrdinary && overview && !overview.history_only">
-              <p class="credit-note">本轮有效违规 {{ overview.violation_count }} 次，每次扣 {{ overview.deduction_per_violation }} 分。</p>
-              <p v-if="overview.reset_at" class="credit-note">当前预计恢复满分时间 {{ formatCampusDateTime(overview.reset_at) }}</p>
-              <p v-else class="credit-note">暂无待恢复的扣分。</p>
-            </template>
             <p v-if="creditError" class="credit-error" role="alert">信誉分读取失败，请刷新重试。</p>
           </div>
 
@@ -275,7 +339,7 @@ function selectProfileTab(key) {
       <section v-if="mountedProfileTabs.has('credit')" v-show="profileTab==='credit'" class="card">
         <div class="card-title-row">
           <h3>信誉分变动记录</h3>
-          <SButton size="sm" :loading="creditLoading" @click="loadCredit">刷新</SButton>
+          <SButton size="sm" :loading="creditLoading" @click="loadCredit()">刷新</SButton>
         </div>
         <p v-if="creditLoading" role="status">正在读取信誉流水…</p><p v-else-if="creditError" class="muted">信誉流水未读取成功，请点击右上角刷新重试。</p>
         <div v-if="creditLogs.length" v-list-motion="pageItems.map(row => row.recordKey).join()" class="table-wrap">
@@ -390,9 +454,86 @@ function selectProfileTab(key) {
 .avatar-lg img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .avatar-actions { display: flex; justify-content: center; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
 .avatar-error { color: var(--red-strong); font-size: var(--fs-caption); margin-top: 8px; }
-.credit-inline { display: inline-flex; align-items: center; gap: 8px; }
+.credit-row { position: relative; gap: 8px; }
+.credit-label, .credit-inline { display: inline-flex; align-items: center; gap: 8px; }
+.credit-help-button {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-full);
+  background: var(--surface-2);
+  color: var(--primary-active);
+  font: inherit;
+  font-weight: 700;
+  cursor: help;
+}
+.credit-help-button:hover, .credit-help-button:focus-visible {
+  background: var(--primary-weak);
+}
+.credit-help-button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.credit-help-popup {
+  position: absolute;
+  z-index: var(--z-popover);
+  inset-block-start: calc(50% + 12px);
+  inset-inline-start: 0;
+  width: min(280px, 100%);
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-3);
+  color: var(--text-2);
+  font-size: var(--fs-caption);
+  line-height: 1.6;
+}
+.credit-help-popup p { margin: 0; }
+.credit-help-popup p + p { margin-top: 6px; }
+.credit-help-popup time { display: block; color: var(--text-1); font-variant-numeric: tabular-nums; }
+.credit-score { position: relative; }
+.info-row .credit-score-value {
+  display: grid;
+  place-items: center;
+  min-width: 56px;
+  min-height: 36px;
+  padding-inline: 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  background: linear-gradient(155deg, var(--surface) 10%, var(--primary-weak));
+  box-shadow: inset 0 0 0 2px var(--surface);
+  color: var(--primary-active);
+  font-size: 20px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.credit-feedback {
+  position: absolute;
+  z-index: var(--z-popover);
+  inset-block-end: calc(100% + 8px);
+  inset-inline-end: -32px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: max-content;
+  padding: 7px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-3);
+  font-size: var(--fs-caption);
+  pointer-events: none;
+}
+.credit-feedback--up { color: var(--green-strong); background: var(--green-faint); }
+.credit-feedback--down { color: var(--red-strong); background: var(--red-faint); }
+.credit-feedback .credit-emoji { font-size: 25px; line-height: 1.2; }
+.credit-reaction-enter-active, .credit-reaction-leave-active {
+  transition: opacity var(--dur-2) var(--ease-out), transform var(--dur-2) var(--ease-out);
+}
+.credit-reaction-enter-from, .credit-reaction-leave-to { opacity: 0; transform: translateY(6px) scale(.9); }
+@media (prefers-reduced-motion: reduce) {
+  .credit-reaction-enter-active, .credit-reaction-leave-active { transition: none; }
+}
 .credit-error { color: var(--red-strong); font-size: var(--fs-caption); margin-top: 6px; }
-.credit-note { color: var(--text-3); font-size: var(--fs-caption); margin: 4px 0 0; }
 .profile-name {
   font-size: 20px;
   font-weight: 650;

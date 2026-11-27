@@ -1,4 +1,4 @@
-import { reactive } from 'vue'
+import { isVNode, reactive } from 'vue'
 
 /**
  * 轻量反馈中枢：Toast 消息 + 确认/输入弹窗
@@ -43,11 +43,13 @@ export const message = {
 }
 
 function openBox(mode, content, title, options = {}) {
+  const contentNode = mode === 'confirm' && isVNode(content) ? content : null
   return new Promise((resolve, reject) => {
     feedbackState.box = {
       id: ++boxSeed,
       mode,
-      content: String(content ?? ''),
+      content: contentNode ? '' : String(content ?? ''),
+      contentNode,
       title: title || '提示',
       type: options.type || 'info',
       confirmText: options.confirmButtonText || '确定',

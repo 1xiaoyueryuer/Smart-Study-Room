@@ -40,7 +40,7 @@ defineExpose({refresh})
 <template>
   <section id="restrictions" class="card restrictions-panel">
     <div class="card-title-row"><h3>本人预约限制与当前资格</h3><SButton size="sm" :loading="loading || eligibilityLoading" @click="refresh">刷新</SButton></div>
-    <RecordFilters v-model="filters" :fields="fields" :disabled="loading" @apply="pager.apply"/>
+    <RecordFilters v-model="filters" :fields="fields" :disabled="loading" split-dates @apply="pager.apply"/>
     <SBanner v-if="linkedError" type="error" :title="linkedError"/>
     <section v-if="linkedRecord" :id="`restriction-${linkedRecord.id}`" tabindex="-1" class="record-box">
       <h4>通知关联限制（独立读取）</h4>
@@ -51,14 +51,14 @@ defineExpose({refresh})
     <p v-if="eligibility && !eligibilityError && !eligibilityLoading" role="status">{{ eligibilityText(eligibility) }}。</p>
     <section v-if="eligibility && !eligibilityError && !eligibilityLoading && eligibility.active_restrictions.length" class="record-box eligibility-box">
       <p>当前有 {{ eligibility.active_restrictions.length }} 条独立有效限制；解除一条不代表其他记录也已解除。</p>
-      <RestrictionRecord v-for="record in eligibility.active_restrictions" :key="record.id" :record="record"/>
+      <RestrictionRecord v-for="record in eligibility.active_restrictions" :key="record.id" :record="record" collapse-details/>
     </section>
     <p v-if="!eligibility && !eligibilityError && !eligibilityLoading">预约资格尚未读取。</p>
     <SBanner v-if="error" type="error" :title="error"><SButton size="sm" @click="refresh">重试查询</SButton></SBanner>
     <h4 v-if="loaded">全部本人限制记录</h4>
     <div v-if="loaded" class="record-box">
       <div v-for="record in items" :key="record.id" :id="record.id===linkedId?`restriction-page-${record.id}`:`restriction-${record.id}`" tabindex="-1" :class="{'linked-restriction':record.id===linkedId}">
-        <RestrictionRecord :record="record"/>
+        <RestrictionRecord :record="record" collapse-details/>
       </div>
       <SEmpty v-if="!items.length&&!error&&!loading" description="本次查询尚无本人限制记录" />
     </div>

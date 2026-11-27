@@ -1,30 +1,48 @@
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { Transition, computed, ref, watch } from 'vue'
+import { formatCampusDateTime } from '../../composables/campusDateTime.js'
+import SDialog from './SDialog.vue'
 import { usePopover } from './usePopover'
 
 const props = defineProps({
   modelValue: { type: String, default: '' },
   placeholder: { type: String, default: '选择日期' },
-  disabledDate: { type: Function, default: null }
+  disabledDate: { type: Function, default: null },
+  disabled: Boolean,
+  dialogTitle: { type: String, default: '' }
 })
 
 const emit = defineEmits(['update:modelValue', 'change'])
 
 const triggerRef = ref(null)
 const popupRef = ref(null)
-const { open, popupStyle, show, hide, toggle } = usePopover(triggerRef, popupRef)
+const { open, popupStyle, hide, toggle } = usePopover(triggerRef, popupRef)
+const dialogOpen = ref(false)
+const calendarOpen = computed(() => props.dialogTitle ? dialogOpen.value : open.value)
+const calendarContainer = computed(() => props.dialogTitle ? {
+  modelValue: dialogOpen.value,
+  title: props.dialogTitle,
+  width: 'min(320px, calc(100vw - 48px))',
+  'onUpdate:modelValue': value => { dialogOpen.value = value }
+} : { name: 's-pop' })
 
 const WEEKDAYS = ['一', '二', '三', '四', '五', '六', '日']
 
 function parseISO(v) {
-  if (!v) return new Date()
-  const d = new Date(`${v}T00:00:00`)
-  return Number.isNaN(d.getTime()) ? new Date() : d
+  const d = v ? new Date(`${v}T00:00:00`) : null
+  return d && !Number.isNaN(d.getTime()) ? d : todayDate()
 }
 
 function toISO(d) {
   const p = (n) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+  return `${String(d.getFullYear()).padStart(4, '0')}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+}
+
+function todayDate() {
+  const now = new Date()
+  if (!props.dialogTitle) return now
+  const campusDay = formatCampusDateTime(now.toISOString()).slice(0, 10)
+  return new Date(`${campusDay}T00:00:00`)
 }
 
 const viewDate = ref(parseISO(props.modelValue))
@@ -34,18 +52,20 @@ watch(() => props.modelValue, (v) => {
 })
 
 const viewLabel = computed(() => `${viewDate.value.getFullYear()} 年 ${viewDate.value.getMonth() + 1} 月`)
+const previousMonthBlocked = computed(() => viewDate.value.getFullYear() === 1 && viewDate.value.getMonth() === 0)
+const nextMonthBlocked = computed(() => viewDate.value.getFullYear() === 9999 && viewDate.value.getMonth() === 11)
 
 const cells = computed(() => {
-  const y = viewDate.value.getFullYear()
   const m = viewDate.value.getMonth()
-  const first = new Date(y, m, 1)
+  const first = new Date(viewDate.value)
+  first.setDate(1)
   // 周一为一周起点
   const offset = (first.getDay() + 6) % 7
-  const start = new Date(y, m, 1 - offset)
-  const todayISO = toISO(new Date())
+  const todayISO = toISO(todayDate())
 
   return Array.from({ length: 42 }, (_, i) => {
-    const d = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i)
+    const d = new Date(first)
+    d.setDate(1 - offset + i)
     const iso = toISO(d)
     return {
       date: d,
@@ -54,37 +74,42 @@ const cells = computed(() => {
       inMonth: d.getMonth() === m,
       isToday: iso === todayISO,
       isSelected: iso === props.modelValue,
-      disabled: props.disabledDate ? props.disabledDate(d) === true : false
+      disabled: d.getFullYear() < 1 || d.getFullYear() > 9999 || props.disabledDate?.(d) === true
     }
   })
 })
 
-function prevMonth() {
+function moveMonth(step) {
   const d = new Date(viewDate.value)
-  d.setMonth(d.getMonth() - 1)
+  d.setMonth(d.getMonth() + step, 1)
   viewDate.value = d
 }
 
-function nextMonth() {
-  const d = new Date(viewDate.value)
-  d.setMonth(d.getMonth() + 1)
+function select(value) {
+  emit('update:modelValue', value)
+  emit('change', value)
+  dialogOpen.value = false
+  hide()
 }
 
 function pick(cell) {
-  if (cell.disabled) return
-  emit('update:modelValue', cell.iso)
-  emit('change', cell.iso)
-  hide()
+  if (!cell.disabled) select(cell.iso)
 }
 
 function pickToday() {
-  const today = new Date()
-  const cell = { iso: toISO(today), disabled: props.disabledDate ? props.disabledDate(today) === true : false }
-  if (cell.disabled) return
+  const today = todayDate()
+  if (props.disabledDate?.(today) === true) return
   viewDate.value = today
-  emit('update:modelValue', cell.iso)
-  emit('change', cell.iso)
-  hide()
+  select(toISO(today))
+}
+
+function openCalendar() {
+  if (!props.dialogTitle) {
+    toggle()
+    return
+  }
+  viewDate.value = parseISO(props.modelValue)
+  dialogOpen.value = true
 }
 
 function onTriggerKeydown(e) {
@@ -96,14 +121,18 @@ function onTriggerKeydown(e) {
 </script>
 
 <template>
-  <div class="s-date" @keydown="onTriggerKeydown">
+  <div class="s-date" :class="{ 's-date--dialog': dialogTitle }" @keydown="onTriggerKeydown">
     <button
       ref="triggerRef"
       type="button"
       class="s-date__trigger"
-      :class="{ 'is-open': open, 'has-value': modelValue }"
-      :aria-expanded="open"
-      @click="toggle"
+      :class="{ 'is-open': calendarOpen, 'has-value': modelValue }"
+      :aria-expanded="calendarOpen"
+      :aria-label="dialogTitle ? `选择${dialogTitle}` : undefined"
+      :aria-haspopup="dialogTitle ? 'dialog' : undefined"
+      :disabled="disabled"
+      @keydown.enter.stop
+      @click="openCalendar"
     >
       <span class="s-date__icon" aria-hidden="true">
         <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
@@ -111,21 +140,21 @@ function onTriggerKeydown(e) {
           <path d="M8 3v4M16 3v4M3.5 10.5h17" />
         </svg>
       </span>
-      <span class="s-date__label">{{ modelValue || placeholder }}</span>
-      <span class="s-date__chevron" :class="{ 'is-open': open }" aria-hidden="true">
+      <span v-if="!dialogTitle" class="s-date__label">{{ modelValue || placeholder }}</span>
+      <span v-if="!dialogTitle" class="s-date__chevron" :class="{ 'is-open': open }" aria-hidden="true">
         <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6" /></svg>
       </span>
     </button>
 
-    <Teleport to="body">
-      <Transition name="s-pop">
-        <div v-if="open" ref="popupRef" class="s-date__popup" :style="popupStyle">
+    <Teleport to="body" :disabled="Boolean(dialogTitle)">
+      <component :is="dialogTitle ? SDialog : Transition" v-bind="calendarContainer">
+        <div v-if="calendarOpen" ref="popupRef" :class="{ 's-date__popup': !dialogTitle }" :style="dialogTitle ? undefined : popupStyle">
           <div class="s-date__head">
-            <button type="button" class="s-date__nav" aria-label="上个月" @click="prevMonth">
+            <button type="button" class="s-date__nav" aria-label="上个月" :disabled="previousMonthBlocked" @click="moveMonth(-1)">
               <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 5-7 7 7 7" /></svg>
             </button>
             <span class="s-date__month">{{ viewLabel }}</span>
-            <button type="button" class="s-date__nav" aria-label="下个月" @click="nextMonth">
+            <button type="button" class="s-date__nav" aria-label="下个月" :disabled="nextMonthBlocked" @click="moveMonth(1)">
               <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 5 7 7-7 7" /></svg>
             </button>
           </div>
@@ -147,6 +176,8 @@ function onTriggerKeydown(e) {
                 disabled: c.disabled
               }"
               :disabled="c.disabled"
+              :aria-label="c.iso"
+              :aria-pressed="c.isSelected"
               @click="pick(c)"
             >
               {{ c.day }}
@@ -154,11 +185,14 @@ function onTriggerKeydown(e) {
           </div>
 
           <div class="s-date__foot">
-            <span class="s-date__today-hint">今天 {{ toISO(new Date()) }}</span>
-            <button type="button" class="s-date__today-btn" @click="pickToday">跳到今天</button>
+            <span class="s-date__today-hint">今天 {{ toISO(todayDate()) }}</span>
+            <div class="s-date__foot-actions">
+              <button v-if="dialogTitle" type="button" class="s-date__today-btn" @click="select('')">清空</button>
+              <button type="button" class="s-date__today-btn" @click="pickToday">跳到今天</button>
+            </div>
           </div>
         </div>
-      </Transition>
+      </component>
     </Teleport>
   </div>
 </template>
@@ -167,6 +201,19 @@ function onTriggerKeydown(e) {
 .s-date {
   width: 100%;
   min-width: 0;
+}
+
+.s-date--dialog {
+  width: auto;
+  flex: none;
+}
+
+.s-date--dialog .s-date__trigger {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
 }
 
 .s-date__trigger {
@@ -268,6 +315,10 @@ function onTriggerKeydown(e) {
   color: var(--text-1);
 }
 
+.s-date__nav:disabled {
+  opacity: .45;
+}
+
 .s-date__week {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
@@ -305,6 +356,11 @@ function onTriggerKeydown(e) {
   color: var(--text-1);
 }
 
+.s-date__cell:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+
 .s-date__cell.out-month {
   color: var(--text-4);
   opacity: .55;
@@ -340,6 +396,11 @@ function onTriggerKeydown(e) {
   margin-top: 10px;
   padding-top: 10px;
   border-top: 1px solid var(--hairline);
+}
+
+.s-date__foot-actions {
+  display: flex;
+  gap: 4px;
 }
 
 .s-date__today-hint {
