@@ -139,8 +139,6 @@ const features = [
           <div class="auth-tips">
             <p>校园账号由管理员维护，暂不支持自助注册。</p>
             <p>信息安全：请妥善保管账号安全</p>
-            <p class="auth-tips-demo">演示学生 202600001 / 123456</p>
-            <p class="auth-tips-demo">管理员 202630001 / admin123</p>
           </div>
         </div>
       </section>
@@ -355,7 +353,6 @@ const features = [
   line-height: 1.6;
 }
 .auth-tips p { margin: 0; }
-.auth-tips-demo { color: #a39c8e; font-size: 11.5px; }
 .setup-logout {
   all: unset;
   color: #7b6f58;
