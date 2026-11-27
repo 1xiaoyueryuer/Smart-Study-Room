@@ -1,7 +1,8 @@
 <script setup>
+import { computed } from 'vue'
 import ServiceTargetSummary from './ServiceTargetSummary.vue'
 import ProtectedAttachment from './ProtectedAttachment.vue'
-import { complaintDisplayType, complaintNumber, impactScopeText, serviceTopics, complaintStatuses, verificationOutcomes, reservationStatuses } from '../composables/complaintForm.js'
+import { complaintDisplayType, complaintNumber, impactScopeText, serviceTopics, complaintStatuses, verificationOutcomes, reservationStatuses, parseDescriptionField } from '../composables/complaintForm.js'
 import { formatCampusDateTime } from '../composables/campusDateTime.js'
 
 const props = defineProps({
@@ -9,6 +10,8 @@ const props = defineProps({
   targetProgress: { type: Object, default: null },
   compact: { type: Boolean, default: false }
 })
+// 单行「问题：回答」的说明按字段行展示；多行说明保持正文段落
+const descriptionField = computed(() => parseDescriptionField(props.record?.description))
 
 const eventLabels = {
   submitted: '已提交', accepted: '已受理', verification: '核实进度', feedback: '正式回复',
@@ -41,8 +44,9 @@ function eventLabel(event) {
       <div class="record-meta ruled rule-bottom">
         <div><span>提交时间</span><b>{{ formatCampusDateTime(record.submitted_at) }}</b></div>
         <div v-if="record.handler"><span>首受理人</span><b>{{ record.handler.display_name }}<small v-if="record.accepted_at"> · {{ formatCampusDateTime(record.accepted_at) }}</small></b></div>
+        <div v-if="descriptionField"><span>{{ descriptionField.label }}</span><b>{{ descriptionField.value }}</b></div>
       </div>
-      <p class="description">{{ record.description }}</p>
+      <p v-if="!descriptionField" class="description">{{ record.description }}</p>
       <p v-if="record.initial_arrangement" class="public-plan"><b>初步安排</b>{{ record.initial_arrangement }}</p>
       <p v-if="record.status === 'closed'" class="closure-note">
         {{ record.closure_type === 'auto_closed' ? '确认期届满，系统自动结案' : record.closure_type === 'confirmed' ? '已确认回复并结案' : '已结案' }}
@@ -132,8 +136,8 @@ function eventLabel(event) {
 .ticket-row+.ticket-row{padding:12px 0;border-top:1px solid var(--ticket-rule)}
 .ticket-type{color:var(--text-1);font-size:15px;font-weight:600;min-width:0}
 .ticket-heading .pill-status{font-size:13px;padding:3px 11px}
-.ticket-number-label{display:block;color:var(--text-3);font-size:13.5px}
-.ticket-number{font-size:17px;font-weight:700;letter-spacing:.03em;color:var(--text-1);font-variant-numeric:tabular-nums}
+.ticket-number-label{display:block;color:var(--text-1);font-size:14px;font-weight:600}
+.ticket-number{font-size:17px;font-weight:400;letter-spacing:.03em;color:var(--text-1);font-variant-numeric:tabular-nums}
 /* 分区不再用嵌套卡片，正文以「标签左 / 值右」两栏行展示 */
 .record-section{display:grid;gap:12px;min-width:0;padding:0;border:0;border-radius:0;background:transparent}
 .record-section h4{margin:0;font-size:15px;color:var(--text-1);padding-top:6px;border-top:1px solid var(--ticket-rule)}

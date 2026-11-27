@@ -35,6 +35,13 @@ export function parseRepair(description) {
   const line = text.split(/\r?\n/)[0]
   return { faultType: line.match(/故障类型：([^；]+)/)?.[1] || '', impact: line.match(/影响范围：([^；]+)/)?.[1] || '', safety: line.match(/安全风险：([^。]+)/)?.[1] || '', priority: Number(line.match(/初始优先级：([1-5])级/)?.[1] || 0) || null }
 }
+/** 详情展示用：只有单行「问题：回答」形式的说明（如「自动分级验证：multiple」）才拆成字段行；多行说明仍是正文段落。 */
+export function parseDescriptionField(description) {
+  const text = String(description || '').trim()
+  if (!text || /[\r\n]/.test(text)) return null
+  const match = text.match(/^([^：:。；;]{1,20})[：:]\s*(\S.*)$/)
+  return match ? { label: match[1].trim(), value: match[2].trim() } : null
+}
 export function complaintDisplayType(record) { return record?.type === 'service' ? ({ facility_repair: '设施报修', other_service: '其他服务问题' }[record.service_kind] || '历史服务问题（类别未留存）') : complaintTypes[record?.type] || record?.type || '投诉' }
 export function impactScopeText(value) { return impactScopes.find(item => item.value === value)?.label || value || '未填写' }
 export function complaintNumber(id) { const value=Number(id);return Number.isSafeInteger(value)&&value>0?`SQ-${String(value).padStart(6,'0')}`:'SQ-待生成' }

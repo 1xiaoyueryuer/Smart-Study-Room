@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { complaintPayload, repairPriority, complaintDisplayType, serviceKinds, serviceTopics, validateEvidenceFile, serviceProgressPayload, complaintCategory, isFacilityRepair } from '../src/composables/complaintForm.js'
+import { complaintPayload, repairPriority, complaintDisplayType, serviceKinds, serviceTopics, validateEvidenceFile, serviceProgressPayload, complaintCategory, isFacilityRepair, parseDescriptionField } from '../src/composables/complaintForm.js'
 
 const base = { description: '工程模拟说明', items: [], context: null }
 
@@ -127,4 +127,19 @@ test('legacy records without service_kind fall back to the description prefix', 
   assert.equal(isFacilityRepair({ type: 'service', description: '环境卫生需要加强' }), false)
   assert.equal(complaintCategory('service', '环境卫生需要加强'), '其他服务问题')
   assert.equal(isFacilityRepair(null), false)
+})
+
+test('single-line question/answer descriptions become a field row', () => {
+  assert.deepEqual(parseDescriptionField('自动分级验证：multiple'), { label: '自动分级验证', value: 'multiple' })
+  assert.deepEqual(parseDescriptionField('自动分级验证: multiple'), { label: '自动分级验证', value: 'multiple' })
+})
+
+test('multi-line, long-label or non-field descriptions stay as body text', () => {
+  assert.equal(parseDescriptionField(['【设施报修】故障类型：照明/电气；影响范围：单座。', '具体情况：', '台灯不亮'].join('\n')), null)
+  assert.equal(parseDescriptionField('台灯不亮'), null)
+  assert.equal(parseDescriptionField(''), null)
+  assert.equal(parseDescriptionField(null), null)
+  assert.equal(parseDescriptionField('这是一个超过二十个字的非常长的问题描述前缀内容：回答'), null)
+  assert.equal(parseDescriptionField('台灯坏了。具体情况：晚上无法看书'), null)
+  assert.equal(parseDescriptionField('备注：'), null)
 })
