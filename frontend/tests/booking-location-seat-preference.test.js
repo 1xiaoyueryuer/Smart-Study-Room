@@ -72,3 +72,12 @@ test('3D selector exposes preference ordering without obsolete time-segment cont
   assert.match(scene, /props\.selectionEnabled && !props\.blocked/)
   assert.doesNotMatch(source, /explorer-slot|select-window|explorer-selection/)
 })
+
+test('location options keep the missing label last while sorting real values in Chinese order', () => {
+  const rooms = [{ building: 'B座' }, { building: '' }, { building: 'A座' }, { building: 'B座' }, {}]
+  assert.deepEqual(locationOptions(rooms, 'building', '楼栋未登记'), [
+    { value: 'value:A座', label: 'A座' },
+    { value: 'value:B座', label: 'B座' },
+    { value: MISSING_LOCATION, label: '楼栋未登记' }
+  ])
+})

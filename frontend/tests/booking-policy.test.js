@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { minuteValue, minuteText, normalizeStartTime, parseLearningDuration, serverStartMinute, validateSlot, validateOpeningWindow, validateAvailabilitySnapshot } from '../src/composables/bookingPolicy.js'
-import { activeBookingRestrictions, isBookingRestricted } from '../src/composables/restrictionForm.js'
+import { activeBookingRestrictions, bookingRestrictionDetails, isBookingRestricted } from '../src/composables/restrictionForm.js'
 import { windowKey, validateWindowSlot, shortfallText, buildBrowseWindowRows } from '../src/composables/availabilitySelection.js'
 
 const policy = { campus_today: '2026-11-20', dates: ['2026-11-20', '2026-11-21', '2026-11-22'], campus_zone: 'Asia/Shanghai', server_now: '2026-11-20T19:00:00+08:00', min_duration_minutes: 30 }
@@ -136,4 +136,13 @@ test('availability snapshot supplies the current server time and room opening sc
   assert.throws(() => validateAvailabilitySnapshot('2026-11-20', '21:30', 60, snapshot), /超出该空间开放时段/)
   assert.throws(() => validateAvailabilitySnapshot('2026-11-21', '19:00', 60, { ...snapshot, server_now: '2026-11-20T19:00:00' }), /时间格式无效/)
   assert.throws(() => validateAvailabilitySnapshot('2026-11-21', '19:00', 60, { ...snapshot, room: {} }), /缺少当前服务端时刻或空间开放信息/)
+})
+
+test('403 booking restriction details are only surfaced for the dedicated error code', () => {
+  const details = { code: 'booking_restricted', active_restrictions: [{ id: 1 }] }
+  assert.equal(bookingRestrictionDetails({ status: 403, details }), details)
+  assert.equal(bookingRestrictionDetails({ status: 403, details: { code: 'booking_restricted', active_restrictions: 'x' } }), null)
+  assert.equal(bookingRestrictionDetails({ status: 400, details }), null)
+  assert.equal(bookingRestrictionDetails({ status: 403, details: { code: 'other', active_restrictions: [] } }), null)
+  assert.equal(bookingRestrictionDetails(null), null)
 })

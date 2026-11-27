@@ -116,3 +116,27 @@ test('visibility pause/resume and unmount stop component reads while retaining s
 test('management homepage consumes current fields, preserves snapshot on error and refuses stale identity/unmount reads',async()=>{
  let broken=false;const data=overviewData({}, {current:{open_available_seats:8,in_use_now:2,usage_ratio:.25,complaint_todo_count:3,complaint_awaiting_count:1}}),p=await component('home',{getOverview:async()=>{if(broken)throw new Error('503');return{data}}});await p.loadStats();assert.equal(p.openAvailableSeats.value,8);assert.equal(p.inUseNow.value,2);assert.equal(p.currentUsageText.value,'25.0%');const previous=p.statsOverview.value,time=p.statsSnapshotText.value;broken=true;await p.loadStats();assert.equal(p.statsOverview.value,previous);assert.equal(p.statsSnapshotText.value,time);assert.match(p.statsError.value,/503/);const pending=deferred(),leaving=await component('home',{getOverview:()=>pending.promise});const read=leaving.loadStats();leaving.auth.user.id=9;pending.resolve({data});await read;assert.equal(leaving.statsOverview.value,null);const stopped=deferred(),unmounted=await component('home',{getOverview:()=>stopped.promise});const last=unmounted.loadStats();unmounted.cleanup.forEach(fn=>fn());stopped.resolve({data});await last;assert.equal(unmounted.statsOverview.value,null)
 })
+
+test('room bar chart maps usage hours and switches layout for long room lists', () => {
+  const theme = { label: '#000', splitLine: '#eee', tooltipBg: '#222' }
+  const rows = [
+    { name: 'A区', usage_seconds: 5400, checkin_count: 2, created_count: 3 },
+    { name: 'B区', usage_seconds: 3600.4, checkin_count: 1, created_count: 1 }
+  ]
+  const option = statsCharts.roomBarOption(rows, theme, false)
+  assert.equal(option.animation, false)
+  assert.deepEqual(option.xAxis.data, ['A区', 'B区'])
+  assert.deepEqual(option.series[0].data, [1.5, 1])
+  assert.deepEqual(option.series[1].data, [2, 1])
+  assert.equal(option.xAxis.axisLabel.rotate, 0)
+  assert.equal(option.grid.bottom, 56)
+  assert.match(option.tooltip.formatter([{ dataIndex: 0 }]), /使用时长（人·小时）：1.50/)
+  assert.match(option.tooltip.formatter([{ dataIndex: 0 }]), /成功创建：3/)
+
+  const longRows = Array.from({ length: 7 }, (_, index) => ({ name: `R${index}`, usage_seconds: 0, checkin_count: 0, created_count: 0 }))
+  const longOption = statsCharts.roomBarOption(longRows, theme, true)
+  assert.equal(longOption.animation, true)
+  assert.equal(longOption.xAxis.axisLabel.rotate, 24)
+  assert.equal(longOption.grid.bottom, 86)
+  assert.deepEqual(statsCharts.roomBarOption([], theme, false).series[0].data, [])
+})

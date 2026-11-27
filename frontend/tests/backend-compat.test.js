@@ -174,3 +174,9 @@ test('the complaint form still attaches operation_id because the backend require
   const form = await readFile(new URL('../src/components/ComplaintForm.vue', import.meta.url), 'utf8')
   assert.match(form, /operation_id:\s*crypto\.randomUUID\(\)/, '前端提交前必须生成操作ID')
 })
+
+test('an unknown impact scope has no automatic grade instead of guessing one', () => {
+  assert.equal(repairPriority({ impactScope: 'unknown', safetyRisk: 'none', unsafeArea: 'no' }), null)
+  assert.equal(repairPriority({}), null)
+  assert.equal(repairPriority({ impactScope: 'minor', safetyRisk: 'yes', unsafeArea: 'no' }), 5)
+})

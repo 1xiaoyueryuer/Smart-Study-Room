@@ -60,7 +60,7 @@ watch(() => props.modelValue, value => {
   if (value === dateValue.value) return
   draft.value = splitDate(value)
   emit('validity-change', !error.value)
-})
+}, { immediate: true })
 </script>
 
 <template>
