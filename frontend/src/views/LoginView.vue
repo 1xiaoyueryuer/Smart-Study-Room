@@ -139,7 +139,8 @@ const features = [
           <div class="auth-tips">
             <p>校园账号由管理员维护，暂不支持自助注册。</p>
             <p>信息安全：请妥善保管账号安全</p>
-            <p class="auth-tips-demo">演示学生 202600001 / 123456 · 管理员 202630001 / admin123</p>
+            <p class="auth-tips-demo">演示学生 202600001 / 123456</p>
+            <p class="auth-tips-demo">管理员 202630001 / admin123</p>
           </div>
         </div>
       </section>
@@ -268,12 +269,12 @@ const features = [
 
 /* 卡片：从右下角到左上角由深到浅的渐层 */
 .auth-card {
-  width: min(1040px, 94vw);
+  width: clamp(680px, 50vw, 860px);
   display: grid;
   grid-template-columns: minmax(0, 1.02fr) minmax(0, .98fr);
   align-items: stretch;
-  border-radius: 32px;
-  background: linear-gradient(to top left, #dcd4c5 0%, #efece4 52%, #f8f6f0 100%);
+  border-radius: 28px;
+  background: linear-gradient(to top left, #d2c7b4 0%, #eae5db 55%, #fbf9f4 100%);
   box-shadow: 0 32px 80px rgba(38, 32, 20, .3);
   overflow: hidden;
 }
@@ -283,14 +284,13 @@ const features = [
   margin: 0;
   display: grid;
   place-items: center;
-  padding: 12px 8px 10px;
-  border-right: 1px solid rgba(92, 80, 56, .06);
+  padding: 10px 6px 8px;
 }
 .auth-illustration img {
   display: block;
   width: 100%;
-  max-width: 520px;
-  max-height: min(640px, 72vh);
+  max-width: 460px;
+  max-height: min(560px, 64vh);
   object-fit: contain;
 }
 
@@ -300,11 +300,11 @@ const features = [
   flex-direction: column;
   justify-content: center;
   min-width: 0;
-  padding: 56px 58px;
+  padding: 40px 40px;
 }
 .auth-heading h2 {
   font-family: var(--font-display);
-  font-size: clamp(30px, 2.6vw, 38px);
+  font-size: clamp(26px, 2.1vw, 32px);
   font-weight: 600;
   color: #1e2a26;
   text-align: center;
@@ -318,8 +318,8 @@ const features = [
 .auth-form {
   display: flex;
   flex-direction: column;
-  gap: 18px;
-  margin-top: 34px;
+  gap: 16px;
+  margin-top: 28px;
 }
 .form-field {
   display: flex;
@@ -340,15 +340,15 @@ const features = [
   line-height: 1.5;
 }
 .auth-form .s-btn {
-  margin-top: 6px;
-  height: 52px;
-  font-size: 16px;
+  margin-top: 4px;
+  height: 48px;
+  font-size: 15.5px;
   border-radius: 12px;
 }
 .auth-tips {
-  margin-top: 22px;
+  margin-top: 18px;
   display: grid;
-  gap: 8px;
+  gap: 7px;
   text-align: center;
   font-size: 12px;
   color: #8b8579;
