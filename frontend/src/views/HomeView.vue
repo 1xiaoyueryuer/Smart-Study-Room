@@ -1,11 +1,9 @@
 <script setup>
 import StudyTips from '../components/StudyTips.vue'
-import SAnimatedNumber from '../components/ui/SAnimatedNumber.vue'
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { useNotificationStore } from '../stores/notification'
-import { getRooms, getOpeningWindows } from '../api/room'
 import { listMyReservations } from '../api/reservation'
 import { getOverview } from '../api/stats'
 import { listNotifications } from '../api/notification'
@@ -13,49 +11,12 @@ import { validOverview, ratioText } from '../composables/statsForm.js'
 import { createStatsRefresh } from '../composables/statsRefresh.js'
 import { checkinDeadlineOf, deadlineLabel } from '../composables/checkinDeadline.js'
 import { formatCampusDateTime } from '../composables/campusDateTime.js'
-import AppIcon from '../components/AppIcon.vue'
 import SBanner from '../components/ui/SBanner.vue'
 import SButton from '../components/ui/SButton.vue'
 
 const router = useRouter()
 const auth = useAuthStore()
 const notifStore = useNotificationStore()
-
-const who = computed(() => auth.user?.real_name || auth.user?.username || '同学')
-const todayText = computed(() =>
-  new Date().toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' })
-)
-const greeting = computed(() => {
-  const h = new Date().getHours()
-  if (h < 6) return '夜深了'
-  if (h < 12) return '早上好'
-  if (h < 14) return '中午好'
-  if (h < 18) return '下午好'
-  return '晚上好'
-})
-
-const rooms = ref([])
-const todayOpenings = ref({})
-const campusDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year:'numeric', month:'2-digit', day:'2-digit' }).format(new Date())
-function roomOpeningText(room) {
-  const value = todayOpenings.value[room.id]
-  if (!value) return '开放信息尚未加载'
-  if (value.error) return `开放信息读取失败：${value.error}`
-  return value.windows.length ? value.windows.map(window => `${window.start}–${window.end}`).join('、') : `当日闭馆：${value.closed_reasons?.join('；') || '无开放时段'}`
-}
-function roomOpenNow(room) {
-  const value = todayOpenings.value[room.id]
-  if (!value || value.error || !value.windows?.length) return false
-  const now = new Date()
-  const minutes = now.getHours() * 60 + now.getMinutes()
-  return value.windows.some(window => {
-    const [sh, sm] = window.start.split(':').map(Number)
-    const [eh, em] = window.end.split(':').map(Number)
-    return minutes >= sh * 60 + sm && minutes < eh * 60 + em
-  })
-}
-const roomsError = ref('')
-const roomsLoading = ref(false)
 
 const statsOverview = ref(null)
 const statsError = ref('')
@@ -67,6 +28,7 @@ let disposed = false
 
 const openAvailableSeats = computed(() => statsOverview.value?.current.open_available_seats ?? null)
 const inUseNow = computed(() => statsOverview.value?.current.in_use_now ?? null)
+const complaintTodoCount = computed(() => statsOverview.value?.current.complaint_todo_count ?? null)
 const currentUsageText = computed(() => statsOverview.value ? ratioText(statsOverview.value.current.usage_ratio) : '尚未读取')
 const statsSnapshotText = computed(() => statsOverview.value ? formatCampusDateTime(statsOverview.value.snapshot_at) : '')
 
@@ -75,8 +37,12 @@ const reservations = ref([])
 const reservationsLoading = ref(false)
 const reservationsError = ref('')
 const activeReservations = computed(() => reservations.value.filter(row => ['pending','checked_in'].includes(row.status)))
-const nextReservation = computed(() => activeReservations.value[0] || null)
-const nextDeadline = computed(() => nextReservation.value ? checkinDeadlineOf(nextReservation.value) : null)
+
+// 学生个人概览指标
+const pendingCount = computed(() => reservations.value.filter(row => row.status === 'pending').length)
+const checkedInCount = computed(() => reservations.value.filter(row => row.status === 'checked_in').length)
+const completedCount = computed(() => reservations.value.filter(row => row.status === 'completed').length)
+const totalCount = computed(() => reservations.value.length)
 
 // 管理取消登录提示卡：只展示服务端真实通知，不伪造确认状态。
 const cancellations = ref([])
@@ -90,21 +56,6 @@ async function loadCancellations() {
 
 function refreshUnread() {
   notifStore.refresh()
-}
-
-async function loadRooms() {
-  roomsLoading.value = true
-  roomsError.value = ''
-  try {
-    const roomResp = await getRooms()
-    rooms.value = roomResp.data || []
-    const openings = await Promise.allSettled(rooms.value.map(room => getOpeningWindows(room.id, campusDate)))
-    todayOpenings.value = Object.fromEntries(openings.map((result,index) => [rooms.value[index].id, result.status === 'fulfilled' ? result.value.data : { error: result.reason.message }]))
-  } catch (error) {
-    roomsError.value = error.message
-  } finally {
-    roomsLoading.value = false
-  }
 }
 
 async function loadReservations() {
@@ -140,7 +91,7 @@ function loadStats(){if(auth.isAdmin)return statsRefresh.refresh('overview')}
 
 onMounted(async () => {
   if(auth.isAdmin){statsRefresh.select('overview',{});statsRefresh.start()}
-  await Promise.all([loadRooms(), loadReservations(), loadCancellations()])
+  await Promise.all([loadReservations(), loadCancellations()])
   if (disposed) return
   refreshUnread()
   unreadTimer = setInterval(refreshUnread, 30000)
@@ -168,151 +119,212 @@ const shortcuts = computed(() => auth.isAdmin
       { title: '消息中心', desc: unread.value > 0 ? `${unread.value} 条未读` : '预约与反馈通知', icon: 'notification', to: '/notifications' }
     ])
 
+// 自习室种类卡片：四个分区（与设计稿一致），入口统一去预约页。
+// 自习室种类卡片：四个分区（与设计稿一致），入口统一去预约页。
+const zones = [
+  { key: 'A', name: 'A区', img: '/images/zone-a.jpg' },
+  { key: 'B', name: 'B区', img: '/images/zone-b.jpg' },
+  { key: 'C', name: 'C区', img: '/images/zone-c.jpg' },
+  { key: 'D', name: 'D区', img: '/images/zone-d.jpg' }
+]
+
 function statusText(row) {
-  return ({ pending: '待签到', checked_in: '使用中' })[row.status] || row.status
+  return ({ pending: '待签到', checked_in: '使用中', completed: '已结束' })[row.status] || row.status
+}
+function statusPillClass(row) {
+  return ({ pending: 'pill-warning', checked_in: 'pill-success', completed: 'pill-neutral' })[row.status] || 'pill-plain'
+}
+function timeText(row) {
+  const start = (row.start_time || '').slice(0, 5)
+  const end = (row.end_time || '').slice(0, 5)
+  return `${row.res_date} ${start}—${end}`
 }
 </script>
 
 <template>
-  <div v-reveal class="page-view home-page">
-    <header class="home-hello" data-page-title>
-      <p class="hello-date">{{ todayText }}</p>
-      <h1>{{ greeting }}，{{ who }}</h1>
-    </header>
-
-    <section v-if="cancellations.length" class="cancel-notice">
-      <div class="cancel-copy">
-        <span class="pill pill-warning">资源管理取消</span>
-        <h3>{{ cancellations[0].title }}</h3>
-        <p>{{ cancellations[0].content }}</p>
-        <p class="cancel-meta">本次管理取消不记本人违规；预计恢复时间以系统可预约状态为准。无需专程到场确认，已到场或需要帮助可点“需要协助”。</p>
-      </div>
-      <div class="cancel-actions">
-        <SButton variant="primary" @click="router.push('/notifications')">查看通知</SButton>
-        <SButton variant="soft" @click="router.push('/booking')">重新选座</SButton>
-        <SButton variant="soft" @click="router.push({name:'complaints',query:{type:'service'}})">需要协助</SButton>
-      </div>
-    </section>
-
-    <div class="home-layout">
-      <div class="home-main">
-        <section class="hero">
-          <div class="hero-copy">
-            <p class="hero-eyebrow">静阅 · 专注空间</p>
-            <h2 :class="{ 'hero-title-admin': auth.isAdmin }">{{ auth.isAdmin ? '今日运营，一目了然' : '今日宜专注' }}</h2>
-            <p class="hero-sub">{{ auth.isAdmin ? '查看真实使用统计与待办，安排今天的开放资源' : '预约你的专属座位，让每一次坐下都算数' }}</p>
-            <SButton variant="primary" size="lg" @click="router.push(auth.isAdmin ? '/analytics' : '/booking')">
-              {{ auth.isAdmin ? '查看统计' : '立即预约' }}
-            </SButton>
-          </div>
-          <div class="hero-art" aria-hidden="true">
-            <svg viewBox="0 0 520 300" fill="none">
-              <rect x="24" y="52" width="472" height="210" rx="18" fill="var(--primary-weak)" opacity=".45" />
-              <path d="M60 210h400v18H60z" fill="#b98d5f" opacity=".55" />
-              <path d="M60 228h400v10H60z" fill="#a97c4e" opacity=".35" />
-              <path d="M120 88h120v104H120z" fill="#fffdf8" stroke="#cfc2a9" stroke-width="3" />
-              <path d="M120 120h120M120 152h120" stroke="#e0d6c2" stroke-width="2" />
-              <path d="M132 100h44M132 112h66M132 132h58M132 144h40M132 164h64M132 176h48" stroke="#c9bda6" stroke-width="5" stroke-linecap="round" />
-              <path d="M300 92c0-16 12-28 28-28h4v122h-32z" fill="#e3d6bd" />
-              <path d="M345 136c0-10 8-18 18-18s18 8 18 18" stroke="#8a6a44" stroke-width="5" stroke-linecap="round" />
-              <path d="M363 136v46" stroke="#8a6a44" stroke-width="5" stroke-linecap="round" />
-              <path d="M336 182h56" stroke="#8a6a44" stroke-width="5" stroke-linecap="round" />
-              <path d="M392 172c10-22 28-34 52-34" stroke="#4c7a5c" stroke-width="4" stroke-linecap="round" />
-              <path d="M404 158c-2-14 4-26 16-32M414 148c10 0 18 6 22 16" stroke="#4c7a5c" stroke-width="4" stroke-linecap="round" />
-              <circle cx="452" cy="92" r="22" fill="#f2d8a8" opacity=".7" />
-            </svg>
-          </div>
-        </section>
-
-        <section class="section-head">
-          <h2>自习室列表</h2>
-          <span>按开放时间选择你的学习空间</span>
-        </section>
-
-        <div v-if="roomsLoading" class="room-cards"><div v-for="n in 4" :key="n" class="room-card skeleton" /></div>
-        <SBanner v-else-if="roomsError" type="error" :title="roomsError"><SButton size="sm" @click="loadRooms">重试</SButton></SBanner>
-        <p v-else-if="!rooms.length" class="muted">暂无自习室信息。</p>
-        <div v-else class="room-cards">
-          <article v-for="room in rooms" :key="room.id" class="room-card">
-            <div class="room-card-top">
-              <h3>{{ room.name }}</h3>
-              <span class="room-status" :class="roomOpenNow(room) ? 'open' : 'closed'">{{ roomOpenNow(room) ? '开放中' : '未开放' }}</span>
+  <div v-reveal class="page-view home-page" :class="{ 'home-page--user': auth.isOrdinary, 'home-page--admin': auth.isAdmin }">
+    <!-- ===== 管理员端：与用户端同款首页（不含我的学习安排） ===== -->
+    <template v-if="auth.isAdmin">
+      <div class="hero-zone">
+        <section class="hero-full">
+          <div class="hero-inner">
+            <div class="hero-copy">
+              <p class="hero-eyebrow" data-page-title>
+                <span class="eyebrow-dash" aria-hidden="true" />
+                <span>静阅 · 专注空间</span>
+              </p>
+              <h1 class="hero-title">
+                <span class="hero-title-line">今日运营，一目了然</span>
+              </h1>
+              <p class="hero-sub">查看真实使用统计与待办，安排今天的开放资源</p>
             </div>
-            <p class="room-location">{{ room.building || '楼栋未登记' }}<template v-if="room.floor"> · {{ room.floor }}</template><template v-if="room.location"> · {{ room.location }}</template></p>
-            <p class="room-open">{{ roomOpeningText(room) }}</p>
-            <SButton :disabled="!room.enabled" variant="soft" block @click="router.push(auth.isAdmin ? '/admin' : '/booking')">{{ auth.isAdmin ? '管理空间' : '去预约' }}</SButton>
+          </div>
+          <div class="hero-bottom">
+            <div class="hero-actions">
+              <button type="button" class="hero-btn hero-btn--solid" @click="router.push('/analytics')">查看统计</button>
+              <button type="button" class="hero-btn hero-btn--outline" @click="router.push('/admin')">管理端</button>
+            </div>
+            <div class="hero-kpis">
+              <div class="hero-kpi"><b>{{ inUseNow ?? '—' }}</b><span>使用中</span></div>
+              <div class="hero-kpi"><b>{{ openAvailableSeats ?? '—' }}</b><span>开放可用</span></div>
+              <div class="hero-kpi"><b class="is-text">{{ currentUsageText }}</b><span>使用比例</span></div>
+              <div class="hero-kpi"><b>{{ complaintTodoCount ?? '—' }}</b><span>投诉待办</span></div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <section class="zone-section">
+        <div class="zone-head">
+          <h3>自习室列表</h3>
+          <span class="zone-head-meta">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
+            按开放时间管理自习室
+          </span>
+        </div>
+        <div class="zone-grid">
+          <article v-for="z in zones" :key="z.key" class="zone-card">
+            <img class="zone-photo" :src="z.img" alt="" aria-hidden="true" />
+            <div class="zone-body">
+              <h4>{{ z.name }}</h4>
+              <button type="button" class="zone-cta" @click="router.push('/admin')">去管理</button>
+            </div>
           </article>
         </div>
-      </div>
+      </section>
 
-      <aside class="home-side">
-        <section v-if="auth.isOrdinary" class="card next-card">
-          <div class="card-title-row"><h3>我的预约</h3><RouterLink to="/mine" class="text-link">全部记录</RouterLink></div>
-          <p v-if="reservationsLoading" class="muted">正在读取本人预约…</p>
-          <SBanner v-else-if="reservationsError" type="error" :title="reservationsError"><SButton size="sm" @click="loadReservations">重试</SButton></SBanner>
-          <template v-else-if="nextReservation">
-            <span class="pill" :class="nextReservation.status === 'pending' ? 'pill-warning' : 'pill-success'">{{ statusText(nextReservation) }}</span>
-            <h4>{{ nextReservation.room_name }} · {{ nextReservation.seat_no }}</h4>
-            <p class="next-time">{{ nextReservation.res_date }} {{ nextReservation.start_time }}—{{ nextReservation.end_time }}</p>
-            <p v-if="nextDeadline" class="next-deadline">签到截止 <b>{{ deadlineLabel(nextDeadline) }}</b></p>
-            <SButton variant="primary" block @click="router.push(`/mine/${nextReservation.id}/checkin`)">去签到</SButton>
-            <SButton variant="soft" block @click="router.push('/mine')">查看我的预约</SButton>
-          </template>
-          <div v-else class="empty-next">
-            <p>今天还没有安排学习。</p>
-            <SButton variant="primary" block @click="router.push('/booking')">去选座</SButton>
-          </div>
-        </section>
-
-        <section v-else class="card next-card">
-          <div class="card-title-row"><h3>今日概览</h3><RouterLink to="/analytics" class="text-link">详细统计</RouterLink></div>
-          <p v-if="statsLoading" class="muted">正在加载统计…</p>
-          <p class="muted" role="status">{{ statsVisible ? '页面可见时每 10 秒刷新。' : '页面已隐藏，刷新暂停。' }}</p>
-          <SBanner v-if="statsError" type="error" :title="statsError"><SButton size="sm" @click="loadStats">重试统计</SButton></SBanner>
-          <div class="mini-kpis">
-            <div><SAnimatedNumber v-if="inUseNow !== null" :value="inUseNow" /><span v-else>—</span><small>使用中</small></div>
-            <div><SAnimatedNumber v-if="openAvailableSeats !== null" :value="openAvailableSeats" /><span v-else>—</span><small>开放可用</small></div>
-            <div><span>{{ currentUsageText }}</span><small>使用比例</small></div>
-          </div>
-          <p v-if="statsOverview" class="snapshot">快照 {{ statsSnapshotText }}</p>
-        </section>
-
-        <section class="card quick-card">
-          <div class="card-title-row"><h3>快速入口</h3></div>
-          <div class="quick-list">
-            <button v-for="s in shortcuts" :key="s.to" type="button" class="quick-item" @click="router.push(s.to)">
-              <span class="quick-icon"><AppIcon :name="s.icon" :size="20" /></span>
-              <span class="quick-copy"><b>{{ s.title }}</b><small>{{ s.desc }}</small></span>
-              <AppIcon name="chevron-right" :size="16" />
-            </button>
-          </div>
-        </section>
-
-        <StudyTips :title="auth.isOrdinary ? '使用须知' : '管理提示'">
-          <ul v-if="auth.isOrdinary" class="tips tips-list">
-            <li>可预约当天至后天，单次至少 30 分钟，起止在开放空档内自选。</li>
-            <li>开始前取消不记违规；开始后未签到放弃记一次违约。</li>
-            <li>签到窗口为开始时刻起至开始后 15 分钟；本系统当前不提供签到延期。</li>
-            <li>短暂离开不延长原结束时间；提前签退释放剩余时段。</li>
-          </ul>
-          <ul v-else class="tips tips-list">
+      <div class="tips-anchor">
+        <StudyTips title="管理提示">
+          <ul class="tips tips-list">
             <li>资源变更先预览影响清单，确认后管理取消受影响预约，不记用户违约。</li>
             <li>投诉先受理再核实，未知身份不归责；设施报修由系统按影响范围和安全风险自动分级，存在安全风险固定5级。</li>
             <li>统计快照每 10 秒刷新，失败保留上次成功值与时间。</li>
             <li>评价隐藏后本人修改不自动恢复公开，需管理员复核。</li>
           </ul>
         </StudyTips>
-      </aside>
-    </div>
+      </div>
+    </template>
+
+    <!-- ===== 用户端：新版首页（设计稿） ===== -->
+    <template v-else>
+      <section v-if="cancellations.length" class="cancel-notice">
+        <div class="cancel-copy">
+          <span class="pill pill-warning">资源管理取消</span>
+          <h3>{{ cancellations[0].title }}</h3>
+          <p>{{ cancellations[0].content }}</p>
+          <p class="cancel-meta">本次管理取消不记本人违规；预计恢复时间以系统可预约状态为准。无需专程到场确认，已到场或需要帮助可点“需要协助”。</p>
+        </div>
+        <div class="cancel-actions">
+          <SButton variant="primary" @click="router.push('/notifications')">查看通知</SButton>
+          <SButton variant="soft" @click="router.push('/booking')">重新选座</SButton>
+          <SButton variant="soft" @click="router.push({name:'complaints',query:{type:'service'}})">需要协助</SButton>
+        </div>
+      </section>
+
+      <div class="hero-zone">
+        <section class="hero-full">
+          <div class="hero-inner">
+            <div class="hero-copy">
+              <p class="hero-eyebrow" data-page-title>
+                <span class="eyebrow-dash" aria-hidden="true" />
+                <span>静阅 · 专注空间</span>
+              </p>
+              <h1 class="hero-title">
+                <span class="hero-title-line">今日宜专注，</span>
+                <span class="hero-title-line">让每一次坐下都<span class="hero-title-gold">算数</span></span>
+              </h1>
+              <p class="hero-sub">预约专属座位，找到一段不被打扰的学习时光</p>
+            </div>
+          </div>
+          <div class="hero-bottom">
+            <div class="hero-actions">
+              <button type="button" class="hero-btn hero-btn--solid" @click="router.push('/booking')">立即预约</button>
+              <button type="button" class="hero-btn hero-btn--outline" @click="router.push('/mine')">我的预约</button>
+            </div>
+            <div class="hero-kpis">
+              <div class="hero-kpi"><b>{{ pendingCount }}</b><span>待签到</span></div>
+              <div class="hero-kpi"><b>{{ checkedInCount }}</b><span>使用中</span></div>
+              <div class="hero-kpi"><b>{{ completedCount }}</b><span>已结束</span></div>
+              <div class="hero-kpi"><b>{{ totalCount }}</b><span>累计预约</span></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 右上角黑板面板：我的学习安排（保留原有数据与入口） -->
+        <aside class="board" aria-label="我的学习安排">
+          <div class="board-surface">
+            <div class="board-head">
+              <h3>
+                <svg class="board-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M8 3v4M16 3v4M3 11h18" /></svg>
+                <span>我的学习安排</span>
+              </h3>
+              <RouterLink to="/mine" class="board-link">全部历史 ›</RouterLink>
+            </div>
+            <p v-if="reservationsLoading" class="board-hint">正在读取本人预约…</p>
+            <p v-else-if="reservationsError" class="board-hint">{{ reservationsError }}</p>
+            <ul v-else-if="activeReservations.length" class="board-list">
+              <li v-for="row in activeReservations.slice(0, 3)" :key="row.id">
+                <RouterLink v-if="row.status === 'pending'" :to="`/mine/${row.id}/checkin`" class="board-item">
+                  <b>{{ row.room_name }} · {{ row.seat_no }}</b>
+                  <small>{{ timeText(row) }}</small>
+                  <em>{{ statusText(row) }}</em>
+                </RouterLink>
+                <RouterLink v-else :to="'/mine'" class="board-item">
+                  <b>{{ row.room_name }} · {{ row.seat_no }}</b>
+                  <small>{{ timeText(row) }}</small>
+                  <em>{{ statusText(row) }}</em>
+                </RouterLink>
+              </li>
+            </ul>
+            <template v-else>
+              <p class="board-hint">今天还没有安排学习</p>
+              <RouterLink to="/booking" class="board-cta">去选座</RouterLink>
+            </template>
+          </div>
+        </aside>
+      </div>
+
+      <section class="zone-section">
+        <div class="zone-head">
+          <h3>自习室列表</h3>
+          <span class="zone-head-meta">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
+            按开放时间选择学习空间
+          </span>
+        </div>
+        <div class="zone-grid">
+          <article v-for="z in zones" :key="z.key" class="zone-card">
+            <img class="zone-photo" :src="z.img" alt="" aria-hidden="true" />
+            <div class="zone-body">
+              <h4>{{ z.name }}</h4>
+              <button type="button" class="zone-cta" @click="router.push('/booking')">去预约</button>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <div class="user-bottom">
+        <StudyTips title="使用须知">
+          <ul class="tips tips-list">
+            <li>可预约当天至后天，单次至少 30 分钟，起止在开放空档内自选。</li>
+            <li>开始前取消不记违规；开始后未签到放弃记一次违约。</li>
+            <li>签到窗口为开始时刻起至开始后 15 分钟；本系统当前不提供签到延期。</li>
+            <li>短暂离开不延长原结束时间；提前签退释放剩余时段。</li>
+          </ul>
+        </StudyTips>
+      </div>
+    </template>
   </div>
 </template>
 
 <style scoped>
 .home-page { padding-top: 22px; }
-.home-hello { margin: 0 2px 22px; }
-.hello-date { color: var(--text-3); font-size: var(--fs-body-sm); letter-spacing: .04em; }
-.home-hello h1 { margin-top: 6px; font-size: 34px; color: var(--text-1); }
-.home-layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 24px; align-items: start; }
+
+/* 管理员端：与用户端同款底色与信息层级（无我的学习安排） */
+.home-page--admin { background: var(--canvas); box-shadow: 0 0 0 100vmax var(--canvas); padding-top: 28px; }
+/* 管理员 hero：文字块整体上移、按钮与统计下移（居中布局下用间距拉开两组） */
+.home-page--admin .hero-full { gap: clamp(28px, 5vh, 56px); }
+
 .cancel-notice {
   display: flex;
   align-items: center;
@@ -330,108 +342,184 @@ function statusText(row) {
 .cancel-meta { color: var(--text-3) !important; font-size: 11px !important; margin-top: 6px; }
 .cancel-actions { display: flex; flex-wrap: wrap; gap: 8px; flex: 0 0 auto; }
 @media (max-width: 760px) { .cancel-notice { flex-direction: column; align-items: flex-start; } }
-.home-main { min-width: 0; }
-.home-side { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+.tips-anchor { margin-top: auto; min-width: 0; }
 
-.hero {
+/* ============ 用户端新版首页（按参考图） ============ */
+/* 整页底色：浅薄荷白 */
+.home-page--user { background: var(--canvas); box-shadow: 0 0 0 100vmax var(--canvas); padding-top: 28px; }
+
+/* 顶部区：照片整幅铺满上半屏，文字/按钮/统计由 HTML 渲染 */
+.hero-zone { position: relative; margin-bottom: 34px; }
+.hero-full {
   position: relative;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 38%;
-  gap: 12px;
-  min-height: 280px;
-  padding: 34px 36px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-2xl);
-  background:
-    radial-gradient(120% 130% at 92% 12%, rgba(47, 93, 70, .10), transparent 55%),
-    linear-gradient(135deg, #fbf7ec 0%, #f3ecdc 100%);
+  /* 冲出版心 padding，左右铺到视口边缘 */
+  margin: -28px calc(50% - 50vw) 0;
+  min-height: clamp(430px, 56vh, 640px);
+  padding: 0;
+  background: #24322e url('/images/home-hero-room.jpg') center / cover no-repeat;
   overflow: hidden;
-}
-.hero-copy { display: flex; flex-direction: column; justify-content: center; align-items: flex-start; min-width: 0; }
-.hero-eyebrow { color: var(--primary); font-size: 12px; letter-spacing: .22em; }
-.hero h2 {
-  margin: 10px 0 8px;
-  font-size: clamp(38px, 4.2vw, 60px);
-  line-height: 1.1;
-  color: #2a3f33;
-  letter-spacing: .04em;
-  white-space: nowrap;
-}
-.hero h2.hero-title-admin { font-size: clamp(30px, 3.2vw, 46px); }
-.hero-sub { color: var(--text-2); font-size: 16px; margin-bottom: 24px; }
-.hero-art { display: flex; align-items: center; justify-content: center; min-width: 0; }
-.hero-art svg { width: 100%; max-width: 520px; height: auto; }
-
-.section-head { display: flex; align-items: baseline; gap: 12px; margin: 30px 2px 16px; }
-.section-head h2 { font-size: 28px; color: var(--text-1); }
-.section-head span { color: var(--text-3); font-size: var(--fs-body-sm); }
-
-.room-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; }
-.room-card {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  min-height: 186px;
-  padding: 18px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--r-xl);
-  box-shadow: var(--shadow-1);
-  transition: transform var(--dur-2) var(--ease), box-shadow var(--dur-2) var(--ease);
+  justify-content: center;
 }
-.room-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-2); }
-.room-card h3 { font-size: 20px; color: var(--text-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.room-card-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
-.room-status { flex: 0 0 auto; padding: 3px 10px; border-radius: var(--r-full); font-size: 12px; }
-.room-status.open { background: var(--green-weak); color: var(--green-strong); }
-.room-status.closed { background: var(--surface-3); color: var(--text-3); }
-.room-location { color: var(--text-3); font-size: var(--fs-caption); }
-.room-open { color: var(--text-2); font-size: var(--fs-body-sm); line-height: 1.6; flex: 1; }
-.room-card .s-btn { margin-top: auto; }
-.skeleton { background: linear-gradient(90deg, var(--surface-2), var(--surface-3), var(--surface-2)); background-size: 200% 100%; animation: shimmer 1.4s infinite; }
-@keyframes shimmer { to { background-position: -200% 0; } }
+/* 左侧压暗 + 底部压暗：保证文字、按钮与统计在照片上的可读性 */
+.hero-full::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(100deg, rgba(6, 14, 16, .72) 0%, rgba(6, 14, 16, .5) 26%, rgba(6, 14, 16, .2) 48%, rgba(6, 14, 16, .04) 66%, transparent 80%),
+    linear-gradient(to top, rgba(6, 12, 14, .5) 0%, rgba(6, 12, 14, .16) 22%, transparent 42%);
+  pointer-events: none;
+}
+.hero-inner {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 1560px;
+  margin: 0 auto;
+  padding: 56px 40px 24px;
+}
+.hero-copy { max-width: 100%; }
+.hero-full .hero-eyebrow { display: flex; align-items: center; gap: 14px; color: rgba(255, 255, 255, .9); font-size: 15px; letter-spacing: .28em; }
+.eyebrow-dash { width: 46px; height: 1px; background: rgba(255, 255, 255, .75); flex: 0 0 auto; }
+.hero-title {
+  margin: 16px 0 16px;
+  font-family: var(--font-display);
+  font-size: clamp(30px, 4.5vw, 62px);
+  font-weight: 700;
+  line-height: 1.16;
+  letter-spacing: .02em;
+  color: #ffffff;
+  text-shadow: 0 6px 30px rgba(4, 10, 12, .45);
+}
+.hero-title-line { display: block; white-space: nowrap; }
+.hero-title-gold { color: #fbd266; }
+/* 提高优先级，避免被管理员 hero 的同名规则覆盖 */
+.hero-full .hero-sub { max-width: 620px; color: rgba(255, 255, 255, .95); font-size: clamp(15px, 1.1vw, 17px); line-height: 1.7; text-shadow: 0 2px 14px rgba(4, 10, 12, .5); }
 
-.next-card h4 { margin: 12px 0 4px; font-family: var(--font-display); font-size: 21px; color: var(--text-1); }
-.next-time { color: var(--text-2); font-size: var(--fs-body-sm); }
-.next-deadline { margin-top: 8px; color: var(--text-3); font-size: var(--fs-body-sm); }
-.next-deadline b { color: var(--amber-strong); font-variant-numeric: tabular-nums; }
-.next-card .s-btn { margin-top: 12px; }
-.empty-next { display: grid; gap: 14px; padding: 8px 0 2px; color: var(--text-3); }
-.text-link { color: var(--primary); font-size: var(--fs-caption); text-decoration: none; }
-.text-link:hover { text-decoration: underline; }
-
-.mini-kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 14px 0 6px; }
-.mini-kpis > div { background: var(--surface-2); border-radius: var(--r-md); padding: 12px 10px; text-align: center; }
-.mini-kpis span { display: block; font-family: var(--font-display); font-size: 24px; color: var(--text-1); }
-.mini-kpis small { display: block; margin-top: 4px; color: var(--text-3); font-size: 11px; }
-.snapshot { color: var(--text-4); font-size: 11px; margin-top: 6px; }
-
-.quick-list { display: flex; flex-direction: column; gap: 6px; }
-.quick-item {
-  all: unset;
+/* 底部一行：按钮（左）与统计卡（右）同一水平线 */
+.hero-bottom {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 1560px;
+  margin: 0 auto;
+  padding: 0 40px 46px;
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 11px 12px;
-  border-radius: var(--r-md);
-  cursor: pointer;
-  color: var(--text-2);
-  transition: background var(--dur-1) var(--ease);
+  justify-content: space-between;
+  gap: 28px;
+  flex-wrap: wrap;
 }
-.quick-item:hover { background: var(--surface-2); }
-.quick-icon { width: 38px; height: 38px; flex: 0 0 38px; border-radius: 50%; display: grid; place-items: center; background: var(--primary-weak); color: var(--primary); }
-.quick-copy { flex: 1; min-width: 0; }
-.quick-copy b { display: block; font-size: 14px; color: var(--text-1); font-weight: 600; }
-.quick-copy small { display: block; margin-top: 2px; color: var(--text-3); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hero-actions { display: flex; flex-wrap: wrap; gap: 14px; }
+.hero-btn {
+  all: unset;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 56px;
+  padding: 0 40px;
+  border-radius: 10px;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: .02em;
+  cursor: pointer;
+  transition: transform var(--dur-1) var(--ease), background var(--dur-1) var(--ease), border-color var(--dur-1) var(--ease);
+}
+.hero-btn:focus-visible { outline: 2px solid #f2e6c4; outline-offset: 3px; }
+.hero-btn--solid { background: #135e4d; color: #f7f6f0; box-shadow: 0 10px 26px rgba(4, 16, 12, .32); }
+.hero-btn--solid:hover { background: #17705b; transform: translateY(-1px); }
+.hero-btn--outline { background: transparent; color: #ffffff; border: 1px solid rgba(255, 255, 255, .8); }
+.hero-btn--outline:hover { background: rgba(255, 255, 255, .14); transform: translateY(-1px); }
+
+/* 四个统计指标：数字 + 标签，竖线分隔，无卡片底色 */
+.hero-kpis { display: flex; align-items: stretch; }
+.hero-kpi { min-width: 96px; padding: 0 26px; text-align: center; border-left: 1px solid rgba(255, 255, 255, .32); }
+.hero-kpi:first-child { border-left: 0; }
+.hero-kpi b { display: block; font-family: var(--font-display); font-size: 34px; font-weight: 600; line-height: 1.1; color: #ffffff; font-variant-numeric: tabular-nums; text-shadow: 0 2px 16px rgba(4, 10, 12, .5); }
+/* 文字型指标（如「不适用」）用小一号字号，避免撑开统计条 */
+.hero-kpi b.is-text { font-size: 24px; line-height: 1.45; }
+.hero-kpi span { display: block; margin-top: 8px; font-size: 13px; color: rgba(255, 255, 255, .85); }
+
+/* 右上角黑板面板：我的学习安排（浮在照片上，与照片内容无关） */
+.board { position: absolute; top: 46px; right: max(40px, calc((100% - 1560px) / 2 + 40px)); width: 372px; z-index: 3; }
+.board-surface {
+  padding: 22px 24px;
+  border-radius: 16px;
+  background: #22473a;
+  box-shadow: 0 18px 40px rgba(4, 14, 10, .35);
+  color: #e9f1ea;
+}
+.board-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.board-head h3 { display: flex; align-items: center; gap: 9px; margin: 0; font-size: 19px; font-weight: 700; letter-spacing: .02em; color: #f4f8f2; }
+.board-icon { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex: 0 0 auto; }
+.board-link { color: rgba(226, 238, 226, .78); font-size: 12.5px; text-decoration: none; white-space: nowrap; }
+.board-link:hover { color: #ffffff; }
+.board-hint { margin: 16px 0 0; color: rgba(226, 238, 226, .82); font-size: 14px; }
+.board-list { list-style: none; margin: 16px 0 0; padding: 0; display: grid; gap: 9px; }
+.board-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 3px 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, .07);
+  color: #eaf2e9;
+  text-decoration: none;
+}
+.board-item:hover { background: rgba(255, 255, 255, .13); }
+.board-item b { font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.board-item em { font-style: normal; font-size: 11.5px; color: #cfe3cf; white-space: nowrap; }
+.board-item small { grid-column: 1 / -1; font-size: 12px; color: #b2c4b2; font-variant-numeric: tabular-nums; }
+.board-cta { display: inline-block; margin-top: 16px; padding: 8px 18px; border-radius: 999px; background: #f2f0e3; color: #1e3a2d; font-size: 13px; font-weight: 600; text-decoration: none; }
+.board-cta:hover { background: #ffffff; }
+
+.user-bottom { margin-top: 8px; }
+/* 首页提示卡（使用须知 / 管理提示）改为纯白 */
+.home-page :deep(.tips-surface) {
+  background: #ffffff;
+  border-color: rgba(20, 40, 32, .08);
+}
+
+/* 自习室列表 */
+.zone-section { margin-bottom: 26px; }
+.zone-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 2px 18px; }
+.zone-head h3 { display: flex; align-items: center; margin: 0; font-size: 26px; font-weight: 700; color: #182420; font-family: var(--font-display); }
+.zone-head h3::before { content: ''; width: 6px; height: 26px; border-radius: 3px; background: #135e4d; margin-right: 14px; flex: 0 0 auto; }
+.zone-head-meta { display: inline-flex; align-items: center; gap: 7px; color: #5d6f68; font-size: 13px; }
+.zone-head-meta svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.zone-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; }
+.zone-card { background: #ffffff; border: 0; border-radius: 16px; overflow: hidden; box-shadow: 0 6px 20px rgba(30, 50, 44, .08); transition: transform var(--dur-2) var(--ease), box-shadow var(--dur-2) var(--ease); }
+.zone-card:hover { transform: translateY(-3px); box-shadow: 0 12px 28px rgba(30, 50, 44, .14); }
+.zone-photo { display: block; width: 100%; aspect-ratio: 16 / 10; object-fit: cover; }
+.zone-body { padding: 14px 18px; display: flex; flex-direction: row; align-items: center; justify-content: space-between; gap: 12px; }
+.zone-body h4 { margin: 0; font-size: 22px; font-weight: 700; color: #1b2724; font-family: var(--font-display); }
+.zone-cta { all: unset; padding: 8px 20px; border-radius: 999px; background: #135e4d; color: #f6f7f1; font-size: 14px; font-weight: 600; cursor: pointer; transition: background var(--dur-1) var(--ease); }
+.zone-cta:hover { background: #17705b; }
+.zone-cta:focus-visible { outline: 2px solid #135e4d; outline-offset: 3px; }
 
 @media (max-width: 1200px) {
-  .home-layout { grid-template-columns: minmax(0, 1fr); }
-  .home-side { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+  .zone-grid { grid-template-columns: repeat(2, 1fr); }
+  .hero-inner { padding: 44px 28px 18px; }
+  .hero-bottom { padding: 0 28px 32px; }
+  .hero-kpi { padding: 0 20px; }
+  .board { position: static; width: auto; max-width: 420px; margin: 18px 0 0 auto; }
 }
 @media (max-width: 760px) {
-  .hero { grid-template-columns: 1fr; padding: 26px 22px; }
-  .hero-art { display: none; }
-  .home-hello h1 { font-size: 28px; }
-  .room-cards { grid-template-columns: 1fr; }
+  .zone-grid { grid-template-columns: 1fr; }
+  .hero-full { margin: -20px calc(50% - 50vw) 0; min-height: clamp(420px, 62vh, 560px); }
+  .hero-inner { padding: 30px 20px 16px; }
+  .hero-title { font-size: clamp(26px, 8.2vw, 42px); }
+  .hero-bottom { padding: 0 20px 24px; flex-direction: column; align-items: flex-start; gap: 16px; }
+  .hero-actions { gap: 10px; }
+  .hero-btn { height: 48px; padding: 0 26px; font-size: 16px; }
+  .hero-kpis { width: 100%; }
+  .hero-kpi { flex: 1 1 0; min-width: 0; padding: 0 10px; }
+  .hero-kpi b { font-size: 26px; }
+  .zone-head h3 { font-size: 22px; }
 }
+
+.text-link { color: var(--primary); font-size: var(--fs-caption); text-decoration: none; }
+.text-link:hover { text-decoration: underline; }
 </style>

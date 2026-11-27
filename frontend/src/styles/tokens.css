@@ -6,18 +6,20 @@
    ============================================================ */
 
 :root {
-  /* ---------- 画布与表面 · 米色纸张 ---------- */
-  --canvas: #f7f2e7;
-  --canvas-deep: #efe7d8;
-  --surface: #fffdf8;
-  --surface-2: #faf5ea;
-  --surface-3: #f3ecdd;
-  --surface-hover: #f6efe2;
+  /* ---------- 画布与表面 · 浅薄荷白（与首页底色一致） ---------- */
+  --canvas: #eef5f4;
+  --canvas-deep: #e5efee;
+  --surface: #fbfefd;
+  /* 卡片白磨砂底色 */
+  --card-frosted: rgba(255, 255, 255, .72);
+  --surface-2: #f3faf8;
+  --surface-3: #eaf4f1;
+  --surface-hover: #eef8f5;
 
   /* ---------- 边界 ---------- */
-  --border: #e6ddcb;
-  --border-strong: #d7cab2;
-  --hairline: #efe7d8;
+  --border: #d9e9e3;
+  --border-strong: #c3dbd3;
+  --hairline: #e6f1ee;
 
   /* ---------- 文字 · 深墨绿 ---------- */
   --text-1: #23372d;
@@ -165,6 +167,8 @@ html.dark {
   --canvas: #121a15;
   --canvas-deep: #0b110d;
   --surface: #1a241e;
+  /* 深色主题下的卡片磨砂底色 */
+  --card-frosted: rgba(26, 36, 30, .78);
   --surface-2: #202c25;
   --surface-3: #27352d;
   --surface-hover: #2c3b32;

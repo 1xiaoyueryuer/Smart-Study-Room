@@ -7,3 +7,4 @@ export const getAdminReview=id=>request.get(`/admin/reviews/${id}`,{silent:true}
 export const replyReview=(id,body)=>request.post(`/admin/reviews/${id}/reply`,body,{silent:true,timeout:120000})
 export const hideReview=(id,body)=>request.post(`/admin/reviews/${id}/hide`,body,{silent:true,timeout:120000})
 export const listRoomReviews=(id,params)=>request.get(`/rooms/${id}/reviews`,{params,silent:true})
+export const listAllRoomReviews=params=>request.get('/rooms/reviews',{params,silent:true})

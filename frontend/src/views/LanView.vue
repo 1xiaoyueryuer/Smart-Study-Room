@@ -13,6 +13,8 @@ import SBanner from '../components/ui/SBanner.vue'
 import STag from '../components/ui/STag.vue'
 import SSelect from '../components/ui/SSelect.vue'
 import SEmpty from '../components/ui/SEmpty.vue'
+import SPagination from '../components/ui/SPagination.vue'
+import { usePagination } from '../composables/usePagination'
 
 const info = ref(null)
 const devices = ref([])
@@ -20,6 +22,10 @@ const board = ref(null)
 const policy = ref(null)
 const dates = ref([])
 const boardWindow = ref({ date: '', start: '14:00', end: '16:00' })
+// 在线设备与共享看板空间列表按每页 10 条分页
+const boardRooms = computed(() => board.value?.rooms || [])
+const { page: devicePage, pages: devicePages, pageItems: deviceItems } = usePagination(devices, null)
+const { page: roomPage, pages: roomPages, pageItems: roomItems } = usePagination(boardRooms, null)
 const infoError = ref('')
 const devicesError = ref('')
 const boardError = ref('')
@@ -253,7 +259,7 @@ onUnmounted(() => {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="device in devices" :key="device.id">
+              <tr v-for="device in deviceItems" :key="device.id">
                 <td>{{ device.device }}<STag v-if="device.is_self" type="info" style="margin-left:6px">本机</STag></td>
                 <td>{{ roleLabel(device.role) }}</td>
                 <td><STag :type="device.access === 'lan' ? 'success' : device.access === 'loopback' ? 'info' : 'warning'">{{ accessLabel(device.access) }}</STag></td>
@@ -263,6 +269,7 @@ onUnmounted(() => {
             </tbody>
           </table>
           <SEmpty v-if="!devices.length" description="暂无其他在线设备。让同学连接同一 Wi-Fi 并打开接入地址，即可一起预约。" />
+          <SPagination v-model="devicePage" :pages="devicePages" :total="devices.length" />
         </div>
       </div>
     </section>
@@ -308,7 +315,7 @@ onUnmounted(() => {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="room in board?.rooms || []" :key="room.room_id">
+              <tr v-for="room in roomItems" :key="room.room_id">
                 <td class="ellip">{{ room.name }}<span class="muted small"> {{ [room.building, room.floor].filter(Boolean).join(' · ') }}</span></td>
                 <td>
                   <STag :type="room.open ? 'success' : 'warning'" :title="(room.closed_reasons || []).join('；')">{{ room.open ? '开放' : '未开放' }}</STag>
@@ -319,7 +326,8 @@ onUnmounted(() => {
               </tr>
             </tbody>
           </table>
-          <SEmpty v-if="!(board?.rooms || []).length" description="当前没有可显示的空间" />
+          <SEmpty v-if="!boardRooms.length" description="当前没有可显示的空间" />
+          <SPagination v-model="roomPage" :pages="roomPages" :total="boardRooms.length" />
         </div>
       </div>
       <p v-if="board" class="muted small">

@@ -211,8 +211,8 @@ onMounted(pager.refresh);onBeforeUnmount(()=>{alive=false;pager.dispose()})
 .view-heading.with-action { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; flex-wrap: wrap; }
 .head-actions { display: flex; gap: 10px; }
 .write-notice { color: var(--text-3); font-size: var(--fs-caption); margin: -8px 0 14px; }
-.notif-workbench { display: grid; grid-template-columns: minmax(320px, 400px) minmax(0, 1fr); gap: 20px; align-items: start; }
-.notif-list-panel { display: flex; flex-direction: column; min-width: 0; max-height: calc(100vh - 220px); }
+.notif-workbench { display: grid; grid-template-columns: minmax(320px, 400px) minmax(0, 1fr); gap: 20px; align-items: stretch; }
+.notif-list-panel { display: flex; flex-direction: column; min-width: 0; height: 100%; }
 .notif-tabs { display: flex; flex-wrap: nowrap; gap: 4px; padding-bottom: 12px; border-bottom: 1px solid var(--hairline); margin-bottom: 10px; }
 .notif-tabs button {
   all: unset;
@@ -233,7 +233,7 @@ onMounted(pager.refresh);onBeforeUnmount(()=>{alive=false;pager.dispose()})
 .notif-tabs button.active { background: var(--primary-weak); color: var(--primary-active); font-weight: 600; }
 .tab-count { min-width: 17px; height: 17px; padding: 0 5px; border-radius: var(--r-full); background: var(--red); color: #fff; font-size: 10px; display: inline-grid; place-items: center; }
 .list-note { color: var(--text-4); font-size: 11px; margin-bottom: 10px; }
-.msg-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; overflow-y: auto; min-height: 0; }
+.msg-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; overflow-y: auto; min-height: 0; flex: 1 1 auto; }
 .msg-entry {
   all: unset;
   display: grid;
@@ -258,7 +258,7 @@ onMounted(pager.refresh);onBeforeUnmount(()=>{alive=false;pager.dispose()})
 .msg-side { display: flex; flex-direction: column; align-items: flex-end; gap: 5px; }
 .msg-side time { color: var(--text-4); font-size: 10px; white-space: nowrap; }
 .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--red); }
-.notif-detail-panel { min-width: 0; min-height: 420px; }
+.notif-detail-panel { min-width: 0; min-height: 420px; height: 100%; }
 .detail-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--hairline); margin-bottom: 14px; }
 .detail-head time { color: var(--text-4); font-size: var(--fs-caption); }
 .notif-detail-panel h3 { font-size: 26px; color: var(--text-1); margin-bottom: 12px; }
