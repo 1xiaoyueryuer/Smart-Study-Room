@@ -96,360 +96,297 @@ const features = [
 
 <template>
   <div v-reveal class="auth-shell">
-    <!-- ============ 左侧：品牌叙事 ============ -->
-    <aside class="auth-hero">
-      <div class="hero-brand">
-        <div class="hero-mark"><AppIcon name="book" :size="20" /></div>
-        <div>
-          <div class="hero-name">{{ SYSTEM_NAME_ZH }}</div>
-          <div class="hero-sub">{{ SYSTEM_NAME }}</div>
+    <div class="auth-photo" aria-hidden="true"></div>
+
+    <header class="auth-brand">
+      <div class="brand-mark"><AppIcon name="book" :size="26" /></div>
+      <div class="brand-copy">
+        <div class="brand-name">{{ SYSTEM_NAME_ZH }}</div>
+        <div class="brand-sub">{{ SYSTEM_NAME }}</div>
+      </div>
+    </header>
+
+    <main class="auth-main">
+      <section v-if="!showSetup" class="auth-card">
+        <figure class="auth-illustration">
+          <img src="/images/login-bear.png?v=1" alt="一只小熊坐着安静看书" />
+        </figure>
+        <div class="auth-form-col">
+          <header class="auth-heading"><h2>欢迎回来</h2><p>为今天的学习，留一个好位置。</p></header>
+          <form class="auth-form" @submit.prevent="onLogin">
+            <p v-if="loginError" role="alert" class="form-error">{{ loginError }}</p>
+            <div class="form-field">
+              <label class="form-label" for="login-username">账号</label>
+              <SInput id="login-username" v-model="loginForm.username" size="lg" placeholder="请输入校园账号" autocomplete="username" />
+            </div>
+            <div class="form-field">
+              <label class="form-label" for="login-password">密码</label>
+              <SInput
+                id="login-password"
+                v-model="loginForm.password"
+                type="password"
+                size="lg"
+                placeholder="请输入密码"
+                show-password
+                autocomplete="current-password"
+              />
+            </div>
+            <SButton type="submit" variant="primary" size="lg" block :loading="loading">
+              登录
+            </SButton>
+          </form>
+
+          <div class="auth-tips">
+            <p>校园账号由管理员维护，暂不支持自助注册。</p>
+            <p>信息安全：请妥善保管账号安全</p>
+            <p class="auth-tips-demo">演示学生 202600001 / 123456 · 管理员 202630001 / admin123</p>
+          </div>
         </div>
-      </div>
+      </section>
 
-      <div class="hero-body">
-        <div class="hero-copy">
-          <h1 class="hero-title">让每一次自习都有理想的位置</h1>
-          <p class="hero-desc">分钟预约 · 可视化选座 · 面向校园的自习室数字化系统</p>
+      <section v-else class="auth-card auth-card--solo">
+        <div class="auth-form-col">
+          <header class="auth-heading"><h2>首次使用设置</h2><p>请设置联系电话并修改初始登录密码，完成后才能进入系统。</p></header>
+          <form class="auth-form" @submit.prevent="onFirstSetup">
+            <p v-if="setupError" role="alert" class="form-error">{{ setupError }}</p>
+            <div class="form-field">
+              <label class="form-label" for="setup-current">当前密码 <span class="req">*</span></label>
+              <SInput id="setup-current" v-model="setupForm.current_password" type="password" size="lg" placeholder="当前登录密码" show-password autocomplete="current-password" />
+            </div>
+            <div class="form-field">
+              <label class="form-label" for="setup-phone">联系电话 <span class="req">*</span></label>
+              <SInput id="setup-phone" v-model="setupForm.phone" type="tel" size="lg" maxlength="30" placeholder="请输入联系电话" autocomplete="tel" />
+            </div>
+            <div class="form-field">
+              <label class="form-label" for="setup-new">新密码 <span class="req">*</span></label>
+              <SInput id="setup-new" v-model="setupForm.new_password" type="password" size="lg" placeholder="6至64个字符" show-password autocomplete="new-password" />
+            </div>
+            <div class="form-field">
+              <label class="form-label" for="setup-confirm">确认新密码 <span class="req">*</span></label>
+              <SInput id="setup-confirm" v-model="setupForm.confirm_password" type="password" size="lg" placeholder="再次输入新密码" show-password autocomplete="new-password" />
+            </div>
+            <div class="form-field">
+              <label class="form-label" for="setup-email">邮箱（选填）</label>
+              <SInput id="setup-email" v-model="setupForm.email" type="email" size="lg" maxlength="254" placeholder="选填" autocomplete="email" />
+            </div>
+            <SButton type="submit" variant="primary" size="lg" block :loading="setupSaving">
+              完成设置并进入系统
+            </SButton>
+          </form>
+          <p class="auth-tips"><button type="button" class="setup-logout" @click="cancelSetup">退出登录</button></p>
         </div>
-
-        <ul class="hero-features">
-          <li v-for="f in features" :key="f.title">
-            <span class="feature-icon"><AppIcon :name="f.icon" :size="18" /></span>
-            <span class="feature-title">{{ f.title }}</span>
-          </li>
-        </ul>
-      </div>
-
-      <div class="hero-foot">
-        <img src="/images/login-reader.png?v=2" alt="女生在书桌前安静阅读" />
-      </div>
-    </aside>
-
-    <!-- ============ 右侧：校园账号登录 ============ -->
-    <main class="auth-panel">
-      <div v-if="!showSetup" class="auth-card"><header class="auth-heading"><h2>欢迎回来</h2><p>为今天的学习，留一个好位置。</p></header>
-        <form class="auth-form" @submit.prevent="onLogin">
-          <p v-if="loginError" role="alert" class="form-label">{{ loginError }}</p>
-          <div class="form-field">
-            <label class="form-label" for="login-username">学号 <span class="req">*</span></label>
-            <SInput id="login-username" v-model="loginForm.username" size="lg" placeholder="请输入学号" autocomplete="username" />
-          </div>
-          <div class="form-field">
-            <label class="form-label" for="login-password">密码 <span class="req">*</span></label>
-            <SInput
-              id="login-password"
-              v-model="loginForm.password"
-              type="password"
-              size="lg"
-              placeholder="密码"
-              show-password
-              autocomplete="current-password"
-            />
-          </div>
-          <SButton type="submit" variant="primary" size="lg" block :loading="loading">
-            登录
-          </SButton>
-        </form>
-
-        <p class="auth-tip">校园账号由管理员维护，暂不开放自助注册。</p>
-        <p class="auth-tip">
-          演示学生：202600001 / 123456<br />管理员：202630001 / admin123
-        </p>
-      </div>
-
-      <div v-else class="auth-card">
-        <header class="auth-heading"><h2>首次使用设置</h2><p>请设置联系电话并修改初始登录密码，完成后才能进入系统。</p></header>
-        <form class="auth-form" @submit.prevent="onFirstSetup">
-          <p v-if="setupError" role="alert" class="form-label">{{ setupError }}</p>
-          <div class="form-field">
-            <label class="form-label" for="setup-current">当前密码 <span class="req">*</span></label>
-            <SInput id="setup-current" v-model="setupForm.current_password" type="password" size="lg" placeholder="当前登录密码" show-password autocomplete="current-password" />
-          </div>
-          <div class="form-field">
-            <label class="form-label" for="setup-phone">联系电话 <span class="req">*</span></label>
-            <SInput id="setup-phone" v-model="setupForm.phone" type="tel" size="lg" maxlength="30" placeholder="请输入联系电话" autocomplete="tel" />
-          </div>
-          <div class="form-field">
-            <label class="form-label" for="setup-new">新密码 <span class="req">*</span></label>
-            <SInput id="setup-new" v-model="setupForm.new_password" type="password" size="lg" placeholder="6至64个字符" show-password autocomplete="new-password" />
-          </div>
-          <div class="form-field">
-            <label class="form-label" for="setup-confirm">确认新密码 <span class="req">*</span></label>
-            <SInput id="setup-confirm" v-model="setupForm.confirm_password" type="password" size="lg" placeholder="再次输入新密码" show-password autocomplete="new-password" />
-          </div>
-          <div class="form-field">
-            <label class="form-label" for="setup-email">邮箱（选填）</label>
-            <SInput id="setup-email" v-model="setupForm.email" type="email" size="lg" maxlength="254" placeholder="选填" autocomplete="email" />
-          </div>
-          <SButton type="submit" variant="primary" size="lg" block :loading="setupSaving">
-            完成设置并进入系统
-          </SButton>
-        </form>
-        <p class="auth-tip"><button type="button" class="setup-logout" @click="cancelSetup">退出登录</button></p>
-      </div>
+      </section>
     </main>
   </div>
 </template>
 
 <style scoped>
+/* 登录页固定浅色外观：照片背景 + 米白渐层卡片，不随深色主题翻转 */
 .auth-shell {
-  height: 100%;
-  display: grid;
-  grid-template-columns: minmax(0, 1.12fr) minmax(420px, .88fr);
-  background: var(--canvas);
-}
+  --surface: #fbfefd;
+  --surface-2: #f3faf8;
+  --surface-3: #eaf4f1;
+  --surface-hover: #eef8f5;
+  --border: #d9e9e3;
+  --border-strong: #c3dbd3;
+  --hairline: #e6f1ee;
+  --text-1: #23372d;
+  --text-2: #4f5f54;
+  --text-3: #7b877d;
+  --text-4: #a3ab9f;
+  --primary: #52966d;
+  --primary-hover: #478a62;
+  --primary-active: #3f7b57;
+  --primary-weak: #e4efe8;
+  --primary-faint: #f2f7f3;
+  --primary-ring: rgba(82, 150, 109, .25);
+  --ring: 0 0 0 3px var(--primary-ring);
+  --red: #b9544b;
 
-/* ============ 左侧品牌区 ============ */
-.auth-hero {
   position: relative;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  padding: 56px 60px 40px;
-  background:
-    radial-gradient(circle at 88% 6%, rgba(47, 93, 70, .08), transparent 42%),
-    radial-gradient(circle at 4% 92%, rgba(47, 93, 70, .05), transparent 40%),
-    var(--canvas);
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 104px 28px 52px;
+  background: #f2efe6;
   overflow: hidden;
 }
 
-.auth-hero::before {
-  content: '';
+/* 背景照片：参考图，50% 透明，轻微虚化让卡片浮起来 */
+.auth-photo {
   position: absolute;
-  inset: 0;
-  background-image: radial-gradient(rgba(28, 37, 52, .05) 1px, transparent 1px);
-  background-size: 26px 26px;
-  mask-image: linear-gradient(to bottom, transparent 12%, #000 42%, #000 78%, transparent);
+  inset: -8px;
+  background: url('/images/login-bg.jpg') center / cover no-repeat;
+  opacity: .5;
+  filter: blur(3px) saturate(1.04);
   pointer-events: none;
 }
 
-.hero-brand {
-  position: relative;
+/* 左上角品牌：沿用现有书本站标，名称改为黑色 */
+.auth-brand {
+  position: absolute;
+  top: 42px;
+  left: 52px;
+  z-index: 2;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
 }
-
-.hero-mark {
-  width: 40px;
-  height: 40px;
-  border-radius: var(--r-lg);
-  background: var(--primary);
+.brand-mark {
+  width: 54px;
+  height: 54px;
+  border-radius: 14px;
+  background: #2f5d46;
   color: #fff;
   display: grid;
   place-items: center;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .18), 0 4px 12px rgba(59, 102, 218, .32);
+  box-shadow: 0 6px 16px rgba(23, 43, 32, .3);
 }
-
-.hero-name {
-  font-size: 16px;
-  font-weight: 650;
-  color: var(--text-1);
-  letter-spacing: -.01em;
-}
-
-.hero-sub {
-  font-size: 10.5px;
-  color: var(--text-4);
-  letter-spacing: .08em;
-  text-transform: uppercase;
-  margin-top: 1px;
-}
-
-.hero-body {
-  position: relative;
-  padding: 24px 0;
-}
-
-.hero-copy {
-  width: 100%;
-  max-width: 100%;
-  text-align: center;
-}
-
-.hero-title {
+.brand-name {
   font-family: var(--font-display);
-  font-size: clamp(30px, 3vw, 52px);
-  line-height: 1.22;
-  font-weight: 600;
-  letter-spacing: .02em;
-  color: var(--text-1);
-  white-space: nowrap;
+  font-size: 21px;
+  font-weight: 700;
+  color: #111;
+  letter-spacing: .01em;
+}
+.brand-sub {
+  margin-top: 2px;
+  font-size: 10.5px;
+  font-weight: 500;
+  color: #111;
+  letter-spacing: .16em;
+  text-transform: uppercase;
 }
 
-.hero-desc {
+.auth-main {
+  position: relative;
+  z-index: 1;
   width: 100%;
-  margin-top: 18px;
-  font-size: clamp(13px, 1.15vw, 15px);
-  line-height: 1.75;
-  color: var(--text-3);
-  white-space: nowrap;
-  text-align: center;
-}
-
-.hero-features {
-  list-style: none;
-  margin: 42px 0 0;
-  padding: 0;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
-}
-
-.hero-features li {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  padding: 16px 18px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--r-lg);
-  box-shadow: var(--shadow-1);
-}
-
-.feature-icon {
-  width: 34px;
-  height: 34px;
-  flex: 0 0 34px;
-  border-radius: var(--r-md);
-  background: var(--surface-3);
-  color: var(--primary);
   display: grid;
   place-items: center;
 }
 
-.feature-title {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text-1);
-  white-space: nowrap;
+/* 卡片：从右下角到左上角由深到浅的渐层 */
+.auth-card {
+  width: min(1040px, 94vw);
+  display: grid;
+  grid-template-columns: minmax(0, 1.02fr) minmax(0, .98fr);
+  align-items: stretch;
+  border-radius: 32px;
+  background: linear-gradient(to top left, #dcd4c5 0%, #efece4 52%, #f8f6f0 100%);
+  box-shadow: 0 32px 80px rgba(38, 32, 20, .3);
+  overflow: hidden;
 }
 
-@media (min-width: 1280px) {
-  .hero-features { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-  .hero-features li { gap: 8px; padding: 14px 12px; }
-  .feature-icon { width: 32px; height: 32px; flex-basis: 32px; }
-  .feature-title { font-size: 14px; }
+/* 左半：小熊插画；中间分界线保持很淡 */
+.auth-illustration {
+  margin: 0;
+  display: grid;
+  place-items: center;
+  padding: 12px 8px 10px;
+  border-right: 1px solid rgba(92, 80, 56, .06);
 }
-
-.hero-foot {
-  position: relative;
-  width: min(calc(100% + 52px), 620px);
-  height: min(30vh, 240px);
-  min-height: 150px;
-  margin-left: -52px;
-  margin-bottom: -32px;
-  display: flex;
-  align-items: flex-end;
-}
-
-.hero-foot img {
+.auth-illustration img {
   display: block;
   width: 100%;
-  height: 100%;
+  max-width: 520px;
+  max-height: min(640px, 72vh);
   object-fit: contain;
-  object-position: left bottom;
 }
 
-/* ============ 右侧表单区 ============ */
-.auth-panel {
+/* 右半：登录表单 */
+.auth-form-col {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   justify-content: center;
-  padding: 40px 48px;
-  overflow-y: auto;
+  min-width: 0;
+  padding: 56px 58px;
 }
-
-.auth-card {
-  width: 460px;
-  max-width: 100%;
-  padding: 36px 38px 28px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--r-2xl);
-  box-shadow: var(--shadow-3);
-}
-
 .auth-heading h2 {
   font-family: var(--font-display);
-  font-size: 34px;
+  font-size: clamp(30px, 2.6vw, 38px);
   font-weight: 600;
-  color: var(--text-1);
+  color: #1e2a26;
+  text-align: center;
 }
-
+.auth-heading p {
+  margin-top: 12px;
+  font-size: 14.5px;
+  color: #5f5b53;
+  text-align: center;
+}
 .auth-form {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  margin-top: 22px;
+  gap: 18px;
+  margin-top: 34px;
 }
-
 .form-field {
   display: flex;
   flex-direction: column;
-  gap: 7px;
+  gap: 8px;
 }
-
 .form-label {
-  font-size: var(--fs-caption);
+  font-size: 13px;
   font-weight: 600;
-  color: var(--text-2);
+  color: #4a463e;
   letter-spacing: .02em;
 }
 .req { color: var(--red); margin-left: 2px; }
+.form-error {
+  margin: 0;
+  color: var(--red);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.auth-form .s-btn {
+  margin-top: 6px;
+  height: 52px;
+  font-size: 16px;
+  border-radius: 12px;
+}
+.auth-tips {
+  margin-top: 22px;
+  display: grid;
+  gap: 8px;
+  text-align: center;
+  font-size: 12px;
+  color: #8b8579;
+  line-height: 1.6;
+}
+.auth-tips p { margin: 0; }
+.auth-tips-demo { color: #a39c8e; font-size: 11.5px; }
 .setup-logout {
   all: unset;
-  color: var(--primary);
+  color: #7b6f58;
   font-size: var(--fs-caption);
   cursor: pointer;
 }
 .setup-logout:hover { text-decoration: underline; }
 
-.auth-form .s-btn {
-  margin-top: 10px;
-  height: 50px;
+/* 首次设置：单列卡片 */
+.auth-card--solo {
+  width: min(560px, 94vw);
+  grid-template-columns: 1fr;
 }
 
-.auth-tip {
-  margin-top: 18px;
-  font-size: var(--fs-caption);
-  color: var(--text-4);
-  text-align: center;
-  line-height: 1.7;
-  padding-top: 16px;
-  border-top: 1px solid var(--hairline);
-}
-
-/* ============ 响应式 ============ */
-@media (max-width: 920px) {
-  .auth-shell {
-    grid-template-columns: 1fr;
-  }
-  .auth-hero {
-    display: none;
-  }
-  .auth-panel {
-    background:
-      radial-gradient(circle at 85% 4%, rgba(59, 102, 218, .06), transparent 44%),
-      var(--canvas);
-  }
+@media (max-width: 900px) {
+  .auth-shell { padding: 92px 18px 40px; }
+  .auth-brand { top: 22px; left: 22px; gap: 10px; }
+  .brand-mark { width: 44px; height: 44px; border-radius: 12px; }
+  .brand-name { font-size: 17px; }
+  .brand-sub { font-size: 9px; letter-spacing: .12em; }
   .auth-card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--r-xl);
-    box-shadow: var(--shadow-2);
-    padding: 26px 24px 20px;
+    width: min(480px, 100%);
+    grid-template-columns: 1fr;
+    border-radius: 24px;
   }
+  .auth-illustration { display: none; }
+  .auth-form-col { padding: 34px 24px 30px; }
 }
 
 @media (max-width: 480px) {
-  .auth-panel {
-    padding: 20px 14px;
-    align-items: flex-start;
-    padding-top: max(20px, 8vh);
-  }
-  .auth-card {
-    padding: 20px 16px 16px;
-  }
+  .auth-form-col { padding: 28px 18px 24px; }
+  .auth-shell { padding-top: 84px; }
 }
 </style>
