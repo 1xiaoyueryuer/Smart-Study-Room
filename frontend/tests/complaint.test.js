@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { complaintPayload, repairPriority, complaintDisplayType, serviceKinds, serviceTopics, validateEvidenceFile, serviceProgressPayload } from '../src/composables/complaintForm.js'
+import { complaintPayload, repairPriority, complaintDisplayType, serviceKinds, serviceTopics, validateEvidenceFile, serviceProgressPayload, complaintCategory, isFacilityRepair, parseDescriptionField } from '../src/composables/complaintForm.js'
 
 const base = { description: '工程模拟说明', items: [], context: null }
 
@@ -88,4 +88,58 @@ test('repair handoff payload remains structured with explicit offset and bounds'
   assert.equal(payload.stage, 'handoff')
   assert.equal(payload.handed_off_at, '2026-11-20T09:10:00+08:00')
   assert.throws(() => serviceProgressPayload({ stage: 'unknown', maintenance_channel: 'x', handed_off_at: '2026-11-20T09:10', public_note: 'x' }), /进度类型/)
+})
+
+// ---- 三类问题的分类判定（列表展示与分类筛选共用同一口径） ----
+
+test('occupation complaints are categorised as 预约与座位问题', () => {
+  assert.equal(complaintCategory('occupation', '座位被占用'), '预约与座位问题')
+  assert.equal(complaintCategory('occupation', ''), '预约与座位问题')
+  assert.equal(isFacilityRepair({ type: 'occupation', service_kind: 'facility_repair' }), false)
+})
+
+test('facility repair is decided by service_kind even when the description lacks the repair prefix', () => {
+  // 线上缺陷复现：说明文字为「自动分级验证：multiple」，服务端 service_kind 为 facility_repair
+  const record = { type: 'service', service_kind: 'facility_repair', description: '自动分级验证：multiple' }
+  assert.equal(complaintCategory(record.type, record.description, record.service_kind), '设施报修')
+  assert.equal(isFacilityRepair(record), true)
+  assert.equal(isFacilityRepair({ type: 'service', service_kind: 'facility_repair' }), true, '缺少说明文字时仍按 service_kind 判定')
+})
+
+test('other service problems are categorised as 其他服务问题', () => {
+  const record = { type: 'service', service_kind: 'other_service', description: '环境卫生需要加强' }
+  assert.equal(complaintCategory(record.type, record.description, record.service_kind), '其他服务问题')
+  assert.equal(isFacilityRepair(record), false)
+  assert.equal(isFacilityRepair({ type: 'service', service_kind: 'other_service' }), false)
+})
+
+test('service_kind wins over legacy description prefix', () => {
+  const legacyText = '【设施报修】故障类型：照明/电气；影响范围：one_seat；安全风险：no。'
+  // 服务端标注为其他服务时以 service_kind 为准，不再根据文字误判为设施报修
+  assert.equal(complaintCategory('service', legacyText, 'other_service'), '其他服务问题')
+  assert.equal(isFacilityRepair({ type: 'service', service_kind: 'other_service', description: legacyText }), false)
+})
+
+test('legacy records without service_kind fall back to the description prefix', () => {
+  const repairText = '【设施报修】故障类型：照明/电气；影响范围：one_seat；安全风险：no。'
+  assert.equal(isFacilityRepair({ type: 'service', description: repairText }), true)
+  assert.equal(complaintCategory('service', repairText), '设施报修')
+  assert.equal(isFacilityRepair({ type: 'service', description: '环境卫生需要加强' }), false)
+  assert.equal(complaintCategory('service', '环境卫生需要加强'), '其他服务问题')
+  assert.equal(isFacilityRepair(null), false)
+})
+
+test('single-line question/answer descriptions become a field row', () => {
+  assert.deepEqual(parseDescriptionField('自动分级验证：multiple'), { label: '自动分级验证', value: 'multiple' })
+  assert.deepEqual(parseDescriptionField('自动分级验证: multiple'), { label: '自动分级验证', value: 'multiple' })
+})
+
+test('multi-line, long-label or non-field descriptions stay as body text', () => {
+  assert.equal(parseDescriptionField(['【设施报修】故障类型：照明/电气；影响范围：单座。', '具体情况：', '台灯不亮'].join('\n')), null)
+  assert.equal(parseDescriptionField('台灯不亮'), null)
+  assert.equal(parseDescriptionField(''), null)
+  assert.equal(parseDescriptionField(null), null)
+  assert.equal(parseDescriptionField('这是一个超过二十个字的非常长的问题描述前缀内容：回答'), null)
+  assert.equal(parseDescriptionField('台灯坏了。具体情况：晚上无法看书'), null)
+  assert.equal(parseDescriptionField('备注：'), null)
 })
