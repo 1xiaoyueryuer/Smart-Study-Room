@@ -154,7 +154,7 @@ onBeforeUnmount(() => { alive = false; detailSequence++; pager.dispose() })
         <RecordPageControls :snapshot="snapshot" :query="snapshotQuery" :fields="fields" :disabled="loading" @page="pager.turn" />
       </section>
 
-      <section class="card detail-panel">
+      <section class="card detail-panel" :class="{'align-empty': !detail && !visibleItems.length}">
         <div class="detail-head">
           <h3>详情</h3>
           <div class="row-actions">
@@ -219,11 +219,15 @@ onBeforeUnmount(() => { alive = false; detailSequence++; pager.dispose() })
 .detail-panel { display: flex; flex-direction: column; min-width: 0; min-height: 420px; }
 /* 未选中记录时，空态在详情卡片内上下居中 */
 .detail-panel :deep(.empty-state) { flex: 1 1 auto; }
+/* 左栏也没有记录时，右栏空态与左侧「该分类暂无记录」对齐：底部预留分页控件的位置（78px 按钮 + 12px 间距） */
+.detail-panel.align-empty :deep(.empty-state) { flex: 0 0 auto; margin-top: auto; margin-bottom: 90px; }
 .detail-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 12px; margin-bottom: 14px; border-bottom: 1px solid var(--hairline); }
 .text-link { color: var(--primary); font-size: var(--fs-caption); text-decoration: none; }
 .text-link:hover { text-decoration: underline; }
 @media (max-width: 960px) {
   .complaint-workbench { grid-template-columns: 1fr; }
+  /* 单列排列时右栏独立成卡，空态恢复居中 */
+  .detail-panel.align-empty :deep(.empty-state) { flex: 1 1 auto; margin: 0; }
   .view-heading.with-action { align-items: flex-start; flex-direction: column; }
 }
 </style>
