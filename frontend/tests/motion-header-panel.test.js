@@ -250,3 +250,26 @@ test('header panel emits its open state, survives mount, and always closes on un
   assert.equal(page.open.value, false, '卸载时必须收起')
   assert.equal(document.listeners.filter(([type]) => type === 'pointerdown').length, 0)
 })
+
+test('motion instructions stay inert without window, matchMedia or document', async () => {
+  const source = await readFile(new URL('../src/composables/motion.js', import.meta.url), 'utf8')
+  const { gsap, calls } = gsapMock()
+  const context = vm.createContext({ console })
+  const module = new vm.SourceTextModule(source, { context })
+  await module.link(() => new vm.SyntheticModule(['gsap'], function () { this.setExport('gsap', gsap) }, { context }))
+  await module.evaluate()
+  const { pageMotion, revealDirective, listMotionDirective, activeTrackDirective } = module.namespace
+  const el = fakeElement()
+  let entered = false
+  assert.doesNotThrow(() => pageMotion.enter(el, () => { entered = true }))
+  assert.equal(entered, true, '无 matchMedia 时按允许动效处理')
+  assert.equal(calls.find(call => call[0] === 'fromTo')[3].duration, 0.22)
+  assert.doesNotThrow(() => pageMotion.leave(el, () => {}))
+  assert.doesNotThrow(() => pageMotion.cancel(el))
+  assert.doesNotThrow(() => revealDirective.mounted(el))
+  assert.doesNotThrow(() => activeTrackDirective.mounted(el))
+  assert.equal(el.prepended, undefined, '无 document 时不创建活动轨道')
+  assert.equal(calls.filter(call => call[0] === 'matchMedia').length, 0, '无 matchMedia 时不注册媒体查询')
+  assert.doesNotThrow(() => listMotionDirective.mounted(el))
+  assert.doesNotThrow(() => listMotionDirective.updated(el, { value: 1, oldValue: 0 }))
+})
