@@ -196,6 +196,34 @@ class AutomaticRestrictionIntegrationTest {
     }
     @Test void abandonSecondViolationTriggersSameTransactionAndReturnsItsRealUnusedState(){long id=reservation(student,seat1),pending=future(student);currentViolation(student,now().minusDays(1));clock.set(base.atTime(10,1));var result=bookings.action(student,id,"abandon");assertEquals(200,result.status());assertEquals("unused_ended",result.data().get("status"));assertEquals("cancelled",row(pending).get("status"));assertEquals(2,db.count("SELECT count(*) FROM violations WHERE user_id=?",student));assertEquals(1,automaticCount(student));}
     @Test void newBookingTyped403CommitsEvaluationAndNoShowFacts()throws Exception{String owner=token("student");long id=reservation(student,seat1);currentViolation(student,now().minusDays(1));clock.set(base.atTime(10,15));http.perform(body(post("/api/reservations"),new Requests.Reservation(seat2,base.plusDays(1).toString(),"14:00","15:00"),owner)).andExpect(status().isForbidden()).andExpect(jsonPath("$.details.active_restrictions[0].automatic_evaluation.source_violations.length()").value(2));assertEquals("unused_ended",row(id).get("status"));assertEquals(1,automaticCount(student));}
+    @Test void appliedRestrictionStillBlocksBookingsWhenServerClockMovesBack() throws Exception {
+        String owner = token("student");
+        long missed = reservation(student, seat1);
+        long pending = future(student);
+        currentViolation(student, now().minusDays(1));
+
+        var appliedAt = base.atTime(10, 15);
+        clock.set(appliedAt);
+        bookings.tick();
+        long restriction = automatic(student);
+        assertEquals("unused_ended", row(missed).get("status"));
+        assertEquals("cancelled", row(pending).get("status"));
+        assertEquals(2, db.count("SELECT count(*) FROM violations WHERE user_id=?", student));
+        assertEquals(appliedAt.toString(), restrictionPolicy.required(restriction).get("effects_applied_at"));
+        assertEquals(appliedAt.toString(), db.one("SELECT created_at FROM notifications WHERE restriction_id=? AND type='restriction_started'", restriction).get("created_at"));
+        String before = facts();
+
+        clock.set(appliedAt.minusMinutes(1));
+        http.perform(auth(get("/api/booking-eligibility"), owner)).andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.can_book").value(false))
+            .andExpect(jsonPath("$.data.active_restrictions[0].id").value(restriction));
+        http.perform(body(post("/api/reservations"), new Requests.Reservation(seat2, base.plusDays(1).toString(), "14:00", "15:00"), owner))
+            .andExpect(status().isForbidden()).andExpect(jsonPath("$.details.code").value("booking_restricted"));
+        assertEquals(before, facts());
+
+        clock.set(appliedAt.plusDays(15));
+        assertEquals(true, qualify(student).get("can_book"));
+    }
     @Test void availabilityRemainsReadableButReconcilesAllMyDatesAndAssessment()throws Exception{String owner=token("student");long expired=reservation(student,seat1);currentViolation(student,now().minusDays(1));clock.set(base.atTime(10,15));http.perform(auth(get("/api/availability").param("room_id",Long.toString(room)).param("date",base.plusDays(1).toString()),owner)).andExpect(status().isOk());assertEquals("unused_ended",row(expired).get("status"));assertEquals(1,automaticCount(student));}
     @Test void ownerViolationsFirstReadAndRoomSeatMapBothReachSameAssessmentCore(){
         clock.set(base.atTime(8,0));

@@ -28,6 +28,7 @@ class NotificationIntegrationTest {
     @Autowired Store db;@Autowired MockMvc http;@Autowired ObjectMapper json;@Autowired StringRedisTemplate redis;
     @Autowired BookingService bookings;@Autowired OpeningScheduleService opening;@Autowired SeatCodeService codes;
     @Autowired ComplaintService complaints;@Autowired ComplaintManagementService management;@Autowired ComplaintWorkflowService workflow;
+    @Autowired RestrictionWorkflow restrictions;
     @Autowired MinuteBookingIntegrationTest.TestClock clock;
     long owner,other,admin,room,seat;LocalDate base;String remote,ownerToken,otherToken;
     @BeforeEach void fixture()throws Exception{
@@ -41,7 +42,7 @@ class NotificationIntegrationTest {
     JsonNode getData(String path,String token)throws Exception{return json.readTree(http.perform(get(path).header("Authorization","Bearer "+token)).andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).path("data");}
     JsonNode postData(String path,String token)throws Exception{return json.readTree(http.perform(post(path).header("Authorization","Bearer "+token)).andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).path("data");}
     void page(JsonNode data,int total,int number,int size,int count){assertEquals(total,data.path("total").asInt());assertEquals(number,data.path("page").asInt());assertEquals(size,data.path("page_size").asInt());assertEquals(count,data.path("items").size());OffsetDateTime.parse(data.path("server_now").asText());}
-    long legacy(long user,String type,boolean read){return db.insert("INSERT INTO notifications(user_id,type,title,content,is_read,created_at) VALUES(?,?,'S27 explicit engineering legacy','Old message mentions reservation #999999; do not infer target',?,?)",user,type,read,Timestamp.valueOf(base.atTime(9,0,0,123456000)));}
+    long legacy(long user,String type,boolean read){return db.insert("INSERT INTO notifications(user_id,type,title,content,is_read,created_at) VALUES(?,?,'S27 explicit engineering legacy','Old message mentions reservation #999999; do not infer target',?,?)",user,type,read,Timestamp.valueOf(base.atTime(8,59,59,123456000)));}
     List<Long> ids(JsonNode data){var result=new ArrayList<Long>();data.path("items").forEach(x->result.add(x.path("id").asLong()));return result;}
     @Test void moreThanTwoHundredMessagesHaveTrueTotalsStablePagesAndOwnerWideCounts()throws Exception{
         for(int i=0;i<230;i++)legacy(owner,"system",i<30);for(int i=0;i<4;i++)legacy(other,"system",false);
@@ -55,6 +56,53 @@ class NotificationIntegrationTest {
         http.perform(post("/api/notifications/"+foreign+"/read").header("Authorization","Bearer "+ownerToken)).andExpect(status().isForbidden());http.perform(post("/api/notifications/999999999/read").header("Authorization","Bearer "+ownerToken)).andExpect(status().isNotFound());
         var all=postData("/api/notifications/read_all",ownerToken);assertEquals(1,all.path("marked").asInt());assertEquals(0,all.path("unread_count").asInt());assertEquals(0,postData("/api/notifications/read_all",ownerToken).path("marked").asInt());assertEquals(1,getData("/api/notifications/unread_count",otherToken).path("count").asInt());
         assertEquals(1,db.count("SELECT count(*) FROM notifications WHERE id=? AND is_read",two));legacy(owner,"system",false);assertEquals(1,getData("/api/notifications/unread_count",ownerToken).path("count").asInt());
+    }
+    @Test void clockRollbackDefersFutureNotificationsUntilTheirOriginalCreationTime() throws Exception {
+        long visible = legacy(owner,"system",false);
+        LocalDateTime created = base.atTime(10,0,0,123456000);
+        clock.set(created);
+        String endsAt = created.plusDays(15).atZone(BookingPolicy.CAMPUS_ZONE).toOffsetDateTime().toString();
+        restrictions.create(admin, new Requests.RestrictionCreate(owner, endsAt, "工程模拟预约限制", "工程模拟核实依据", true, key()));
+        var stored = db.one("""
+            SELECT id, to_jsonb(n)::text AS raw FROM notifications n
+            WHERE user_id=? AND type='restriction_started'
+            """, owner);
+        long future = Store.id(stored,"id");
+
+        clock.set(created.minusNanos(1000));
+        var before = getData("/api/notifications",ownerToken);
+        page(before,1,1,20,1);
+        assertEquals(List.of(visible),ids(before));
+        assertEquals(1,before.path("counts").path("total").asInt());
+        assertEquals(1,before.path("counts").path("unread").asInt());
+        assertEquals(1,before.path("counts").path("by_type").path("system").asInt());
+        assertFalse(before.path("counts").path("by_type").has("restriction_started"));
+        page(getData("/api/notifications?type=restriction_started&is_read=false",ownerToken),0,1,20,0);
+        assertEquals(1,getData("/api/notifications/unread_count",ownerToken).path("count").asInt());
+
+        String readFuture = "/api/notifications/" + future + "/read";
+        http.perform(post(readFuture).header("Authorization","Bearer "+ownerToken)).andExpect(status().isNotFound());
+        http.perform(post(readFuture).header("Authorization","Bearer "+otherToken)).andExpect(status().isForbidden());
+        var marked = postData("/api/notifications/read_all",ownerToken);
+        assertEquals(1,marked.path("marked").asInt());
+        assertEquals(0,marked.path("unread_count").asInt());
+        assertEquals(stored.get("raw"),db.one("SELECT to_jsonb(n)::text AS raw FROM notifications n WHERE id=?",future).get("raw"));
+
+        clock.set(created);
+        var after = getData("/api/notifications",ownerToken);
+        page(after,2,1,20,2);
+        assertEquals(List.of(future,visible),ids(after));
+        assertEquals(2,after.path("counts").path("total").asInt());
+        assertEquals(1,after.path("counts").path("by_type").path("restriction_started").asInt());
+        assertEquals(1,getData("/api/notifications/unread_count",ownerToken).path("count").asInt());
+        var restored = after.path("items").get(0);
+        assertFalse(restored.path("is_read").asBoolean());
+        assertEquals("restriction",restored.path("business_type").asText());
+        assertEquals(after.path("server_now").asText(),restored.path("created_at").asText());
+        assertEquals(stored.get("raw"),db.one("SELECT to_jsonb(n)::text AS raw FROM notifications n WHERE id=?",future).get("raw"));
+        var markedAfter = postData(readFuture,ownerToken);
+        assertEquals(1,markedAfter.path("marked").asInt());
+        assertEquals(0,markedAfter.path("unread_count").asInt());
     }
     @Test void oldMessagesWithoutTypedLinksStayUnknownWithoutGuessOrResend()throws Exception{
         long id=legacy(owner,"reservation_success",true);var before=db.one("SELECT to_jsonb(n)::text AS row FROM notifications n WHERE id=?",id).get("row");var response=getData("/api/notifications",ownerToken);page(response,1,1,20,1);var item=response.path("items").get(0);assertEquals(id,item.path("id").asLong());assertTrue(item.path("business_id").isNull()||item.path("business_id").isMissingNode());assertTrue(item.path("business_type").isNull()||item.path("business_type").isMissingNode());assertTrue(item.path("is_read").asBoolean());assertTrue(item.path("content").asText().contains("#999999"));
