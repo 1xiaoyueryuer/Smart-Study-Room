@@ -43,14 +43,14 @@ defineExpose({refresh})
     <RecordFilters v-model="filters" :fields="fields" :disabled="loading" split-dates @apply="pager.apply"/>
     <SBanner v-if="linkedError" type="error" :title="linkedError"/>
     <section v-if="linkedRecord" :id="`restriction-${linkedRecord.id}`" tabindex="-1" class="record-box">
-      <h4>通知关联限制（独立读取）</h4>
+      <h4>这条消息对应的预约限制</h4>
       <RestrictionRecord :record="linkedRecord"/>
     </section>
     <p v-if="loading || eligibilityLoading" role="status">正在读取本人限制及服务端资格…</p>
     <SBanner v-if="eligibilityError" type="error" :title="eligibilityError"/>
     <p v-if="eligibility && !eligibilityError && !eligibilityLoading" role="status">{{ eligibilityText(eligibility) }}。</p>
     <section v-if="eligibility && !eligibilityError && !eligibilityLoading && eligibility.active_restrictions.length" class="record-box eligibility-box">
-      <p>当前有 {{ eligibility.active_restrictions.length }} 条独立有效限制；解除一条不代表其他记录也已解除。</p>
+      <p>当前有 {{ eligibility.active_restrictions.length }} 条有效预约限制；解除其中一条后，其余限制仍有效。</p>
       <RestrictionRecord v-for="record in eligibility.active_restrictions" :key="record.id" :record="record" collapse-details/>
     </section>
     <p v-if="!eligibility && !eligibilityError && !eligibilityLoading">预约资格尚未读取。</p>

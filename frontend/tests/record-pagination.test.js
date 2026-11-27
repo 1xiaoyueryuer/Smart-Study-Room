@@ -32,6 +32,7 @@ test('notification violation target outside page is fetched independently and st
 })
 test('notification restriction target outside first page uses safe single endpoint independently of current eligibility error',async()=>{
  const p=await component('../src/components/RestrictionsPanel.vue',{'vue-router':{useRoute:()=>({query:{restriction_id:'99'}})},'../api/restriction':{listMyRestrictions:async query=>({data:envelope(rows(1,20),query)}),getMyRestriction:async id=>({data:{id,status:'released',reason:'本人安全单条'}}),getBookingEligibility:async()=>{throw new Error('eligibility unavailable')}},'../composables/restrictionForm.js':{validEligibility,eligibilityText}},'items,linkedRecord,eligibility,eligibilityError,refresh');await p.refresh();assert.equal(p.items.value.some(r=>r.id===99),false);assert.equal(p.linkedRecord.value.id,99);assert.equal(p.eligibility.value,null);assert.match(p.eligibilityError.value,/unavailable/)
+ const source=await readFile(new URL('../src/components/RestrictionsPanel.vue',import.meta.url),'utf8');assert.match(source,/这条消息对应的预约限制/);assert.match(source,/解除其中一条后，其余限制仍有效/);assert.doesNotMatch(source,/通知关联限制|独立读取|独立有效限制/)
 })
 test('admin restriction private evidence is read from single detail, never assumed present on paginated list',async()=>{
  const listRow={id:90,status:'active',version:1,subject:{id:2,role:'student'},source:'manual',reason:'公开原因'},requests=[]

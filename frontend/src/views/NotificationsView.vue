@@ -8,7 +8,7 @@ import {useNotificationStore} from '../stores/notification'
 import {useAuthStore} from '../stores/auth'
 import {createRecordPager} from '../composables/recordPage.js'
 import {reviewNotificationTarget} from '../composables/reviewManagement.js'
-import {validNotificationPage,validReadReceipt,reservationTarget,appealTarget,restrictionTarget,violationTarget,complaintTarget,hasNotificationTarget} from '../composables/notificationPage.js'
+import {validNotificationPage,validReadReceipt,reservationTarget,appealTarget,restrictionTarget,violationTarget,complaintTarget,hasNotificationTarget,restrictionNoticeOf,notificationContent} from '../composables/notificationPage.js'
 import RecordPageControls from '../components/RecordPageControls.vue'
 import AppIcon from '../components/AppIcon.vue'
 import SButton from '../components/ui/SButton.vue'
@@ -29,6 +29,8 @@ const {items:list,loading,error,snapshot,snapshotQuery}=pager
 const buckets=computed(()=>({all:snapshot.value?.counts?.total??0,unread:snapshot.value?.counts?.unread??0,...(snapshot.value?.counts?.by_type||{})}))
 const typeNav=computed(()=>Object.entries(typeMeta).map(([key,meta])=>({key,label:meta.text})))
 const category=ref('all'),selected=ref(null)
+
+const selectedRestrictionNotice = computed(() => restrictionNoticeOf(selected.value))
 
 const typeMeta = {
   reservation_checkin:{text:'签到成功',color:'var(--green-strong)',bg:'var(--green-weak)'},
@@ -136,11 +138,11 @@ onMounted(pager.refresh);onBeforeUnmount(()=>{alive=false;pager.dispose()})
 <template>
   <div class="page-view notifications-page">
     <header class="view-heading has-page-help with-action" data-page-title>
-      <div class="heading-copy"><h1>消息中心</h1><p class="heading-sub">预约、管理取消、违规限制、申诉与反馈的业务结果通知；已读不代表业务已处理。</p></div>
+      <div class="heading-copy"><h1>消息中心</h1><p class="heading-sub">预约、取消、限制、申诉和反馈的消息都会显示在这里。</p></div>
       <div class="head-actions">
         <SButton :disabled="busy||!list.length" :loading="markingAll" @click="onMarkAll">全部标记已读</SButton>
       </div>
-      <PageHelp title="消息说明"><ul class="tips"><li>消息已读不代表业务已处理或申诉期限重置。</li><li>数量汇总覆盖本人的全部消息，不受当前分类限制。</li><li>无可靠关联的历史消息不根据正文猜测目标。</li></ul></PageHelp>
+      <PageHelp title="消息说明"><ul class="tips"><li>标记已读只会更新消息状态，不会替你取消预约或提交申诉，也不会延长申诉截止时间。</li><li>消息总数和未读数按全部分类统计，切换分类后统计口径不变。</li><li>部分较早的消息可能没有相关事项入口，可到个人中心查看预约、违规或限制记录。</li></ul></PageHelp>
     </header>
 
     <SBanner v-if="notifStore.error" type="error" :title="notifStore.error"/>
@@ -181,7 +183,27 @@ onMounted(pager.refresh);onBeforeUnmount(()=>{alive=false;pager.dispose()})
             <SButton size="sm" @click="closeDetail">关闭</SButton>
           </header>
           <h3>{{ selected.title }}</h3>
-          <p class="detail-content">{{ selected.content }}</p>
+          <section v-if="selectedRestrictionNotice" class="restriction-notice" aria-label="预约限制详情">
+            <dl class="restriction-notice__facts">
+              <div>
+                <dt>暂停原因</dt>
+                <dd>{{ selectedRestrictionNotice.reason }}</dd>
+              </div>
+              <div class="restriction-notice__deadline">
+                <dt>限制截止时间</dt>
+                <dd><time>{{ selectedRestrictionNotice.deadline }}</time></dd>
+              </div>
+              <div>
+                <dt>现有预约</dt>
+                <dd class="restriction-notice__appointments">
+                  <p v-if="selectedRestrictionNotice.cancelledPendingCount">已取消 {{ selectedRestrictionNotice.cancelledPendingCount }} 条尚未签到的预约。</p>
+                  <p v-else>没有尚未签到的预约因此次限制而取消。</p>
+                  <p>已签到的预约可继续使用至原定结束时间。</p>
+                </dd>
+              </div>
+            </dl>
+          </section>
+          <p v-else class="detail-content">{{ notificationContent(selected) }}</p>
 
           <section v-if="selected.type==='management_cancelled'" class="cancel-card">
             <h4>资源管理取消</h4>
@@ -271,6 +293,14 @@ onMounted(pager.refresh);onBeforeUnmount(()=>{alive=false;pager.dispose()})
 .detail-head time { color: var(--text-4); font-size: var(--fs-caption); }
 .notif-detail-panel h3 { font-size: 26px; color: var(--text-1); margin-bottom: 12px; }
 .detail-content { white-space: pre-wrap; color: var(--text-2); line-height: 1.75; }
+.restriction-notice { margin: 2px 0 12px; padding: 14px 0 16px; border-bottom: 1px solid var(--hairline); }
+.restriction-notice__facts { display: grid; gap: 14px; margin: 0; }
+.restriction-notice__facts > div { display: grid; grid-template-columns: minmax(112px, 150px) minmax(0, 1fr); gap: 12px; align-items: start; }
+.restriction-notice__facts dt { color: var(--text-3); font-size: var(--fs-caption); }
+.restriction-notice__facts dd { min-width: 0; margin: 0; color: var(--text-1); line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+.restriction-notice__deadline dd { color: var(--primary-active); font-size: 18px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.restriction-notice__appointments { display: grid; gap: 4px; }
+.restriction-notice__appointments p { margin: 0; }
 .cancel-card { margin-top: 18px; padding: 16px 18px; border: 1px solid var(--amber-weak); background: var(--amber-faint); border-radius: var(--r-lg); display: grid; gap: 8px; }
 .cancel-card h4 { font-family: var(--font-display); color: var(--text-1); font-size: 16px; }
 .cancel-card p { color: var(--text-2); font-size: var(--fs-body-sm); line-height: 1.65; }
@@ -281,5 +311,8 @@ onMounted(pager.refresh);onBeforeUnmount(()=>{alive=false;pager.dispose()})
 @media (max-width: 960px) {
   .notif-workbench { grid-template-columns: 1fr; }
   .notif-list-panel { max-height: none; }
+}
+@media (max-width: 560px) {
+  .restriction-notice__facts > div { grid-template-columns: minmax(0, 1fr); gap: 4px; }
 }
 </style>

@@ -26,6 +26,18 @@ test('badge authentication changes invalidate old response and mutation receipt 
 test('message page uses server totals and current category filtering',async()=>{
  const p=await page();await p.pager.refresh();assert.equal(p.snapshot.value.total,350);assert.equal(p.buckets.value.all,350);assert.equal(p.buckets.value.unread,7);assert.equal(p.list.value.length,1);p.selectCategory('reservation');assert.equal(p.visibleItems.value.length,1);assert.equal(p.buckets.value.legacy_unknown,50);assert.equal(p.store.unread,7)
 })
+test('restriction notice formats persisted ISO deadlines as campus time to seconds and preserves actual effects',async()=>{
+ const notice={...item(),type:'restriction_started',content:'系统已按对应的违规规则暂停新预约。\n公开原因：\n15天内累计两条有效违规，暂停新预约15天\n原定截止：2026-12-14T10:45:32.869980+08:00\n当前已取消仍有效待签到预约0条，使用中预约可继续至原定结束。'}
+ assert.deepEqual(notificationPage.restrictionNoticeOf(notice),{reason:'15天内累计两条有效违规，暂停新预约15天',deadline:'2026-12-14 10:45:32',cancelledPendingCount:0})
+ assert.equal(notificationPage.restrictionNoticeOf({...notice,content:notice.content.replace('预约0条','预约2条')}).cancelledPendingCount,2)
+ assert.equal(notificationPage.restrictionNoticeOf({...notice,type:'restriction_released'}),null)
+ assert.equal(notificationPage.restrictionNoticeOf({...notice,content:'损坏的限制通知'}),null)
+ assert.equal(notificationPage.notificationContent({...notice,content:'历史限制截止：2026-12-14T10:45:32.869980+08'}),'历史限制截止：2026-12-14 10:45:32')
+ assert.equal(notificationPage.notificationContent({...notice,type:'system',content:'系统记录：2026-12-14T10:45:32.869980+08'}),'系统记录：2026-12-14T10:45:32.869980+08')
+ const source=await readFile(new URL('../src/views/NotificationsView.vue',import.meta.url),'utf8')
+ assert.match(source,/标记已读只会更新消息状态/);assert.match(source,/消息总数和未读数按全部分类统计/);assert.match(source,/没有相关事项入口/)
+ assert.match(source,/v-if="selectedRestrictionNotice"/);assert.match(source,/限制截止时间/);assert.doesNotMatch(source,/无可靠关联的历史消息不根据正文猜测目标|数量汇总覆盖本人的全部消息/)
+})
 test('typed business targets cannot be guessed from body or fabricated derived IDs',()=>{
  assert.equal(notificationPage.reservationTarget(item()).query.reservation_id,'11');assert.equal(notificationPage.reservationTarget({type:'reservation_success',content:'预约#99',business_type:'reservation',business_id:99}),null);assert.equal(notificationPage.appealTarget({type:'appeal_reviewed',content:'申诉#3'}),null);assert.equal(notificationPage.complaintTarget({type:'complaint_feedback',complaint_id:'8'}),null)
  assert.equal(notificationPage.complaintTarget({type:'complaint_priority_assessed',complaint_id:88}),'/complaints/88');assert.equal(notificationPage.complaintTarget({type:'complaint_initial_arrangement',complaint_id:89}),'/complaints/89');assert.equal(notificationPage.complaintTarget({type:'complaint_service_progress',complaint_id:90}),'/complaints/90');const both={type:'restriction_cancelled',reservation_id:70,restriction_id:90};assert.equal(notificationPage.reservationTarget(both).query.reservation_id,'70');assert.equal(notificationPage.restrictionTarget(both).query.restriction_id,90);assert.equal(notificationPage.hasNotificationTarget({type:'legacy_unknown',content:'预约#1'},reviewNotificationTarget),false)
