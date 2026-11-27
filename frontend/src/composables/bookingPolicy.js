@@ -12,6 +12,15 @@ export function normalizeStartTime(value) {
   if (!match) throw new Error('请输入有效的24小时制开始时间，例如9或9:00')
   return `${String(Number(match[1])).padStart(2,'0')}:${match[2] || '00'}`
 }
+export function parseLearningDuration(value, minMinutes, maxMinutes) {
+  const match = value.trim().match(/^(\d{1,2})(?:[:：]([0-5]\d))?$/)
+  if (!match) throw new Error('请输入有效的学习时长，例如 01:30')
+  const minutes = Number(match[1]) * 60 + Number(match[2] || 0)
+  if (minutes < minMinutes || minutes > maxMinutes) {
+    throw new Error(`学习时长须在 ${minuteText(minMinutes)}–${minuteText(maxMinutes)} 之间`)
+  }
+  return minutes
+}
 export function serverStartMinute(policy) {
   const match = policy.server_now?.match(/T([01][0-9]|2[0-3]):([0-5][0-9])(?::([0-5][0-9])(?:\.([0-9]+))?)?\+08:00$/)
   if (!match || policy.campus_zone !== 'Asia/Shanghai') throw new Error('服务端校园时间格式无效，请重新读取预约政策')

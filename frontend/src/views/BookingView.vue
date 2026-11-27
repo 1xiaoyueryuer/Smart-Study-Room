@@ -19,7 +19,7 @@ import SSelect from '../components/ui/SSelect.vue'
 import STag from '../components/ui/STag.vue'
 import SInput from '../components/ui/SInput.vue'
 import SBanner from '../components/ui/SBanner.vue'
-import { minuteValue, minuteText, normalizeStartTime, serverStartMinute, validateAvailabilitySnapshot } from '../composables/bookingPolicy.js'
+import { minuteValue, minuteText, normalizeStartTime, parseLearningDuration, serverStartMinute, validateAvailabilitySnapshot } from '../composables/bookingPolicy.js'
 
 // ---- 条件区状态 ----
 const rooms = ref([])
@@ -63,7 +63,8 @@ function pickFloor(value) {
   return pickRoom(first?.id ?? null)
 }
 const roomId = ref(null)
-const strategy = ref('duration'), requiredDraft = ref('120'), searchStart = ref(''), queryDirty = ref(true)
+const strategy = ref('duration'), durationInput = ref(''), searchStart = ref(''), queryDirty = ref(true)
+const hasSearchInputs = computed(() => Boolean(searchStart.value.trim() && durationInput.value.trim()))
 const strategyLabel = '满足学习时长'
 // 座位偏好是时间与时长满足后的次级排序条件，不隐藏任何可约座位。
 const preferences = ref([])
@@ -81,9 +82,23 @@ const rankedResults = computed(() => {
 const shortfall = computed(() => shortfallText(availability.value?.learning_minutes, start.value, end.value))
 const date = ref(''), start = ref(''), end = ref('')
 const timePart = value => String(value).padStart(2, '0')
-const hourOptions = Array.from({ length: 15 }, (_, index) => timePart(index + 8))
+const openingHour = 8, lastStartHour = 22
+const hourOptions = Array.from({ length: lastStartHour - openingHour + 1 }, (_, index) => timePart(index + openingHour))
 const minuteOptions = Array.from({ length: 60 }, (_, index) => timePart(index))
-const timePicker = ref(null), timeToggle = ref(null), timeMenuOpen = ref(false)
+const minLearningDuration = 30
+const maxDurationHours = lastStartHour - openingHour
+const maxLearningDuration = maxDurationHours * 60
+const durationHourOptions = Array.from({ length: maxDurationHours + 1 }, (_, index) => timePart(index))
+const durationHour = ref(''), durationMinute = ref('')
+const lastDurationHour = timePart(maxDurationHours)
+const durationMinuteOptions = computed(() => {
+  if (durationHour.value === '00') return minuteOptions.slice(minLearningDuration)
+  if (durationHour.value === lastDurationHour) return minuteOptions.slice(0, 1)
+  return minuteOptions
+})
+const timePicker = ref(null), timeToggle = ref(null)
+const durationPicker = ref(null), durationToggle = ref(null)
+const openTimeMenu = ref('')
 const pickerHour = ref(''), pickerMinute = ref('')
 const pickerMinutes = computed(() => pickerHour.value === '22' ? ['00'] : minuteOptions)
 const selectedWindow = ref(null), results = ref([]), availability = ref(null), presentation = ref('map')
@@ -104,7 +119,7 @@ async function loadEligibility() {
   finally {
     if (alive) {
       eligibilityLoading.value = false
-      if (queryDirty.value && searchStart.value.trim() && roomId.value && !restricted.value) queueSeatSearch()
+      if (queryDirty.value && hasSearchInputs.value && roomId.value && !restricted.value) queueSeatSearch()
     }
   }
 }
@@ -183,7 +198,7 @@ function invalidateQuery() {
 function refreshSeatMap(preserveSelection = false) {
   clearTimeout(seatSearchTimer)
   if (!roomId.value || !date.value || !policy.value) return
-  if (!searchStart.value.trim() || eligibilityLoading.value || restricted.value) return loadInitialLayout()
+  if (!hasSearchInputs.value || eligibilityLoading.value || restricted.value) return loadInitialLayout()
   return loadAvailability(preserveSelection)
 }
 
@@ -194,19 +209,28 @@ function queueSeatSearch() {
   }, 350)
 }
 
-function changeRequired(value) {
-  if (submitting.value || requiredDraft.value === value) return
-  requiredDraft.value = value
-  if (!searchStart.value.trim()) return
+function changeSearchInput(field, value) {
+  if (submitting.value || field.value === value) return
+  const hadSearchInputs = hasSearchInputs.value
+  field.value = value
+  if (!hadSearchInputs && !hasSearchInputs.value) return
   invalidateQuery()
-  queueSeatSearch()
-}
-function changeSearchStart(value) {
-  if (submitting.value || searchStart.value === value) return
-  searchStart.value = value
-  invalidateQuery()
-  if (value.trim()) queueSeatSearch()
+  if (hasSearchInputs.value) queueSeatSearch()
   else void refreshSeatMap()
+}
+function changeDuration(value) { changeSearchInput(durationInput, value) }
+function changeSearchStart(value) { changeSearchInput(searchStart, value) }
+function applyPickedDuration() {
+  if (durationHour.value === lastDurationHour) durationMinute.value = '00'
+  else if (durationMinute.value && !durationMinuteOptions.value.includes(durationMinute.value)) {
+    durationMinute.value = durationMinuteOptions.value[0]
+  }
+  if (durationHour.value && durationMinute.value) changeDuration(`${durationHour.value}:${durationMinute.value}`)
+}
+function normalizeDurationInput() {
+  if (!durationInput.value.trim()) return
+  try { durationInput.value = minuteText(parseLearningDuration(durationInput.value, minLearningDuration, maxLearningDuration)) }
+  catch { /* 保留原输入，供用户按提示修改。 */ }
 }
 function normalizeSearchStart() {
   if (!searchStart.value.trim()) return
@@ -215,8 +239,8 @@ function normalizeSearchStart() {
 }
 function toggleTimeMenu() {
   if (submitting.value || !policy.value) return
-  if (timeMenuOpen.value) {
-    timeMenuOpen.value = false
+  if (openTimeMenu.value === 'start') {
+    openTimeMenu.value = ''
     return
   }
   pickerHour.value = ''
@@ -228,19 +252,40 @@ function toggleTimeMenu() {
       pickerMinute.value = minute
     }
   } catch { /* 未填完整时由用户选择小时和分钟。 */ }
-  timeMenuOpen.value = true
+  openTimeMenu.value = 'start'
+}
+function toggleDurationMenu() {
+  if (submitting.value || !policy.value) return
+  if (openTimeMenu.value === 'duration') {
+    openTimeMenu.value = ''
+    return
+  }
+  durationHour.value = ''
+  durationMinute.value = ''
+  try {
+    const minutes = parseLearningDuration(durationInput.value, minLearningDuration, maxLearningDuration)
+    const [hour, minute] = minuteText(minutes).split(':')
+    durationHour.value = hour
+    durationMinute.value = minute
+  } catch { /* 未填完整时由用户选择小时和分钟。 */ }
+  openTimeMenu.value = 'duration'
 }
 function applyPickedTime() {
   if (pickerHour.value === '22') pickerMinute.value = '00'
   if (pickerHour.value && pickerMinute.value) changeSearchStart(`${pickerHour.value}:${pickerMinute.value}`)
 }
 function closeTimeMenuOnOutside(event) {
-  if (!timePicker.value?.contains(event.target)) timeMenuOpen.value = false
+  if (!openTimeMenu.value) return
+  const picker = openTimeMenu.value === 'start' ? timePicker : durationPicker
+  if (!picker.value?.contains(event.target)) openTimeMenu.value = ''
 }
 function closeTimeMenuOnKey(event) {
-  if (event.key !== 'Escape' || !timeMenuOpen.value) return
-  timeMenuOpen.value = false
-  if (timePicker.value?.contains(event.target)) timeToggle.value?.focus()
+  if (event.key !== 'Escape' || !openTimeMenu.value) return
+  const isStart = openTimeMenu.value === 'start'
+  const picker = isStart ? timePicker : durationPicker
+  const toggle = isStart ? timeToggle : durationToggle
+  openTimeMenu.value = ''
+  if (picker.value?.contains(event.target)) toggle.value?.focus()
 }
 function currentQueryMatches(query) {
   if (roomId.value !== query.room_id || date.value !== query.date || strategy.value !== query.strategy) return false
@@ -268,9 +313,8 @@ function showWindows(windows) { return windows?.length ? windows.map(window => `
 function validateSearchCriteria() {
   const startTime = normalizeStartTime(searchStart.value)
   const startMinute = minuteValue(startTime)
-  if (startMinute < 8 * 60 || startMinute > 22 * 60) throw new Error('开始时间须在08:00—22:00之间')
-  if (!/^[0-9]+$/.test(String(requiredDraft.value)) || !Number.isSafeInteger(Number(requiredDraft.value)) || Number(requiredDraft.value) < 30) throw new Error('学习时长须为至少30分钟的整数')
-  const learningMinutes = Number(requiredDraft.value)
+  if (startMinute < openingHour * 60 || startMinute > lastStartHour * 60) throw new Error('开始时间须在08:00—22:00之间')
+  const learningMinutes = parseLearningDuration(durationInput.value, minLearningDuration, maxLearningDuration)
   return { startTime, learningMinutes }
 }
 
@@ -461,7 +505,8 @@ async function confirmBooking() {
   const selectedSeat = selected.value
   if (eligibilityLoading.value || restricted.value || queryDirty.value || !policy.value || !room.value?.enabled || !selectedSeat || submitting.value || loading.value || mapError.value || !selectedWindow.value || selectedSeat.status !== 'available' || !hasWindows(selectedSeat)) return
   if (selectedWindow.value.seat_id !== selectedSeat.id || selectedWindow.value.room_id !== room.value.id) { bookingError.value = '所选座位与空档不一致，请重新选择'; return }
-  const attempt = {room_id:room.value.id, seat_id:selectedSeat.id, date:date.value, start_time:start.value, end_time:end.value, filter_start_time:searchStart.value, learning_minutes:Number(requiredDraft.value), room_name:room.value.name, seat_no:selectedSeat.seat_no, window:{...selectedWindow.value}, computed_at:availability.value?.computed_at, strategy:availability.value?.strategy, required_minutes:availability.value?.required_minutes}
+  const { startTime, learningMinutes } = validateSearchCriteria()
+  const attempt = {room_id:room.value.id, seat_id:selectedSeat.id, date:date.value, start_time:start.value, end_time:end.value, filter_start_time:startTime, learning_minutes:learningMinutes, room_name:room.value.name, seat_no:selectedSeat.seat_no, window:{...selectedWindow.value}, computed_at:availability.value?.computed_at, strategy:availability.value?.strategy, required_minutes:availability.value?.required_minutes}
   submitting.value = true
   bookingError.value = ''; restrictionFailure.value = null
   try {
@@ -572,11 +617,11 @@ onMounted(async () => {
           <div class="filter-row">
             <label for="booking-start-time">开始时间（08:00—22:00，24小时制）</label>
             <div ref="timePicker" class="time-picker">
-              <SInput id="booking-start-time" :model-value="searchStart" inputmode="text" maxlength="5" placeholder="9、9:00 或 09:00" :disabled="submitting || !policy" @update:model-value="changeSearchStart" @focus="timeMenuOpen = false" @blur="normalizeSearchStart" />
-              <button ref="timeToggle" class="time-picker__toggle" type="button" :disabled="submitting || !policy" :aria-expanded="timeMenuOpen" aria-label="展开开始时间选项" aria-controls="booking-start-time-options" @click="toggleTimeMenu">
+              <SInput id="booking-start-time" :model-value="searchStart" inputmode="text" maxlength="5" placeholder="9、9:00 或 09:00" :disabled="submitting || !policy" @update:model-value="changeSearchStart" @focus="openTimeMenu = ''" @blur="normalizeSearchStart" />
+              <button ref="timeToggle" class="time-picker__toggle" type="button" :disabled="submitting || !policy" :aria-expanded="openTimeMenu === 'start'" aria-label="展开开始时间选项" aria-controls="booking-start-time-options" @click="toggleTimeMenu">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
               </button>
-              <div v-if="timeMenuOpen" id="booking-start-time-options" class="time-picker__menu" role="group" aria-label="开始时间选项">
+              <div v-if="openTimeMenu === 'start'" id="booking-start-time-options" class="time-picker__menu" role="group" aria-label="开始时间选项">
                 <label class="time-picker__part">小时
                   <select v-model="pickerHour" @change="applyPickedTime">
                     <option disabled value="">请选择</option>
@@ -592,7 +637,48 @@ onMounted(async () => {
               </div>
             </div>
           </div>
-          <label class="filter-row">学习时长（分钟）<SInput :model-value="requiredDraft" inputmode="numeric" :disabled="submitting || !policy" placeholder="至少30的整数" @update:model-value="changeRequired" /></label>
+          <div class="filter-row">
+            <label for="booking-duration">学习时长</label>
+            <div ref="durationPicker" class="time-picker">
+              <SInput
+                id="booking-duration"
+                :model-value="durationInput"
+                inputmode="text"
+                maxlength="5"
+                placeholder="例如 01:30"
+                :disabled="submitting || !policy"
+                @update:model-value="changeDuration"
+                @focus="openTimeMenu = ''"
+                @blur="normalizeDurationInput"
+              />
+              <button
+                ref="durationToggle"
+                class="time-picker__toggle"
+                type="button"
+                :disabled="submitting || !policy"
+                :aria-expanded="openTimeMenu === 'duration'"
+                aria-label="展开学习时长选项"
+                aria-controls="booking-duration-options"
+                @click="toggleDurationMenu"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
+              </button>
+              <div v-if="openTimeMenu === 'duration'" id="booking-duration-options" class="time-picker__menu" role="group" aria-label="学习时长选项">
+                <label class="time-picker__part">小时
+                  <select v-model="durationHour" :disabled="submitting" @change="applyPickedDuration">
+                    <option disabled value="">请选择</option>
+                    <option v-for="hour in durationHourOptions" :key="hour" :value="hour">{{ hour }}</option>
+                  </select>
+                </label>
+                <label class="time-picker__part">分钟
+                  <select v-model="durationMinute" :disabled="!durationHour || submitting" @change="applyPickedDuration">
+                    <option v-if="!durationMinute" disabled value="">请选择</option>
+                    <option v-for="minute in durationMinuteOptions" :key="minute" :value="minute">{{ minute }}</option>
+                  </select>
+                </label>
+              </div>
+            </div>
+          </div>
           <div class="filter-row">
             <label>座位偏好（可选）</label>
             <div class="pref-chips" role="group" aria-label="座位偏好">
@@ -620,11 +706,11 @@ onMounted(async () => {
             <h3>选择座位</h3>
             <div class="row-actions">
               <SButton size="sm" :variant="presentation === 'map' ? 'primary' : 'secondary'" @click="presentation='map'">平面图</SButton>
+              <SButton size="sm" :disabled="submitting || queryDirty || !room || loading || mapError || !seats.length" aria-label="打开 3D 选座" @click="open3D">3D</SButton>
               <SButton size="sm" :variant="presentation === 'list' ? 'primary' : 'secondary'" @click="presentation='list'">空档列表</SButton>
               <SButton size="sm" :disabled="submitting || !roomId || !policy || loading" @click="refreshSeatMap(true)">刷新</SButton>
             </div>
             <span v-if="room" class="room-brief">{{ room.name }} · 开放 {{ showWindows(room.opening_windows) }}</span>
-            <SButton :disabled="submitting || queryDirty || !room || loading || mapError || !seats.length" aria-label="打开 3D 选座" @click="open3D">3D</SButton>
           </div>
         </div>
 
@@ -633,7 +719,7 @@ onMounted(async () => {
         <SBanner v-if="mapError && !inputError" type="error" :title="mapErrorText || '座位查询失败，请核对条件并重试'"><SButton size="sm" :disabled="submitting" @click="refreshSeatMap(true)">重试</SButton></SBanner>
         <p v-if="!loading && !mapError && !queryDirty && availability && !results.length" role="status">当前条件下没有可约空档，请调整时间或空间。</p>
         <p v-if="loading" role="status">正在查询可约空档…</p>
-        <p v-else-if="roomId && date && !searchStart.trim() && !restricted && !mapError" role="status">填写开始时间和学习时长后，座位将自动更新。</p>
+        <p v-else-if="roomId && date && !hasSearchInputs && !restricted && !mapError" role="status">填写开始时间和学习时长后，座位将自动更新。</p>
         <div v-if="!loading && !mapError && results.length && presentation === 'list'" class="table-wrap"><div class="table-scroll" tabindex="0" aria-label="连续空档列表，可左右滑动"><table class="table availability-table"><thead><tr><th>顺序 / 座位</th><th>位置</th><th>完整空档</th><th>完整连续时长 / 建议</th><th>等待</th><th>选择</th></tr></thead><tbody><tr v-for="(window,index) in rankedResults" :key="windowKey(window)" :class="{ 'earliest-row': index === 0, 'chosen-row': windowKey(window) === windowKey(selectedWindow) }"><td>{{ index + 1 }} · {{ window.seat_no }}<STag v-if="index===0">首选</STag><STag v-if="isPreferredSeat(seatById.get(window.seat_id))" type="warning">偏好</STag></td><td>{{ window.row_no }}行{{ window.col_no }}列</td><td>{{ window.available_start }}–{{ window.available_end }}</td><td>{{ window.duration_minutes }}分钟<div>建议{{ window.suggested_start }}–{{ window.suggested_end }}</div></td><td>{{ window.wait_minutes }}分钟</td><td><SButton size="sm" :disabled="submitting || restricted" @click="chooseWindow(window)">选择该片段</SButton></td></tr></tbody></table></div></div>
         <div class="responsive-scroll" tabindex="0" aria-label="座位平面图，可左右滑动">
         <div v-loading="loading" class="seat-grid-wrap" @mouseover="onGridOver" @mouseleave="onGridLeave">
