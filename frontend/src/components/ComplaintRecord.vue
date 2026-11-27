@@ -25,15 +25,15 @@ function eventLabel(event) {
 <template>
   <section class="complaint-record">
     <header class="ticket-heading">
-      <div>
-        <span class="ticket-number-label">投诉/维修单号</span>
-        <strong class="ticket-number">{{ complaintNumber(record.id) }}</strong>
-      </div>
-      <div class="ticket-status">
-        <span>{{ complaintDisplayType(record) }}</span>
-        <span class="pill" :class="record.status === 'closed' ? 'pill-success' : record.status === 'submitted' ? 'pill-neutral' : 'pill-warning'">
+      <div class="ticket-row">
+        <span class="ticket-type">{{ complaintDisplayType(record) }}</span>
+        <span class="pill pill-status" :class="record.status === 'closed' ? 'pill-success' : record.status === 'submitted' ? 'pill-neutral' : 'pill-warning'">
           {{ complaintStatuses[record.status] || record.status }}
         </span>
+      </div>
+      <div class="ticket-row">
+        <span class="ticket-number-label">投诉/维修单号</span>
+        <strong class="ticket-number">{{ complaintNumber(record.id) }}</strong>
       </div>
     </header>
 
@@ -120,10 +120,15 @@ function eventLabel(event) {
 
 <style scoped>
 .complaint-record{display:grid;gap:14px;min-width:0;overflow-wrap:anywhere}
-.ticket-heading{display:flex;justify-content:space-between;align-items:center;gap:14px;padding:0 0 14px;border:0;border-bottom:1px solid var(--hairline);border-radius:0;background:transparent}
+/* 详情头两行：每行左标签、右值，行间用浅色细线分隔（随主题深浅自适应，浅色下不刺眼、深色下不消失） */
+.ticket-heading{--ticket-rule:color-mix(in srgb, var(--text-1) 20%, transparent);display:grid;padding:0;border:0;border-bottom:1px solid var(--ticket-rule);border-radius:0;background:transparent}
+.ticket-row{display:flex;align-items:center;justify-content:space-between;gap:14px;min-height:40px;padding:0 0 12px}
+.ticket-row+.ticket-row{padding:12px 0;border-top:1px solid var(--ticket-rule)}
+.ticket-type{color:var(--text-1);font-size:15px;font-weight:600;min-width:0}
+.ticket-heading .pill-status{font-size:13px;padding:3px 11px}
 .ticket-number-label,.record-meta span{display:block;color:var(--text-3);font-size:var(--fs-caption)}
-.ticket-number{font-size:var(--fs-body);letter-spacing:.03em;color:var(--text-1)}
-.ticket-status{display:grid;justify-items:end;gap:6px;color:var(--text-2);font-size:var(--fs-caption)}
+.ticket-number-label{font-size:13.5px}
+.ticket-number{font-size:17px;font-weight:700;letter-spacing:.03em;color:var(--text-1);font-variant-numeric:tabular-nums}
 /* 分区不再用嵌套卡片，正文以「标签左 / 值右」两栏行展示 */
 .record-section{display:grid;gap:12px;min-width:0;padding:0;border:0;border-radius:0;background:transparent}
 .record-section h4{margin:0;font-size:15px;color:var(--text-1);padding-top:6px;border-top:1px solid var(--hairline)}
@@ -142,5 +147,5 @@ function eventLabel(event) {
 .progress-heading{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap}
 .progress-heading time{color:var(--text-3);font-size:var(--fs-caption);font-variant-numeric:tabular-nums}
 .feedback-record{border-color:var(--primary-weak)}
-@media(max-width:560px){.ticket-heading{align-items:flex-start;flex-direction:column}.ticket-status{justify-items:start}.record-section{padding:12px}}
+@media(max-width:560px){.ticket-row{gap:10px}.record-section{padding:12px}}
 </style>
