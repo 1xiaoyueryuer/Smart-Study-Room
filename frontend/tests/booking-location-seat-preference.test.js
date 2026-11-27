@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
-import { locationOptions, locationValue, MISSING_LOCATION } from '../src/composables/bookingLocation.js'
+import { findRoomInZone, locationOptions, locationValue, MISSING_LOCATION } from '../src/composables/bookingLocation.js'
 import { matchesSeatPreferences, rankSeatsByPreference, seatState, stateColors } from '../src/components/seat3d/seatPresentation.js'
 
 test('location filters preserve spaces with missing building or floor metadata', () => {
@@ -19,6 +19,22 @@ test('location filters preserve spaces with missing building or floor metadata',
     { value: 'value:2', label: '2' },
     { value: MISSING_LOCATION, label: '楼层未登记' },
   ])
+})
+
+test('home zone links resolve to the matching room across floors', () => {
+  const rooms = ['3', '2', '1'].flatMap(floor => ['A', 'B', 'C', 'D'].map(zone => ({
+    building: '图书馆',
+    floor,
+    name: `${floor}F-${zone}区`,
+    enabled: floor !== '1' || zone !== 'B',
+  })))
+
+  assert.equal(findRoomInZone(rooms, 'A').name, '1F-A区')
+  assert.equal(findRoomInZone(rooms, 'B').name, '2F-B区')
+  assert.equal(findRoomInZone(rooms, 'C').name, '1F-C区')
+  assert.equal(findRoomInZone(rooms, 'D').name, '1F-D区')
+  assert.equal(findRoomInZone(rooms.filter(room => room.name.endsWith('A区')), 'B'), null)
+  assert.equal(findRoomInZone(rooms, ['A', 'D']), null)
 })
 
 test('3D preference ranking keeps eligible seats first and ranks them stably', () => {

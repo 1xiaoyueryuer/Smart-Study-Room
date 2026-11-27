@@ -297,7 +297,7 @@ function timeText(row) {
             <img class="zone-photo" :src="z.img" alt="" aria-hidden="true" />
             <div class="zone-body">
               <h4>{{ z.name }}</h4>
-              <button type="button" class="zone-cta" @click="router.push('/booking')">去预约</button>
+              <RouterLink class="zone-cta" :to="{ name: 'booking', query: { zone: z.key } }" :aria-label="`预约${z.name}`">去预约</RouterLink>
             </div>
           </article>
         </div>

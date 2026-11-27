@@ -1,6 +1,7 @@
 <script setup>
 import SAnimatedNumber from '../components/ui/SAnimatedNumber.vue'
-import { h, ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { h, ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
+import { onBeforeRouteUpdate, useRoute } from 'vue-router'
 import SeatExplorer from '../components/seat3d/SeatExplorer.vue'
 import SeatPlanDesk from '../components/SeatPlanDesk.vue'
 import BookingConfirmationSummary from '../components/BookingConfirmationSummary.vue'
@@ -11,7 +12,7 @@ import { createReservation, getBookingPolicy } from '../api/reservation'
 import { getAvailability } from '../api/availability'
 import { getBookingEligibility } from '../api/restriction'
 import { windowKey, validateWindowSlot, shortfallText, buildBrowseWindowRows } from '../composables/availabilitySelection.js'
-import { MISSING_LOCATION, locationValue, locationOptions } from '../composables/bookingLocation.js'
+import { MISSING_LOCATION, locationValue, locationOptions, bookingZone, findRoomInZone } from '../composables/bookingLocation.js'
 import { bookingRestrictionDetails, activeBookingRestrictions, isBookingRestricted } from '../composables/restrictionForm.js'
 import RestrictionRecord from '../components/RestrictionRecord.vue'
 import SButton from '../components/ui/SButton.vue'
@@ -22,13 +23,16 @@ import SBanner from '../components/ui/SBanner.vue'
 import { minuteValue, minuteText, normalizeStartTime, parseLearningDuration, serverStartMinute, validateAvailabilitySnapshot } from '../composables/bookingPolicy.js'
 
 // ---- 条件区状态 ----
+const route = useRoute()
 const rooms = ref([])
 const roomsLoading = ref(false)
 const roomsError = ref('')
+const zoneNotice = ref('')
+let roomsLoaded = false
 function floorLabel(value) { if (!value) return ''; return /^[0-9]+$/.test(String(value)) ? `${value}层` : String(value) }
 function zoneLabel(room) {
-  const match = String(room?.name || '').match(/([A-Da-d])区\s*$/)
-  return match ? `${match[1].toUpperCase()}区` : (room?.name || '区域')
+  const zone = bookingZone(room)
+  return zone ? `${zone}区` : (room?.name || '区域')
 }
 const selectedBuilding = ref('')
 const selectedFloor = ref('')
@@ -44,10 +48,25 @@ const zoneRooms = computed(() => rooms.value.filter(room =>
   locationValue(room.building) === selectedBuilding.value && locationValue(room.floor) === selectedFloor.value
 ))
 const zoneOptions = computed(() => zoneRooms.value.map(room => ({ value: room.id, label: locationValue(room.floor) === MISSING_LOCATION ? room.name : zoneLabel(room) })))
-function ensureSelection() {
+function selectLocation(zone) {
+  zoneNotice.value = ''
+  const target = findRoomInZone(rooms.value, zone)
+  if (target) {
+    selectedBuilding.value = locationValue(target.building)
+    selectedFloor.value = locationValue(target.floor)
+    setRoom(target.id)
+    return
+  }
+
   if (!buildingOptions.value.some(option => option.value === selectedBuilding.value)) selectedBuilding.value = buildingOptions.value[0]?.value ?? ''
   if (!floorOptions.value.some(option => option.value === selectedFloor.value)) selectedFloor.value = floorOptions.value[0]?.value ?? ''
-  if (!zoneRooms.value.some(room => room.id === roomId.value)) roomId.value = zoneRooms.value[0]?.id ?? null
+  if (zone !== undefined) {
+    const label = typeof zone === 'string' && /^[A-D]$/i.test(zone) ? `${zone.toUpperCase()}区` : '链接中的区域'
+    zoneNotice.value = `未找到${label}，请选择其他区域。`
+    setRoom(null)
+  } else if (!zoneRooms.value.some(room => room.id === roomId.value)) {
+    setRoom(zoneRooms.value[0]?.id ?? null)
+  }
 }
 function pickBuilding(value) {
   if (submitting.value || selectedBuilding.value === value) return
@@ -63,6 +82,7 @@ function pickFloor(value) {
   return pickRoom(first?.id ?? null)
 }
 const roomId = ref(null)
+const selectedRoom = computed(() => zoneRooms.value.find(item => item.id === roomId.value))
 const strategy = ref('duration'), durationInput = ref(''), searchStart = ref(''), queryDirty = ref(true)
 const hasSearchInputs = computed(() => Boolean(searchStart.value.trim() && durationInput.value.trim()))
 const strategyLabel = '满足学习时长'
@@ -129,12 +149,18 @@ const dateSelectOptions = computed(() => (policy.value?.dates || []).map(value =
   const label = dateLabel(value)
   return { value, label: [label.top, label.sub].filter(Boolean).join(' ') }
 }))
-function pickRoom(id) {
-  if (submitting.value || roomId.value === id) return
+function setRoom(id) {
+  if (roomId.value === id) return
   roomId.value = id
+  show3D.value = false
   room.value = null
   seats.value = []
   invalidateQuery()
+}
+function pickRoom(id) {
+  if (submitting.value || roomId.value === id) return
+  zoneNotice.value = ''
+  setRoom(id)
   return refreshSeatMap()
 }
 function pickDate(value) {
@@ -341,13 +367,8 @@ async function loadRooms() {
     const response = await getRooms()
     if (!alive || ticket !== roomsRequest) return
     rooms.value = response.data
-    const previous = roomId.value
-    ensureSelection()
-    if (roomId.value !== previous) {
-      room.value = null
-      seats.value = []
-      invalidateQuery()
-    }
+    selectLocation(!roomsLoaded || zoneNotice.value ? route.query.zone : undefined)
+    roomsLoaded = true
     await refreshSeatMap()
   } catch (failure) { if (alive && ticket === roomsRequest) roomsError.value = failure.message }
   finally { if (alive && ticket === roomsRequest) roomsLoading.value = false }
@@ -555,6 +576,15 @@ onBeforeUnmount(() => {
   document.removeEventListener('keydown', closeTimeMenuOnKey)
 })
 
+onBeforeRouteUpdate(to => {
+  if (submitting.value && to.query.zone !== route.query.zone) return false
+})
+watch(() => route.query.zone, zone => {
+  if (!roomsLoaded) return
+  selectLocation(zone)
+  void refreshSeatMap()
+})
+
 onMounted(async () => {
   document.addEventListener('pointerdown', closeTimeMenuOnOutside)
   document.addEventListener('keydown', closeTimeMenuOnKey)
@@ -704,24 +734,27 @@ onMounted(async () => {
       <section ref="seatCard" class="card seat-card">
         <div class="card-title-row">
           <div class="seat-heading">
-            <h3>选择座位</h3>
+            <div class="seat-space">
+              <h3>{{ selectedRoom?.name || '选择座位' }}</h3>
+              <span v-if="room" class="room-brief">开放 {{ showWindows(room.opening_windows) }}</span>
+            </div>
             <div class="row-actions">
               <SButton size="sm" :variant="presentation === 'map' ? 'primary' : 'secondary'" @click="presentation='map'">平面图</SButton>
               <SButton size="sm" :disabled="submitting || !room || loading || mapError || !seats.length" aria-label="打开 3D 座位浏览" @click="open3D">3D</SButton>
               <SButton size="sm" :variant="presentation === 'list' ? 'primary' : 'secondary'" @click="presentation='list'">空档列表</SButton>
               <SButton size="sm" :disabled="submitting || !roomId || !policy || loading" @click="refreshSeatMap(true)">刷新</SButton>
             </div>
-            <span v-if="room" class="room-brief">{{ room.name }} · 开放 {{ showWindows(room.opening_windows) }}</span>
           </div>
         </div>
 
+        <SBanner v-if="zoneNotice" type="warning" :title="zoneNotice" />
         <SBanner v-if="room?.closed_reasons?.length" type="warning" :title="room.closed_reasons.join('；')" />
         <SBanner v-if="room && !room.enabled" type="warning" :title="`空间已停用：${room.resource_reason || '未提供原因'}`" />
         <SBanner v-if="mapError && !inputError" type="error" :title="mapErrorText || '座位查询失败，请核对条件并重试'"><SButton size="sm" :disabled="submitting" @click="refreshSeatMap(true)">重试</SButton></SBanner>
         <p v-if="!loading && !mapError && !readOnlyBrowse && availability && !results.length" role="status">当前条件下没有可约空档，请调整时间或空间。</p>
         <p v-if="loading" role="status">正在查询可约空档…</p>
         <p v-else-if="roomId && date && !hasSearchInputs && !restricted && !mapError" role="status">当天空档可先浏览；填写开始时间和学习时长后即可选座。</p>
-        <p v-if="presentation === 'list' && !loading && !mapError && readOnlyBrowse && !browseWindows.length" role="status">当前空间当天没有可用空档。</p>
+        <p v-if="presentation === 'list' && room && !loading && !mapError && readOnlyBrowse && !browseWindows.length" role="status">当前空间当天没有可用空档。</p>
         <div v-if="presentation === 'list' && !loading && !mapError && (readOnlyBrowse ? browseWindows.length : results.length)" class="table-wrap">
           <div class="table-scroll" tabindex="0" aria-label="空档列表，可左右滑动">
             <table class="table availability-table">
@@ -951,7 +984,7 @@ onMounted(async () => {
 .pref-chip:disabled{opacity:.55;cursor:not-allowed}
 .pref-chip--clear{border-style:dashed;color:var(--text-3)}
 .seat-free.seat-preferred{box-shadow:inset 0 0 0 2px var(--amber-strong),0 2px 3px #0000000a}
-.room-brief{color:var(--text-3);font-size:var(--fs-caption);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.room-brief { color: var(--text-3); font-size: var(--fs-caption); overflow-wrap: anywhere; }
 @media(max-width:1100px){.booking-split{grid-template-columns:minmax(0,1fr)}}
 /* 顶部功能行：白磨砂卡（与左侧「预约条件」一致） */
 .booking-top{display:block;margin-bottom:20px;padding:18px 20px 20px;border:1px solid rgba(255,255,255,.55);border-radius:var(--r-xl);background:rgba(255,255,255,.72);backdrop-filter:blur(18px)}
@@ -963,7 +996,7 @@ onMounted(async () => {
 .shortfall-warning{color:var(--amber-strong)}.availability-table{min-width:680px}.earliest-row{background:var(--primary-weak)}.chosen-row{outline:1px solid var(--primary)}.seat-preference{font-size:11px;color:var(--text-2)}
 .resource-summary { font-size:var(--fs-caption); color:var(--text-3); line-height:1.7; overflow-wrap:anywhere; margin-bottom:12px; }
 .seat-card .seat-heading { width: 100%; display: flex; align-items: center; gap: 10px 16px; flex-wrap: wrap; }
-.seat-heading h3 { flex: 0 0 auto; }
+.seat-space { display: grid; gap: 3px; min-width: 0; overflow-wrap: anywhere; }
 /* 自习室选择器 + 示意卡片：与标题相邻、整体靠左 */
 .seat-head-tools {
   display: flex;
