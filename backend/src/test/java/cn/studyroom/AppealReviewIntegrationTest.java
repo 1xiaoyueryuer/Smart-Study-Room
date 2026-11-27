@@ -34,6 +34,7 @@ class AppealReviewIntegrationTest {
     @Autowired ComplaintManagementService management;
     @Autowired RestrictionWorkflow restrictionWorkflow;
     @Autowired BookingService bookings;
+    @Autowired CreditRoundService credit;
     @Autowired SeatCodeService codes;
     @Autowired OpeningScheduleService opening;
     @Autowired ResourceService resources;
@@ -85,12 +86,48 @@ class AppealReviewIntegrationTest {
     MockHttpServletRequestBuilder body(MockHttpServletRequestBuilder req,Object payload,String token)throws Exception{return auth(req,token).contentType("application/json").content(json.writeValueAsString(payload));}
     String file(long owner,String format)throws Exception{return attachments.upload(owner,new MockMultipartFile("file","../../untrusted.html","text/html",image(format,8,8)),AttachmentService.Purpose.APPEAL).get("id").toString();}
     String tables(List<String> names){var result=new LinkedHashMap<String,Object>();for(String table:names)result.put(table,db.list("SELECT to_jsonb(t)::text AS value FROM "+table+" t ORDER BY to_jsonb(t)::text"));return result.toString();}
-    String penalties(){return tables(List.of("users","reservations","usage_records","violations","restrictions","restriction_evaluations","restriction_evaluation_sources","notifications","credit_logs","complaints","complaint_events"));}
-    String facts(){return penalties()+tables(List.of("appeals","appeal_events","appeal_reviews","restriction_recalculations","restriction_operations","evidence_attachments","audit_events"));}
+    String penalties(){return tables(List.of("users","reservations","usage_records","violations","restrictions","restriction_evaluations","restriction_evaluation_sources","notifications","credit_logs","credit_rounds","credit_round_violations","credit_round_events","credit_restriction_evaluations","complaints","complaint_events"));}
+    String facts(){return penalties()+tables(List.of("appeals","appeal_events","appeal_reviews","restriction_recalculations","credit_restriction_recalculations","restriction_operations","evidence_attachments","audit_events"));}
 
     String offset(LocalDateTime value){return AttachmentService.offset(value);}
     long source(long user,LocalDateTime occurred){var start=occurred.minusMinutes(15);long reservation=db.insert("INSERT INTO reservations(user_id,seat_id,res_date,start_time,end_time,status,ended_at,termination_reason) VALUES(?,?,?,CAST(? AS TIME),CAST(? AS TIME),'unused_ended',?,'no_show')",user,seat1,java.sql.Date.valueOf(start.toLocalDate()),start.toLocalTime().toString(),start.plusMinutes(30).toLocalTime().toString(),java.sql.Timestamp.valueOf(occurred));long v=db.insert("INSERT INTO violations(user_id,reservation_id,type,event_key,occurred_at,registered_at,status,reason,source) VALUES(?,?,'no_show',?,?,?,'active','S22明确工程历史构型，未主张现场核实','automatic')",user,reservation,"unused:"+reservation,java.sql.Timestamp.valueOf(occurred),java.sql.Timestamp.valueOf(now()));db.insert("INSERT INTO notifications(user_id,type,title,content,violation_id,created_at) VALUES(?,'violation','工程typed事实','未修改原通知时刻',?,?)",user,v,java.sql.Timestamp.valueOf(now()));return v;}
-    long[] batch(long user,int count){long[] ids=new long[count];for(int n=0;n<count;n++)ids[n]=source(user,now().minusDays(count-n));restrictionWorkflow.eligibility(user);return ids;}
+    long[] batch(long user, int count) {
+        long[] ids = new long[count];
+        var evaluated = now();
+        transactions.executeWithoutResult(status -> {
+            for (int index = 0; index < count; index++) ids[index] = source(user, evaluated.minusDays(count - index));
+            long restriction = db.insert("""
+                INSERT INTO restrictions(user_id,source,starts_at,ends_at,reason,created_at)
+                VALUES (?,'automatic',?,?,'旧版七天自动限制',?)
+                """, user, RestrictionPolicy.stamp(evaluated), RestrictionPolicy.stamp(evaluated.plusHours(168)), RestrictionPolicy.stamp(evaluated));
+            db.update("""
+                INSERT INTO restriction_evaluations(restriction_id,user_id,evaluated_at,window_start,window_end)
+                VALUES (?,?,?,?,?)
+                """, restriction, user, RestrictionPolicy.stamp(evaluated), RestrictionPolicy.stamp(evaluated.minusDays(30)), RestrictionPolicy.stamp(evaluated));
+            for (int index = 0; index < 3; index++) {
+                String original;
+                try {
+                    original = json.writeValueAsString(ViolationService.safeOne(db, ids[index]));
+                } catch (com.fasterxml.jackson.core.JsonProcessingException failure) {
+                    throw new IllegalStateException(failure);
+                }
+                db.update("""
+                    INSERT INTO restriction_evaluation_sources(restriction_id,user_id,violation_id,source_order,violation_snapshot)
+                    VALUES (?,?,?,?,CAST(? AS JSONB))
+                    """, restriction, user, ids[index], index + 1, original);
+            }
+        });
+        restrictionWorkflow.eligibility(user);
+        return ids;
+    }
+    long currentViolation(long user, LocalDateTime occurred) {
+        return transactions.execute(status -> {
+            db.lockBookings();
+            long violation = source(user, occurred);
+            credit.recordViolation(user, violation, now());
+            return violation;
+        });
+    }
     long automatic(long user){return Store.id(db.one("SELECT id FROM restrictions WHERE user_id=? AND source='automatic' ORDER BY id DESC LIMIT 1",user),"id");}
     String state(long id){return Store.text(policy.detail(id,now(),false),"status");}
     long submit(long user,long v)throws Exception{return appealId(appeals.create(user,v,request(List.of())));}
@@ -105,8 +142,19 @@ class AppealReviewIntegrationTest {
         var request=confirmation(admin,appeal,"approved");var response=http.perform(body(post(route(appeal,"confirm")),request,administrator)).andExpect(status().isOk()).andExpect(jsonPath("$.data.appeal.status").value("approved")).andExpect(jsonPath("$.data.effects.violation_action").value("revoked")).andExpect(jsonPath("$.data.eligibility.can_book").value(true)).andExpect(jsonPath("$.data.review.verification_note").value("PRIVATE-S22 仅管理员主动自报核实依据")).andReturn();assertEquals("released",state(original));assertEquals(permanent,tables(List.of("restriction_evaluations","restriction_evaluation_sources","reservations","usage_records","credit_logs")));var changed=db.one("SELECT * FROM violations WHERE id=?",ids[0]);changed.put("status","active");assertEquals(originalViolation,changed);assertEquals(originalNotification,db.one("SELECT * FROM notifications WHERE violation_id=?",ids[0]));
         var safe=http.perform(auth(get("/api/appeals/"+appeal),owner)).andExpect(status().isOk()).andExpect(jsonPath("$.data.review.decision").value("approved")).andExpect(jsonPath("$.data.review.verification_note").doesNotExist()).andExpect(jsonPath("$.data.current_eligibility.can_book").value(true)).andReturn().getResponse().getContentAsString();assertFalse(safe.contains("PRIVATE-S22"));assertFalse(safe.contains("management_context"));assertTrue(json.readTree(response.getResponse().getContentAsString()).path("data").path("effects").path("automatic_recalculations").get(0).path("source_violations").get(0).path("status_after").asText().equals("revoked"));http.perform(auth(get("/api/violations/mine"),owner)).andExpect(status().isOk()).andExpect(jsonPath("$.data.items[?(@.id=="+ids[0]+")].revocation.reason").value(org.hamcrest.Matchers.hasItem("PUBLIC-S22 审核公开理由。")));assertEquals(1,db.count("SELECT count(*) FROM notifications WHERE appeal_id=? AND user_id=? AND type='appeal_reviewed'",appeal,student));assertEquals(1,db.count("SELECT count(*) FROM appeal_reviews"));assertEquals(1,db.count("SELECT count(*) FROM restriction_recalculations"));http.perform(auth(get("/api/admin/appeals?status=approved"),administrator)).andExpect(jsonPath("$.data.items.length()").value(1));http.perform(auth(get("/api/admin/appeals"),administrator)).andExpect(jsonPath("$.data.items.length()").value(1)).andExpect(jsonPath("$.data.items[0].review.verification_note").doesNotExist());
     }
-    @Test void approvalMayCreateNextBatchFromOnlyOtherUnconsumedSourcesAndDoesNotRestoreOldReservations()throws Exception{
-        long[] ids=batch(student,6);long first=automatic(student),appeal=submit(student,ids[0]);long pending=recoveredPending();var outcome=reviews.confirm(admin,appeal,confirmation(admin,appeal,"approved"));assertEquals("released",state(first));assertEquals(false,map(outcome.get("eligibility")).get("can_book"));long second=automatic(student);assertNotEquals(first,second);assertEquals("active",state(second));assertEquals(List.of(ids[3],ids[4],ids[5]),db.list("SELECT violation_id FROM restriction_evaluation_sources WHERE restriction_id=? ORDER BY source_order",second).stream().map(r->Store.id(r,"violation_id")).toList());assertEquals(6,db.count("SELECT count(*) FROM restriction_evaluation_sources"));assertEquals("cancelled",row(pending).get("status"));assertEquals(0,db.count("SELECT count(*) FROM usage_records"));assertEquals("unused_ended",db.one("SELECT status FROM reservations WHERE id=(SELECT reservation_id FROM violations WHERE id=?)",ids[0]).get("status"));assertEquals("released",rows(map(outcome.get("effects")).get("automatic_recalculations")).get(0).get("outcome"));
+    @Test void approvingOldBatchLeavesOtherHistoricalFactsUnaccruedAndDoesNotRestoreOldReservations()throws Exception{
+        long[] ids=batch(student,6);
+        long first=automatic(student),appeal=submit(student,ids[0]),pending=recoveredPending();
+        var outcome=reviews.confirm(admin,appeal,confirmation(admin,appeal,"approved"));
+        assertEquals("released",state(first));
+        assertEquals(true,map(outcome.get("eligibility")).get("can_book"));
+        assertEquals(first,automatic(student));
+        assertEquals(3,db.count("SELECT count(*) FROM restriction_evaluation_sources"));
+        assertEquals(0,db.count("SELECT count(*) FROM credit_round_violations"));
+        assertEquals("pending",row(pending).get("status"));
+        assertEquals(0,db.count("SELECT count(*) FROM usage_records"));
+        assertEquals("unused_ended",db.one("SELECT status FROM reservations WHERE id=(SELECT reservation_id FROM violations WHERE id=?)",ids[0]).get("status"));
+        assertEquals("released",rows(map(outcome.get("effects")).get("automatic_recalculations")).get(0).get("outcome"));
     }
     @Test void rejectChangesNoPenaltyCoreAndAllowsSupplementOnlyInsideOriginalNotificationWindow()throws Exception{
         long id=source(student,now().minusHours(1)),appeal=submit(student,id);source(student,now().minusMinutes(40));source(student,now().minusMinutes(20));long pending=recoveredPending();String unchanged=tables(List.of("violations","restrictions","restriction_evaluations","restriction_evaluation_sources","reservations","usage_records","credit_logs"));var original=appeals.detail(student,appeal);db.update("ALTER TABLE restriction_evaluation_sources ADD CONSTRAINT s22_no_assess CHECK(source_order<>3) NOT VALID");try{var result=reviews.confirm(admin,appeal,confirmation(admin,appeal,"rejected"));assertEquals(unchanged,tables(List.of("violations","restrictions","restriction_evaluations","restriction_evaluation_sources","reservations","usage_records","credit_logs")));assertEquals(List.of(),map(result.get("effects")).get("automatic_recalculations"));assertNull(map(result.get("effects")).get("booking_effects"));assertEquals("pending",row(pending).get("status"));long second=submit(student,id);assertNotEquals(appeal,second);assertEquals(original.get("notification_basis"),appeals.detail(student,second).get("notification_basis"));}finally{db.update("ALTER TABLE restriction_evaluation_sources DROP CONSTRAINT s22_no_assess");}
@@ -124,20 +172,67 @@ class AppealReviewIntegrationTest {
     @Test void elapsedSecondsKeepPreviewValidButSemanticBoundaryInvalidatesWithoutAnyWrite()throws Exception{
         long[] ids=batch(student,3);long appeal=submit(student,ids[0]);var intent=intent(appeal,"approved");String hash=reviews.preview(admin,appeal,intent).get("impact_hash").toString();clock.set(now().plusSeconds(2));assertEquals(hash,reviews.preview(admin,appeal,intent).get("impact_hash"));var old=new Requests.AppealReviewConfirm(intent.version(),intent.decision(),intent.reason(),intent.verificationNote(),true,hash,key());clock.set(now().plusHours(168));String before=facts();assertEquals(409,assertThrows(Api.Failure.class,()->reviews.confirm(admin,appeal,old)).status);assertEquals(before,facts());
     }
-    @org.junit.jupiter.params.ParameterizedTest @org.junit.jupiter.params.provider.ValueSource(strings={"new_candidate","source_revoked","independent_restriction","candidate_window","pending_deadline","user_disabled"})
+    @org.junit.jupiter.params.ParameterizedTest @org.junit.jupiter.params.provider.ValueSource(strings={"new_current_violation","source_revoked","independent_restriction","pending_deadline","user_disabled"})
     void semanticChangesRequireNewPreviewAndOldConfirmationWritesNothing(String change)throws Exception{
-        long[] ids=batch(student,3);long appeal=submit(student,ids[0]);long candidate=source(student,now().minusHours(720).plusSeconds(1));if(change.equals("pending_deadline"))db.insert("INSERT INTO reservations(user_id,seat_id,res_date,start_time,end_time,status) VALUES(?,?,?,'08:46','10:00','pending')",student,seat2,java.sql.Date.valueOf(base));var request=confirmation(admin,appeal,"approved");switch(change){case "new_candidate"->source(student,now().minusMinutes(1));case "source_revoked"->db.update("UPDATE violations SET status='revoked' WHERE id=?",ids[1]);case "independent_restriction"->restrictionWorkflow.create(admin,new Requests.RestrictionCreate(student,offset(now().plusDays(2)),"独立新限制","管理员核实自报",true,key()));case "candidate_window","pending_deadline"->clock.set(now().plusSeconds(61));default->db.update("UPDATE users SET status='disabled' WHERE id=?",student);}String before=facts();assertEquals(409,assertThrows(Api.Failure.class,()->reviews.confirm(admin,appeal,request)).status);assertEquals(before,facts());assertEquals(0,db.count("SELECT count(*) FROM appeal_reviews"));
+        long[] ids=batch(student,3);long appeal=submit(student,ids[0]);if(change.equals("pending_deadline"))db.insert("INSERT INTO reservations(user_id,seat_id,res_date,start_time,end_time,status) VALUES(?,?,?,'08:46','10:00','pending')",student,seat2,java.sql.Date.valueOf(base));var request=confirmation(admin,appeal,"approved");switch(change){case "new_current_violation"->currentViolation(student,now().minusMinutes(1));case "source_revoked"->db.update("UPDATE violations SET status='revoked' WHERE id=?",ids[1]);case "independent_restriction"->restrictionWorkflow.create(admin,new Requests.RestrictionCreate(student,offset(now().plusDays(2)),"独立新限制","管理员核实自报",true,key()));case "pending_deadline"->clock.set(now().plusSeconds(61));default->db.update("UPDATE users SET status='disabled' WHERE id=?",student);}String before=facts();assertEquals(409,assertThrows(Api.Failure.class,()->reviews.confirm(admin,appeal,request)).status);assertEquals(before,facts());assertEquals(0,db.count("SELECT count(*) FROM appeal_reviews"));
+    }
+    @Test void previewExpiresWhenSurvivingViolationReachesItsProbationDeadline()throws Exception{
+        var firstAt = now();
+        currentViolation(student, now().minusMinutes(1));
+        clock.set(firstAt.plusDays(1));
+        long second = currentViolation(student, now().minusMinutes(1));
+        long restriction = automatic(student), appeal = submit(student, second);
+        clock.set(firstAt.plusDays(15).minusSeconds(1));
+        var beforeBoundary = confirmation(admin, appeal, "approved");
+        clock.set(firstAt.plusDays(15));
+        assertEquals("active", state(restriction));
+        String before = facts();
+        assertEquals(409, assertThrows(Api.Failure.class, () -> reviews.confirm(admin, appeal, beforeBoundary)).status);
+        assertEquals(before, facts());
+        reviews.confirm(admin, appeal, confirmation(admin, appeal, "approved"));
+        assertEquals(100, bookings.creditOverview(student).get("score"));
+        assertEquals("released", state(restriction));
     }
     @Test void oldSuccessfulReviewAndCreateReplayArePureEvenWithNewBacklogAndFailingAssessment()throws Exception{
-        long v=source(student,now().minusHours(1));var creation=request(List.of());long appeal=appealId(appeals.create(student,v,creation));var request=confirmation(admin,appeal,"approved");reviews.confirm(admin,appeal,request);source(student,now().minusMinutes(30));source(student,now().minusMinutes(20));source(student,now().minusMinutes(10));db.update("ALTER TABLE restriction_evaluation_sources ADD CONSTRAINT s22_replay_assess CHECK(source_order<>3) NOT VALID");String before=facts();try{assertEquals(true,reviews.confirm(admin,appeal,request).get("replayed"));assertEquals(true,appeals.create(student,v,creation).get("replayed"));assertEquals(before,facts());assertEquals(409,assertThrows(Api.Failure.class,()->reviews.confirm(admin2,appeal,request)).status);}finally{db.update("ALTER TABLE restriction_evaluation_sources DROP CONSTRAINT s22_replay_assess");}
+        long v=source(student,now().minusHours(1));var creation=request(List.of());long appeal=appealId(appeals.create(student,v,creation));var request=confirmation(admin,appeal,"approved");reviews.confirm(admin,appeal,request);currentViolation(student,now().minusMinutes(30));long pending=recoveredPending();clock.set(base.plusDays(1).atTime(12,15));db.update("ALTER TABLE credit_restriction_evaluations ADD CONSTRAINT s22_replay_assess CHECK(first_violation_id=0) NOT VALID");String before=facts();try{assertEquals(true,reviews.confirm(admin,appeal,request).get("replayed"));assertEquals(true,appeals.create(student,v,creation).get("replayed"));assertEquals(before,facts());assertEquals("pending",row(pending).get("status"));assertEquals(409,assertThrows(Api.Failure.class,()->reviews.confirm(admin2,appeal,request)).status);}finally{db.update("ALTER TABLE credit_restriction_evaluations DROP CONSTRAINT s22_replay_assess");}
     }
     @Test void twoAdminsRaceOneWinnerAndSameOperationConcurrentRetryHasOneFact()throws Exception{
         long[] ids=batch(student,3);long appeal=submit(student,ids[0]);var a=confirmation(admin,appeal,"approved");var b=confirmation(admin2,appeal,"rejected");var pool=Executors.newFixedThreadPool(2);var latch=new CountDownLatch(1);try{var x=pool.submit(()->{latch.await();try{reviews.confirm(admin,appeal,a);return 200;}catch(Api.Failure e){return e.status;}});var y=pool.submit(()->{latch.await();try{reviews.confirm(admin2,appeal,b);return 200;}catch(Api.Failure e){return e.status;}});latch.countDown();var statuses=new ArrayList<>(List.of(x.get(),y.get()));Collections.sort(statuses);assertEquals(List.of(200,409),statuses);assertEquals(1,db.count("SELECT count(*) FROM appeal_reviews"));assertEquals(1,db.count("SELECT count(*) FROM notifications WHERE appeal_id=?",appeal));}finally{pool.shutdownNow();}
         long v=source(staff,now().minusHours(1)),second=submit(staff,v);var same=confirmation(admin,second,"approved");var otherPool=Executors.newFixedThreadPool(2);try{var x=otherPool.submit(()->reviews.confirm(admin,second,same));var y=otherPool.submit(()->reviews.confirm(admin,second,same));assertNotEquals(x.get().get("replayed"),y.get().get("replayed"));assertEquals(1,db.count("SELECT count(*) FROM appeal_reviews WHERE appeal_id=?",second));}finally{otherPool.shutdownNow();}
     }
-    @org.junit.jupiter.params.ParameterizedTest @org.junit.jupiter.params.provider.ValueSource(strings={"review","revocation","recalculation","release","new_batch","new_sources","cancel_notification","review_notification","audit","effects"})
-    void anyCriticalDependencyFailureRollsBackReviewRevocationRecalculationNewBatchCancellationAndAllMessages(String fault)throws Exception{
-        String administrator=token("admin");long[] ids=batch(student,6);long original=automatic(student),appeal=submit(student,ids[0]);recoveredPending();var request=confirmation(admin,appeal,"approved");String table,expression;switch(fault){case "review"->{table="appeal_reviews";expression="decision<>'approved'";}case "effects"->{table="appeal_reviews";expression="booking_effects IS NULL";}case "revocation"->{table="violations";expression="status<>'revoked'";}case "recalculation"->{table="restriction_recalculations";expression="valid_count_after>=3";}case "release"->{table="restrictions";expression="released_at IS NULL";}case "new_batch"->{table="restrictions";expression="source<>'automatic' OR id="+original;}case "new_sources"->{table="restriction_evaluation_sources";expression="source_order<>3";}case "cancel_notification"->{table="notifications";expression="type<>'restriction_cancelled'";}case "review_notification"->{table="notifications";expression="type<>'appeal_reviewed'";}default->{table="audit_events";expression="action<>'appeal.review'";}}String before=facts();db.update("ALTER TABLE "+table+" ADD CONSTRAINT s22_fault CHECK("+expression+") NOT VALID");try{http.perform(body(post(route(appeal,"confirm")),request,administrator)).andExpect(status().isInternalServerError());assertEquals(before,facts());assertEquals("active",state(original));assertEquals("active",db.one("SELECT status FROM violations WHERE id=?",ids[0]).get("status"));assertEquals("submitted",db.one("SELECT status FROM appeals WHERE id=?",appeal).get("status"));}finally{db.update("ALTER TABLE "+table+" DROP CONSTRAINT s22_fault");}
+    @org.junit.jupiter.params.ParameterizedTest @org.junit.jupiter.params.provider.ValueSource(strings={"review","revocation","recalculation","release","credit","cancel_notification","review_notification","audit","effects"})
+    void anyCriticalDependencyFailureRollsBackReviewCreditRecalculationCancellationAndAllMessages(String fault)throws Exception{
+        String administrator=token("admin");
+        long first=currentViolation(student,now().minusDays(2));
+        currentViolation(student,now().minusDays(1));
+        long original=automatic(student),appeal=submit(student,first);
+        restrictionWorkflow.create(admin,new Requests.RestrictionCreate(student,offset(now().plusDays(2)),"独立管理限制","自报核实私有依据",true,key()));
+        long pending=recoveredPending();
+        var request=confirmation(admin,appeal,"approved");
+        String table,expression;
+        switch(fault){
+            case "review"->{table="appeal_reviews";expression="decision<>'approved'";}
+            case "effects"->{table="appeal_reviews";expression="booking_effects IS NULL";}
+            case "revocation"->{table="violations";expression="status<>'revoked'";}
+            case "recalculation"->{table="credit_restriction_recalculations";expression="review_id=0";}
+            case "release"->{table="restrictions";expression="released_at IS NULL";}
+            case "credit"->{table="credit_round_events";expression="type<>'appeal'";}
+            case "cancel_notification"->{table="notifications";expression="type<>'restriction_cancelled'";}
+            case "review_notification"->{table="notifications";expression="type<>'appeal_reviewed'";}
+            default->{table="audit_events";expression="action<>'appeal.review'";}
+        }
+        String before=facts();
+        db.update("ALTER TABLE "+table+" ADD CONSTRAINT s22_fault CHECK("+expression+") NOT VALID");
+        try{
+            http.perform(body(post(route(appeal,"confirm")),request,administrator)).andExpect(status().isInternalServerError());
+            assertEquals(before,facts());
+            assertEquals("active",state(original));
+            assertEquals("active",db.one("SELECT status FROM violations WHERE id=?",first).get("status"));
+            assertEquals("submitted",db.one("SELECT status FROM appeals WHERE id=?",appeal).get("status"));
+            assertEquals("pending",row(pending).get("status"));
+        }finally{
+            db.update("ALTER TABLE "+table+" DROP CONSTRAINT s22_fault");
+        }
     }
     @Test void authenticatedAdminOnlyAndExactJsonTypesCannotOverrideIdentityOrTruncateVersions()throws Exception{
         String administrator=token("admin"),owner=token("student");long id=source(student,now().minusHours(1)),appeal=submit(student,id);var payload=new LinkedHashMap<String,Object>();payload.put("version",1);payload.put("decision","approved");payload.put("reason","审核公开理由");payload.put("verification_note","私有核实");payload.put("facts_confirmed",true);http.perform(post(route(appeal,"preview")).contentType("application/json").content(json.writeValueAsString(payload))).andExpect(status().isUnauthorized());http.perform(body(post(route(appeal,"preview")),payload,owner)).andExpect(status().isForbidden());for(Object invalid:List.of(1.5,"1")){payload.put("version",invalid);http.perform(body(post(route(appeal,"preview")),payload,administrator)).andExpect(status().isBadRequest());}payload.put("version",1);payload.put("facts_confirmed","true");http.perform(body(post(route(appeal,"preview")),payload,administrator)).andExpect(status().isBadRequest());payload.put("facts_confirmed",false);http.perform(body(post(route(appeal,"preview")),payload,administrator)).andExpect(status().isBadRequest());payload.put("facts_confirmed",true);payload.put("actor_id",admin);http.perform(body(post(route(appeal,"preview")),payload,administrator)).andExpect(status().isBadRequest());assertEquals(0,db.count("SELECT count(*) FROM appeal_reviews"));

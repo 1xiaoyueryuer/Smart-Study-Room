@@ -70,11 +70,11 @@ class FullJourneyIntegrationTest {
         var metadata=call(post("/api/admin/seats/"+seat+"/code"),adminToken,new Requests.SeatCodeChange(0L,"S31 explicit engineering code configuration"));
         assertTrue(metadata.path("configured").asBoolean());assertFalse(metadata.has("code_value"));
         byte[] png=http.perform(get("/api/admin/seats/"+seat+"/code/png").param("expected_version","1").header("Authorization","Bearer "+adminToken)).andExpect(status().isOk()).andReturn().getResponse().getContentAsByteArray();
-        return UsageIntegrationTest.decode(png);
+        return SeatCodeIntegrationTest.decode(png);
     }
     String state(long reservation){return db.one("SELECT status FROM reservations WHERE id=?",reservation).get("status").toString();}
     void noPrivate(JsonNode value){for(String sentinel:List.of(PRIVATE,IDENTITY,"identity_basis","verification_note","private_note"))assertFalse(value.toString().contains(sentinel),sentinel);}
-    String facts(){var result=new TreeMap<String,Object>();for(String table:List.of("reservations","usage_records","reviews","review_operations","violations","restrictions","restriction_evaluations","restriction_evaluation_sources","restriction_recalculations","appeals","appeal_reviews","complaints","complaint_events","resource_change_operations","notifications","audit_events"))result.put(table,db.list("SELECT to_jsonb(t)::text AS row FROM "+table+" t ORDER BY to_jsonb(t)::text"));return result.toString();}
+    String facts(){var result=new TreeMap<String,Object>();for(String table:List.of("reservations","usage_records","reviews","review_operations","violations","restrictions","restriction_evaluations","restriction_evaluation_sources","restriction_recalculations","credit_rounds","credit_round_violations","credit_round_events","credit_restriction_evaluations","credit_restriction_recalculations","appeals","appeal_reviews","complaints","complaint_events","resource_change_operations","notifications","audit_events"))result.put(table,db.list("SELECT to_jsonb(t)::text AS row FROM "+table+" t ORDER BY to_jsonb(t)::text"));return result.toString();}
 
     @Test void genuineHttpJourneyKeepsEachDomainFactAndDoesNotReviveCancelledHistory()throws Exception {
         String firstCode=configureAndDecodePng(seat1),secondCode=configureAndDecodePng(seat2);
@@ -113,9 +113,12 @@ class FullJourneyIntegrationTest {
         assertEquals("unused_ended",state(noShowOne));assertEquals("unused_ended",state(noShowTwo));assertEquals("cancelled",state(pending));
         assertEquals(3,db.count("SELECT count(*) FROM violations WHERE user_id=? AND status='active'",owner));
         var restriction=db.one("SELECT id,starts_at,ends_at FROM restrictions WHERE user_id=? AND source='automatic'",owner);long restrictionId=Store.id(restriction,"id");
-        assertEquals(Duration.ofDays(7),Duration.between(LocalDateTime.parse(restriction.get("starts_at").toString()),LocalDateTime.parse(restriction.get("ends_at").toString())));
-        var evaluation=db.one("SELECT threshold,duration_hours,window_start,window_end FROM restriction_evaluations WHERE restriction_id=?",restrictionId);assertEquals(3,Store.id(evaluation,"threshold"));assertEquals(168,Store.id(evaluation,"duration_hours"));assertEquals(Duration.ofDays(30),Duration.between(LocalDateTime.parse(evaluation.get("window_start").toString()),LocalDateTime.parse(evaluation.get("window_end").toString())));
-        var sources=db.list("SELECT * FROM restriction_evaluation_sources WHERE restriction_id=? ORDER BY source_order",restrictionId);assertEquals(3,sources.size());assertEquals(manual,Store.id(sources.get(0),"violation_id"));
+        assertEquals(Duration.ofDays(15),Duration.between(LocalDateTime.parse(restriction.get("starts_at").toString()),LocalDateTime.parse(restriction.get("ends_at").toString())));
+        var evaluation=getData("/api/restrictions/"+restrictionId,ownerToken).path("automatic_evaluation");
+        assertEquals(2,evaluation.path("threshold").asInt());assertEquals(360,evaluation.path("duration_hours").asInt());
+        assertEquals(2,evaluation.path("source_violations").size());assertEquals(manual,evaluation.path("source_violations").get(0).path("id").asLong());
+        var sourceFact=db.one("SELECT * FROM credit_restriction_evaluations WHERE restriction_id=?",restrictionId);
+        assertEquals(70,getData("/api/credit",ownerToken).path("score").asInt());
         assertFalse(getData("/api/booking-eligibility",ownerToken).path("can_book").asBoolean());
         assertEquals(1,db.count("SELECT count(*) FROM notifications WHERE reservation_id=? AND restriction_id=? AND type='restriction_cancelled'",pending,restrictionId));
 
@@ -123,10 +126,19 @@ class FullJourneyIntegrationTest {
         long appeal=call(post("/api/violations/"+manual+"/appeals"),ownerToken,new Requests.Appeal(key(),"S31 engineering appeal for rechecking the original manually registered source",List.of())).path("appeal").path("id").asLong();
         String reviewRoute="/api/admin/appeals/"+appeal+"/review/";
         var intent=new Requests.AppealReview(1L,"approved","S31 public appeal decision",PRIVATE,true);String before=facts();
-        var preview=call(post(reviewRoute+"preview"),adminToken,intent);assertEquals(before,facts());assertEquals("released",preview.path("automatic_recalculations").get(0).path("outcome").asText());
+        var preview=call(post(reviewRoute+"preview"),adminToken,intent);assertEquals(before,facts());assertEquals("retained",preview.path("automatic_recalculations").get(0).path("outcome").asText());
         var confirmation=new Requests.AppealReviewConfirm(1L,"approved",intent.reason(),intent.verificationNote(),true,preview.path("impact_hash").asText(),key());
-        var decision=call(post(reviewRoute+"confirm"),adminToken,confirmation);assertTrue(decision.path("eligibility").path("can_book").asBoolean());assertEquals("revoked",db.one("SELECT status FROM violations WHERE id=?",manual).get("status"));
-        assertEquals("released",getData("/api/restrictions/"+restrictionId,ownerToken).path("status").asText());assertNotNull(db.one("SELECT released_at FROM restrictions WHERE id=?",restrictionId).get("released_at"));assertEquals(sources,db.list("SELECT * FROM restriction_evaluation_sources WHERE restriction_id=? ORDER BY source_order",restrictionId));
+        var decision=call(post(reviewRoute+"confirm"),adminToken,confirmation);assertFalse(decision.path("eligibility").path("can_book").asBoolean());assertEquals("revoked",db.one("SELECT status FROM violations WHERE id=?",manual).get("status"));
+        assertEquals(80,getData("/api/credit",ownerToken).path("score").asInt());
+        long laterViolation=Store.id(db.one("SELECT id FROM violations WHERE reservation_id=?",noShowTwo),"id");
+        long laterAppeal=call(post("/api/violations/"+laterViolation+"/appeals"),ownerToken,new Requests.Appeal(key(),"S31 engineering appeal for the later violation in the same round",List.of())).path("appeal").path("id").asLong();
+        String laterReviewRoute="/api/admin/appeals/"+laterAppeal+"/review/";
+        var laterPreview=call(post(laterReviewRoute+"preview"),adminToken,intent);
+        assertEquals("released",laterPreview.path("automatic_recalculations").get(0).path("outcome").asText());
+        var laterConfirmation=new Requests.AppealReviewConfirm(1L,"approved",intent.reason(),intent.verificationNote(),true,laterPreview.path("impact_hash").asText(),key());
+        assertTrue(call(post(laterReviewRoute+"confirm"),adminToken,laterConfirmation).path("eligibility").path("can_book").asBoolean());
+        assertEquals(90,getData("/api/credit",ownerToken).path("score").asInt());
+        assertEquals("released",getData("/api/restrictions/"+restrictionId,ownerToken).path("status").asText());assertNotNull(db.one("SELECT released_at FROM restrictions WHERE id=?",restrictionId).get("released_at"));assertEquals(sourceFact,db.one("SELECT * FROM credit_restriction_evaluations WHERE restriction_id=?",restrictionId));
         assertEquals("unused_ended",state(noShowOne));assertEquals("unused_ended",state(noShowTwo));assertEquals("cancelled",state(pending));assertEquals("completed",state(used));
         noPrivate(getData("/api/appeals/"+appeal,ownerToken));noPrivate(getData("/api/restrictions/"+restrictionId,ownerToken));
         at(12,1);long recovered=reserve(ownerToken,seat1,"14:00","15:00");assertEquals("pending",state(recovered));
@@ -146,7 +158,7 @@ class FullJourneyIntegrationTest {
         assertTrue(call(post("/api/notifications/read_all"),ownerToken,null).path("marked").asInt()>0);assertEquals(0,call(post("/api/notifications/read_all"),ownerToken,null).path("marked").asInt());
         var audits=getData("/api/admin/audit-events?page_size=50",adminToken);noPrivate(audits);
         long auditId=Store.id(db.one("SELECT id FROM audit_events WHERE action='violation.register_manual'"),"id");noPrivate(getData("/api/admin/audit-events/"+auditId,adminToken));
-        assertEquals(1,db.count("SELECT count(*) FROM audit_events WHERE action='resource_change.confirm'"));assertEquals(1,db.count("SELECT count(*) FROM audit_events WHERE action='appeal.review'"));
+        assertEquals(1,db.count("SELECT count(*) FROM audit_events WHERE action='resource_change.confirm'"));assertEquals(2,db.count("SELECT count(*) FROM audit_events WHERE action='appeal.review'"));
         assertEquals(0,db.count("SELECT count(*) FROM credit_logs"));
         assertTrue(getData("/api/stats/overview?room_id="+room,adminToken).path("current").path("usage_ratio").isNull());
     }

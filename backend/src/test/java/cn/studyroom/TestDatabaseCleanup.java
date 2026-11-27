@@ -15,6 +15,10 @@ final class TestDatabaseCleanup {
         transactions.executeWithoutResult(status->{
             if(!"studyroom_java_test".equals(db.one("SELECT current_database() AS name").get("name")))throw new IllegalStateException("test database only");
             db.lockBookings();
+            db.update("""
+                TRUNCATE TABLE credit_restriction_recalculations, credit_restriction_evaluations,
+                    credit_round_events, credit_round_violations, credit_rounds
+                """);
             db.update("TRUNCATE TABLE complaint_priority_mapping_versions CASCADE");
             db.update("DELETE FROM notifications WHERE appeal_id IS NOT NULL OR review_operation_id IS NOT NULL");
             db.update("DELETE FROM review_operations");db.update("DELETE FROM reviews");

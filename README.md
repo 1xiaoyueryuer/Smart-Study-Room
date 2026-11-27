@@ -47,7 +47,7 @@
 | F04 | 预约选座 | 先选图书馆、楼层、区域与日期，再输入开始时间（08:00—22:00）与学习时长；只保留从所选开始时间起连续满足时长的座位，冲突或不连续座位灰显不可点；靠窗/插座偏好次级优先；查询为快照，提交时服务端重新校验 |
 | F05 | 资源变更善后 | 管理端修改资源前先看影响清单，确认后按管理原因取消受影响预约；使用中预约按确认时刻结算，操作幂等且不记用户违规 |
 | F06 | 投诉核实反馈 | 座位被占求助与一般服务投诉；设施报修由系统按影响范围和安全风险自动定1—5级，管理端按级别查看；最多三张受控图片材料；不可覆盖的核实记录、正式反馈与确认期，逾期自动结案；受理与首次反馈有处理目标 |
-| F07 | 违规累计限制 | 由已核实事实登记手动违规；30 天滚动内 3 次有效违规生成 7 天限制；预约资格统一由限制事实判定，支持解除与留痕 |
+| F07 | 信誉分与预约限制 | 每条有效违规扣 10 分。首条满 15 天恢复。首条到期前出现第二条，将从第二条登记起限制新预约 15 天。支持到期恢复、申诉重算及历史查询 |
 | F08 | 申诉与签到纠错 | 本人在真实违规通知后 7 天内提交申诉；管理员只读预览后审核，同意时撤销原违规并按原批次重算；异常情况下的核实补签 |
 | F09 | 使用评价 | 本人对已结算的真实使用评价 1—5 星；管理员回复或有理由隐藏；登录角色可查看服务端白名单过滤后的匿名公开内容 |
 | F10 | 记录与消息查询 | 本人与管理记录的服务端条件筛选与稳定分页；站内消息分类筛选、已读标记与真实业务跳转；管理审计只读安全投影 |
@@ -63,7 +63,7 @@
 |---|---|---|
 | 后端 | Java 17、Spring Boot 2.7.18、Spring JDBC、Validation、Spring Data Redis | REST 接口、业务规则与数据访问；`Store` 是唯一 SQL 入口 |
 | 数据库 | PostgreSQL 17（`postgres:17-alpine`），JDBC 驱动 42.7.14 | 开发库与测试库分离，`127.0.0.1:5433` |
-| 结构管理 | Flyway 10.20.1（`flyway-core` + `flyway-database-postgresql`） | V1—V31 增量迁移；校验开启、禁止 clean |
+| 结构管理 | Flyway 10.20.1（`flyway-core` + `flyway-database-postgresql`） | V1—V32 增量迁移；校验开启、禁止 clean |
 | 缓存与限流 | Redis 7.2 | 登录限流、预约限流与注销令牌撤销；3 号库、键前缀 `studyroom-java:` |
 | 认证与口令 | `com.auth0:java-jwt` 4.4.0（HMAC256，有效期 7 天）、BCrypt | 令牌签发与校验、口令哈希 |
 | 二维码 | ZXing core 3.5.4（后端生成 PNG）、`@zxing/browser` 0.2.1（图片解码）、`qr-scanner` 1.4.2（移动端摄像头） | 每座位当前码，用于签到核验座位身份；摄像头优先使用浏览器 BarcodeDetector，回退 Worker+ZXing |
@@ -101,7 +101,7 @@
 │ 127.0.0.1:5433                       │ │ 键前缀 studyroom-java:       │
 │ 开发库 studyroom_java                 │ │ · 登录 / 预约限流            │
 │ 测试库 studyroom_java_test            │ │ · 注销令牌撤销标记           │
-│ Flyway V1—V31 增量迁移                │ └──────────────────────────────┘
+│ Flyway V1—V32 增量迁移                │ └──────────────────────────────┘
 │ 写事务先锁定 booking_mutex 固定行      │
 └──────────────────────────────────────┘
 ```
@@ -115,7 +115,7 @@ Smart-Study-Room/
 ├── backend/                     # Java 17 / Spring Boot 服务端
 │   ├── src/main/java/cn/studyroom/     # 71 个类：Controller / Service / Policy / Store
 │   ├── src/main/resources/
-│   │   └── db/migration/               # Flyway V1—V31 增量迁移
+│   │   └── db/migration/               # Flyway V1—V32 增量迁移
 │   └── src/test/java/cn/studyroom/     # 单元与真实 PostgreSQL / Redis 集成测试
 ├── frontend/                    # Vue 3 单页应用
 │   ├── src/{api,components,composables,config,layouts,router,stores,styles,views}/
@@ -231,7 +231,7 @@ cd Smart-Study-Room
 | 上传限制 | 单文件 6 MB、单请求 7 MB |
 | 时区 | `Asia/Shanghai`（Jackson 与业务规则一致） |
 
-数据库结构由 Flyway 增量迁移管理，当前仓库包含 V1—V31 共 31 个迁移脚本，覆盖账号与权限、资源与开放安排、预约与使用、通知与审计、投诉与受控材料、自动报修分级与规则版本、违规与限制、申诉、评价等业务。迁移策略为 `baseline-on-migrate=false`、`clean-disabled=true`、`validate-on-migrate=true`；若需接管一个结构已存在但没有迁移历史的非空数据库，默认拒绝启动，需在停服务并备份后由操作人显式使用 `--studyroom.migration.adopt-legacy=true` 一次性接管（程序核对结构与 V1 一致后才建立基线）。
+数据库结构由 Flyway 增量迁移管理，当前仓库包含 V1—V32 共 32 个迁移脚本，覆盖账号与权限、资源与开放安排、预约与使用、通知与审计、投诉与受控材料、自动报修分级与规则版本、违规、信誉分与预约限制、申诉、评价等业务。迁移策略为 `baseline-on-migrate=false`、`clean-disabled=true`、`validate-on-migrate=true`；若需接管一个结构已存在但没有迁移历史的非空数据库，默认拒绝启动，需在停服务并备份后由操作人显式使用 `--studyroom.migration.adopt-legacy=true` 一次性接管（程序核对结构与 V1 一致后才建立基线）。
 
 测试与联调只使用 `studyroom_java_test`：集成测试、HTTP 联调与性能脚本都会先核对健康响应中的实际库名，不允许指向开发库或清空全局 Redis。
 

@@ -1,14 +1,9 @@
 package cn.studyroom;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.zxing.*;
-import com.google.zxing.common.HybridBinarizer;
-import com.google.zxing.qrcode.QRCodeReader;
-import java.io.ByteArrayInputStream;
 import java.time.*;
 import java.util.*;
 import java.util.concurrent.*;
-import javax.imageio.ImageIO;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -67,11 +62,6 @@ class UsageIntegrationTest {
     MockHttpServletRequestBuilder auth(MockHttpServletRequestBuilder req,String token) { return req.header("Authorization","Bearer "+token); }
     MockHttpServletRequestBuilder checkin(long id,String code,String token) throws Exception { return auth(post("/api/reservations/"+id+"/checkin"),token).contentType("application/json").content(json.writeValueAsString(Map.of("seat_code",code))); }
     Map<String,Object> row(long id) { return db.one("SELECT * FROM reservations WHERE id=?",id); }
-    static String decode(byte[] png) throws Exception {
-        assertArrayEquals(new byte[]{(byte)137,80,78,71,13,10,26,10},Arrays.copyOf(png,8));var image=ImageIO.read(new ByteArrayInputStream(png));
-        int width=image.getWidth(),height=image.getHeight();var source=new RGBLuminanceSource(width,height,image.getRGB(0,0,width,height,null,0,width));
-        return new QRCodeReader().decode(new BinaryBitmap(new HybridBinarizer(source))).getText();
-    }
     @Test void nanosecondClockCheckinAndFractionalCheckoutRoundTripAtDatabasePrecision() throws Exception {
         long id=reservation(student,seat1);String token=token("student"),payload=code(seat1);
         clock.set(base.atTime(10,0,0,123456789));

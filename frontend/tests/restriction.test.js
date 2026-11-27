@@ -54,6 +54,18 @@ test('owner eligibility failure never means eligible, and notification lookup us
   const page=await owner(async()=>({data:[record()]}),async()=>{throw new Error('资格读取失败')});assert.equal(page.linkedRecord.value,null);await page.refresh();assert.equal(page.linkedRecord.value.id,90);assert.equal(page.eligibility.value,null);assert.match(page.eligibilityError.value,/资格读取失败/)
   const disabled=await owner(async()=>({data:[record()]}),async()=>({data:{...eligibility(),blocked_by:'disabled'}}),{restriction_id:'99'});await disabled.refresh();assert.equal(disabled.linkedRecord.value,null);assert.match(eligibilityText(disabled.eligibility.value),/账号已停用/);assert.equal(disabled.eligibility.value.active_restrictions.length,1)
 })
+test('an older in-flight qualification cannot replace the post-expiry eligibility refresh', async () => {
+  const pending = []
+  const page = await owner(async () => ({ data: [] }), () => new Promise(resolve => pending.push(resolve)), {})
+  const older = page.refresh()
+  const latest = page.refresh()
+  pending[1]({ data: { ...eligibility([]), can_book: true, blocked_by: null } })
+  await latest
+  pending[0]({ data: eligibility([record()]) })
+  await older
+  assert.equal(page.eligibility.value.can_book, true)
+  assert.equal(page.eligibility.value.active_restrictions.length, 0)
+})
 test('actual legacy record template identifies remaining-transfer start and unknown original facts without leaking private evidence',async()=>{
   const recordValue=record({source:'legacy',legacy_remaining_only:true,creator_display_name:null,reason:'旧限制剩余效力，原原因未留存',verification_note:'DO_NOT_RENDER_PRIVATE'}),source=await readFile(new URL('../src/components/RestrictionRecord.vue',import.meta.url),'utf8'),{descriptor}=parse(source),compiled=compileTemplate({source:descriptor.template.content,filename:'RestrictionRecord.vue',id:'s19record',ssr:true,ssrCssVars:[]}),context=vm.createContext({}),module=new vm.SourceTextModule(compiled.code,{context});await module.link(specifier=>{const values=specifier==='vue'?vue:ssr;return new vm.SyntheticModule(Object.keys(values),function(){for(const[key,value]of Object.entries(values))this.setExport(key,value)},{context})});await module.evaluate();const html=await ssr.renderToString(vue.createSSRApp({props:['record'],setup:()=>({restrictionStatuses,formatCampusDateTime}),ssrRender:module.namespace.ssrRender},{record:recordValue}));assert.match(html,/剩余效力接管起点/);assert.match(html,/原处罚开始时刻和原原因未留存/);assert.doesNotMatch(html,/DO_NOT_RENDER_PRIVATE|旧处罚从2026/)
 })
@@ -82,6 +94,22 @@ test('actual automatic restriction template preserves all three server-ordered s
   const html=await renderRestriction(automatic());assert.match(html,/系统累计自动限制/);assert.match(html,/系统累计评估/);assert.match(html,/2026-10-31 08:01:00/);assert.match(html,/2026-10-01 08:01:00/);assert.match(html,/两端均含/);assert.match(html,/168小时/);assert.match(html,/7×24小时/)
   assert.ok(html.indexOf('违规#303')<html.indexOf('违规#101'));assert.ok(html.indexOf('违规#101')<html.indexOf('违规#202'));for(const entry of sources()){const occurred=entry.occurred_at.slice(0,16).replace('T',' '),registered=entry.registered_at.slice(0,16).replace('T',' ');assert.ok(html.includes(occurred));assert.ok(html.includes(registered));assert.ok(html.includes(entry.reason))}
   assert.match(html,/当前已撤销/);assert.match(html,/来源关联永久保留/);assert.match(html,/关联预约涉及他人，不公开编号/);assert.match(html,/本人预约#44/);assert.doesNotMatch(html,/PRIVATE_|complaints\/888|source_event_id|#null|未完整返回/)
+})
+test('credit round restriction displays its two trigger sources and fifteen-day duration', async () => {
+  const value = automatic()
+  value.automatic_evaluation = {
+    ...value.automatic_evaluation,
+    policy_version: 'credit_round_v1',
+    threshold: 2,
+    duration_hours: 360,
+    source_violations: sources().slice(0, 2)
+  }
+  const html = await renderRestriction(value)
+  assert.match(html, /本轮判定区间/)
+  assert.match(html, /本次触发门槛：2 条/)
+  assert.match(html, /360小时.*15×24小时/)
+  assert.equal((html.match(/违规#/g) || []).length, 2)
+  assert.doesNotMatch(html, /未完整返回|违规#202|PRIVATE_/)
 })
 test('manual and legacy null evaluations remain their real sources, while automatic missing or incomplete sources are never filled or sliced',async()=>{
   for(const value of [record({automatic_evaluation:null}),record({source:'legacy',legacy_remaining_only:true,automatic_evaluation:null})]){const html=await renderRestriction(value);assert.doesNotMatch(html,/本次累计评估记录|三条来源数据|系统累计评估/)}

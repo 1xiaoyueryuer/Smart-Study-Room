@@ -148,7 +148,7 @@ class UnusedLifecycleIntegrationTest {
         db.update("INSERT INTO restrictions(user_id,source,starts_at,ends_at,reason,created_at) VALUES(?,'legacy',?,?,'S19旧限制余效接管工程模拟，原起点与原因未知',?)",student,java.sql.Timestamp.valueOf(base.atTime(9,0)),java.sql.Timestamp.valueOf(base.atTime(10,0)),java.sql.Timestamp.valueOf(base.atTime(9,0)));
         db.update("INSERT INTO credit_logs(user_id,delta,reason) VALUES(?,-8,'历史模拟信用流水')",student);
         String token=token("student");
-        http.perform(get("/api/credit").header("Authorization","Bearer "+token)).andExpect(status().isOk()).andExpect(jsonPath("$.data.history_only").value(true)).andExpect(jsonPath("$.data.legacy_ban_active").value(true)).andExpect(jsonPath("$.data.legacy_banned_until").value(d()+"T10:00+08:00"));
+        http.perform(get("/api/credit").header("Authorization","Bearer "+token)).andExpect(status().isOk()).andExpect(jsonPath("$.data.history_only").value(false)).andExpect(jsonPath("$.data.legacy_ban_active").value(true)).andExpect(jsonPath("$.data.legacy_banned_until").value(d()+"T10:00+08:00"));
         assertEquals(403,assertThrows(Api.Failure.class,()->create(student,seat1,"11:00","12:00")).status);
         at(10,0,0);http.perform(get("/api/credit").header("Authorization","Bearer "+token)).andExpect(status().isOk()).andExpect(jsonPath("$.data.legacy_ban_active").value(false));
         long id=create(student,seat1,"10:00","11:00");bookings.checkin(student,id,seatCode(seat1));at(10,30,0);bookings.action(student,id,"checkout");

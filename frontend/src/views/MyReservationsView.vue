@@ -80,11 +80,11 @@ async function doAction(row, key) {
   try {
     if (key==='cancel' || key==='abandon') {
       try {
-        await confirmDialog(key==='cancel' ? '仅开始前可取消，不登记新的违规；若时刻已变化，系统会重新核对。确认取消？' : '开始后未签到主动放弃将结束预约、释放余时，并登记一次未使用违约。确认放弃？', key==='cancel'?'开始前取消':'开始后放弃', {confirmButtonText:key==='cancel'?'确认取消':'确认放弃',type:'warning'})
+        await confirmDialog(key==='cancel' ? '仅开始前可取消，不登记新的违规；若时刻已变化，系统会重新核对。确认取消？' : '开始后未签到主动放弃将结束预约、释放余时，并登记一次违规，扣 10 分。确认放弃？', key==='cancel'?'开始前取消':'开始后放弃', {confirmButtonText:key==='cancel'?'确认取消':'确认放弃',type:'warning'})
       } catch { return }
     }
     if (key === 'checkout') {
-      try { await confirmDialog('确认提前签退？系统将结束本次使用并释放剩余时段，不新增信用奖惩；到期不点签退也会自动结算，不额外处罚。', '提前签退', { confirmButtonText: '确认签退并释放余时', type: 'warning' }) }
+      try { await confirmDialog('确认提前签退？系统将结束本次使用并释放剩余时段。到期也会自动结算，正常提前签退和到期均不扣分。', '提前签退', { confirmButtonText: '确认签退并释放余时', type: 'warning' }) }
       catch { return }
     }
     try {
@@ -110,7 +110,10 @@ onMounted(async()=>{await refreshAll();const target=reviewReservationParam(route
       <p class="heading-sub">查看预约和真实使用记录，管理扫码签到、提前签退与结束状态</p>
     </div><PageHelp title="操作说明">
         <ul class="tips">
-          <li>开始前取消不登记新违规；开始后未签到主动放弃会登记一次未使用违约。</li><li>请扫描预约座位的二维码签到。签到窗口为开始起至开始后15分钟之前；达到期限仍未签到则自动结束并登记一次，动作以服务端当前允许为准。</li><li>提前签退释放剩余时段；到期自动结束，不额外处罚漏点签退。短暂离开不延长原结束时间。</li><li>使用时长截至本次服务端读取；信用分和流水只读保留，不再新增加减分或低分触发限制。</li>
+          <li>开始前取消不扣分。开始后未签到主动放弃或签到超时，每笔预约只登记一次违规，扣 10 分。</li>
+          <li>请扫描预约座位的二维码签到。签到窗口从预约开始起，到开始后 15 分钟之前，操作以服务端当前允许为准。超时后系统结束预约。</li>
+          <li>首次违规后满 15 天无再次违规，恢复满分。15 天内第二次违规后，暂停新预约 15 天。</li>
+          <li>提前签退释放剩余时段，到期自动结算。短暂离开不延长原结束时间。</li>
         </ul>
       </PageHelp></header>
     <!-- 我的预约：页面级双栏 = 左状态筛选 | 右列表 -->

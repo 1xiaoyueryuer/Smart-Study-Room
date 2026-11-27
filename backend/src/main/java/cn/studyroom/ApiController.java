@@ -57,7 +57,7 @@ public class ApiController {
     @GetMapping("/admin/violations") Object adminViolations(HttpServletRequest req,@RequestParam Map<String,String> parameters){return ok(bookings.violationRecords(uid(req),parameters,true));}
     @GetMapping("/admin/reservations") Object adminReservations(HttpServletRequest req,@RequestParam Map<String,String> parameters){return ok(bookings.records(uid(req),parameters,true));}
     @GetMapping("/admin/reservations/{id}") Object adminReservation(HttpServletRequest req,@PathVariable long id){return ok(bookings.correctionDetail(uid(req),id));}
-    @GetMapping("/credit") Object credit(HttpServletRequest req) { return ok(bookings.legacyCredit(uid(req))); }
+    @GetMapping("/credit") Object credit(HttpServletRequest req) { return ok(bookings.creditOverview(uid(req))); }
     @GetMapping("/notifications") Object notifications(HttpServletRequest req,@RequestParam Map<String,String> parameters){return ok(messages.list(uid(req),parameters));}
     @GetMapping("/notifications/unread_count") Object unread(HttpServletRequest req){return ok(messages.unread(uid(req)));}
     @PostMapping("/notifications/{id}/read") Object read(HttpServletRequest req,@PathVariable long id){return ok(messages.read(uid(req),id));}
