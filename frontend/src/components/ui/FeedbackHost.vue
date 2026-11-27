@@ -120,7 +120,8 @@ const boxIcons = {
             </span>
             <h3 class="msgbox__title">{{ feedbackState.box.title }}</h3>
           </div>
-          <p class="msgbox__content">{{ feedbackState.box.content }}</p>
+          <component :is="feedbackState.box.contentNode" v-if="feedbackState.box.contentNode" />
+          <p v-else class="msgbox__content">{{ feedbackState.box.content }}</p>
 
           <div v-if="feedbackState.box.mode === 'prompt'" ref="inputRef" class="msgbox__input">
             <SInput
