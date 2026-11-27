@@ -216,7 +216,9 @@ onBeforeUnmount(() => { alive = false; detailSequence++; pager.dispose() })
 .ticket-item .ticket-title { color: var(--text-1); font-size: 15px; font-weight: 700; line-height: 1.45; }
 .ticket-item .ticket-meta { color: var(--text-2); font-size: 12px; }
 .ticket-item .ticket-time { color: var(--text-3); font-size: 11px; font-variant-numeric: tabular-nums; }
-.detail-panel { min-width: 0; min-height: 420px; }
+.detail-panel { display: flex; flex-direction: column; min-width: 0; min-height: 420px; }
+/* 未选中记录时，空态在详情卡片内上下居中 */
+.detail-panel :deep(.empty-state) { flex: 1 1 auto; }
 .detail-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 12px; margin-bottom: 14px; border-bottom: 1px solid var(--hairline); }
 .text-link { color: var(--primary); font-size: var(--fs-caption); text-decoration: none; }
 .text-link:hover { text-decoration: underline; }
