@@ -123,6 +123,12 @@ watch(list,(value)=>{
   if(!value.length){selected.value=null;return}
   if(!selected.value||!value.some(item=>item.id===selected.value.id))selected.value=value[0]
 },{immediate:true})
+// 切换分类时按该分类的可见消息校正选中项：分类下没有消息就清空右侧详情，避免显示别的分类的消息
+watch(category,()=>{
+  const value=visibleItems.value
+  if(!value.length){selected.value=null;return}
+  if(!selected.value||!value.some(item=>item.id===selected.value.id))selected.value=value[0]
+})
 watch(scope,()=>{category.value='all';selected.value=null;pager.items.value=[];pager.snapshot.value=null;pager.snapshotQuery.value=null;pager.loaded.value=false;actionError.value='';writeNotice.value='';markingId.value=null;markingAll.value=false})
 onMounted(pager.refresh);onBeforeUnmount(()=>{alive=false;pager.dispose()})
 </script>
