@@ -1,8 +1,9 @@
 <script setup>
 import SAnimatedNumber from '../components/ui/SAnimatedNumber.vue'
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { h, ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import SeatExplorer from '../components/seat3d/SeatExplorer.vue'
 import SeatPlanDesk from '../components/SeatPlanDesk.vue'
+import BookingConfirmationSummary from '../components/BookingConfirmationSummary.vue'
 import { seatType, zoneName, getWindowSides, seatPreferenceCount, matchesSeatPreferences } from '../components/seat3d/seatPresentation'
 import { message, confirmDialog } from '../components/ui/feedback'
 import { getRooms } from '../api/room'
@@ -466,7 +467,14 @@ async function confirmBooking() {
   try {
     try {
       const minutes = validateWindowSlot(policy.value,attempt.date,attempt.start_time,attempt.end_time,attempt.window)
-      await confirmDialog(`确认预约 ${attempt.room_name} ${attempt.seat_no}？\n${attempt.date} ${attempt.start_time}–${attempt.end_time}（${minutes}分钟，Asia/Shanghai）\n筛选条件：${attempt.filter_start_time}开始，连续学习${attempt.learning_minutes}分钟。\n完整空档：${attempt.window.available_start}–${attempt.window.available_end}；本次预约：${attempt.start_time}–${attempt.end_time}。\n请在开始起至开始后15分钟之前扫码签到。`, '预约确认', { confirmButtonText:'确认预约',cancelButtonText:'再想想' })
+      await confirmDialog(h(BookingConfirmationSummary, {
+        roomName: attempt.room_name,
+        seatNo: attempt.seat_no,
+        date: attempt.date,
+        start: attempt.start_time,
+        end: attempt.end_time,
+        minutes
+      }), '预约确认', { confirmButtonText: '确认预约', cancelButtonText: '再想想' })
     } catch (failure) {
       if (failure?.message) bookingError.value = failure.message
       return
