@@ -38,7 +38,13 @@ export function parseRepair(description) {
 export function complaintDisplayType(record) { return record?.type === 'service' ? ({ facility_repair: '设施报修', other_service: '其他服务问题' }[record.service_kind] || '历史服务问题（类别未留存）') : complaintTypes[record?.type] || record?.type || '投诉' }
 export function impactScopeText(value) { return impactScopes.find(item => item.value === value)?.label || value || '未填写' }
 export function complaintNumber(id) { const value=Number(id);return Number.isSafeInteger(value)&&value>0?`SQ-${String(value).padStart(6,'0')}`:'SQ-待生成' }
-export function complaintCategory(type, description, serviceKind) { if (type === 'occupation') return '预约与座位问题'; if (type === 'service') return (serviceKind ? serviceKind === 'facility_repair' : !!parseRepair(description)) ? '设施报修' : '其他服务问题'; return complaintTypes[type] || type }
+/** 列表/筛选共用的设施报修判定：优先服务端 service_kind，缺字段时回退说明文字前缀。 */
+export function isFacilityRepair(record) {
+  if (!record || record.type === 'occupation') return false
+  if (record.service_kind) return record.service_kind === 'facility_repair'
+  return !!parseRepair(record.description)
+}
+export function complaintCategory(type, description, serviceKind) { if (type === 'occupation') return '预约与座位问题'; if (type === 'service') return isFacilityRepair({ type, description, service_kind: serviceKind }) ? '设施报修' : '其他服务问题'; return complaintTypes[type] || type }
 export function positiveId(value) { if (value === null || value === undefined || value === '') return null; if (!/^[0-9]+$/.test(String(value)) || !Number.isSafeInteger(Number(value)) || Number(value) <= 0) throw new Error('关联编号无效，请重新选择'); return Number(value) }
 
 /** 将同学前端的展示枚举转换为当前后端V1.1正式字段；不改变页面布局。 */

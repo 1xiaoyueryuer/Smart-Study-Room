@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { listMyComplaints, getComplaint } from '../api/complaint'
-import { complaintStatuses, complaintCategory, complaintNumber, parseRepair } from '../composables/complaintForm.js'
+import { complaintStatuses, complaintCategory, complaintNumber, isFacilityRepair, parseRepair } from '../composables/complaintForm.js'
 import { formatCampusDateTime } from '../composables/campusDateTime.js'
 import { useServiceTargetClock } from '../composables/useServiceTargetClock.js'
 import ComplaintForm from '../components/ComplaintForm.vue'
@@ -36,13 +36,11 @@ const categories = [
   {key: 'other', label: '其他服务'}
 ]
 
-// 设施报修以服务端 service_kind 为准，缺少该字段时才回退到说明文字前缀
-function isRepair(item) { return item?.service_kind ? item.service_kind === 'facility_repair' : !!parseRepair(item?.description) }
 const visibleItems = computed(() => {
   if (category.value === 'all') return items.value
   if (category.value === 'occupation') return items.value.filter(item => item.type === 'occupation')
-  if (category.value === 'facility') return items.value.filter(item => item.type === 'service' && isRepair(item))
-  return items.value.filter(item => item.type === 'service' && !isRepair(item))
+  if (category.value === 'facility') return items.value.filter(item => item.type === 'service' && isFacilityRepair(item))
+  return items.value.filter(item => item.type === 'service' && !isFacilityRepair(item))
 })
 
 function categoryOf(item) { return complaintCategory(item.type, item.description, item.service_kind) }
