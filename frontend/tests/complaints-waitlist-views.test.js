@@ -53,11 +53,15 @@ function complaintRow(id, overrides = {}) {
 }
 
 async function complaintsPage(overrides = {}) {
-  const calls = { list: [], detail: [] }
+  const calls = { list: [], detail: [], campus: [] }
   const route = overrides.route || { query: {} }
   const mocks = {
     'vue-router': { useRoute: () => route },
     '../api/complaint': {
+      listCampusComplaints: async query => {
+        calls.campus.push({ ...query })
+        return overrides.campus ? overrides.campus(query) : { data: envelope([], query) }
+      },
       listMyComplaints: async query => {
         calls.list.push({ ...query })
         return overrides.list ? overrides.list(query) : { data: envelope([], query) }
@@ -72,6 +76,7 @@ async function complaintsPage(overrides = {}) {
     '../composables/recordPage.js': recordPage,
     '../composables/useServiceTargetClock.js': { useServiceTargetClock: () => ({ progress: () => null }) },
     '../components/ComplaintForm.vue': { default: {} },
+    '../components/ComplaintCampusCard.vue': { default: {} },
     '../components/ComplaintRecord.vue': { default: {} },
     '../components/ui/SButton.vue': { default: {} },
     '../components/ui/SBanner.vue': { default: {} },
@@ -81,7 +86,7 @@ async function complaintsPage(overrides = {}) {
   const full = await fullSourceOf('ComplaintsView.vue')
   const source = await sourceOf('ComplaintsView.vue')
   const { page, mounted, unmounted } = await loadScript(
-    source + '\nexport {load,selectCategory,selectItem,closeDetail,created,visibleItems,items,loading,error,category,selectedId,detail,detailError,detailLoading,formOpen,snapshot,loaded}',
+    source + '\nexport {load,selectCategory,selectItem,closeDetail,created,visibleItems,items,loading,error,category,selectedId,detail,detailError,detailLoading,formOpen,snapshot,loaded,audience,showAudience,campusItems,campusPager}',
     mocks
   )
   return { page, calls, source, full, mounted, unmounted }
@@ -104,6 +109,20 @@ test('complaints list reads the first page on load and keeps rows after a later 
   assert.equal(view.error.value, '网络中断')
   assert.equal(view.items.value.length, 1, '失败后旧数据必须保留')
   assert.equal(view.loading.value, false)
+})
+
+test('campus browsing fetches anonymous rows separately without opening an owner detail', async () => {
+  const row = { room_name: '1F-A区', public_summary: '照明需检修', status: 'processing' }
+  const { page, calls } = await complaintsPage({ campus: query => ({ data: envelope([row], query, { total: 12 }) }) })
+  assert.equal(page.audience.value, 'mine')
+  assert.deepEqual(calls.campus, [])
+  page.showAudience('campus')
+  await tick()
+  assert.deepEqual(Array.from(page.campusItems.value), [row])
+  assert.equal(page.campusPager.snapshot.value.total, 12)
+  await page.campusPager.turn(2)
+  assert.deepEqual(calls.campus, [{ page: 1, page_size: 10 }, { page: 2, page_size: 10 }])
+  assert.deepEqual(calls.detail, [])
 })
 
 test('complaints category switch requests the coarse type and filters the visible rows locally', async () => {

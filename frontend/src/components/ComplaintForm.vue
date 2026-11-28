@@ -5,9 +5,11 @@ import { getRooms } from '../api/room'
 import { getReservation, listMyReservations } from '../api/reservation'
 import { complaintTypes, complaintStatuses, reservationStatuses, positiveId, complaintNumber, complaintPayload, validateEvidenceFile, serviceKinds, faultTypes, impactScopes, safetyRisks, otherRequestTypes, repairPriority, repairPriorityText } from '../composables/complaintForm.js'
 import { checkinDeadlineOf } from '../composables/checkinDeadline.js'
+import { complaintVisibilityPayload } from '../composables/complaintVisibility.js'
 import EvidenceUploadQueue from './EvidenceUploadQueue.vue'
 import {useEvidenceUploadQueue} from '../composables/useEvidenceUploadQueue.js'
 import ComplaintRecord from './ComplaintRecord.vue'
+import ComplaintVisibilityFields from './ComplaintVisibilityFields.vue'
 import SInput from './ui/SInput.vue'
 import SSelect from './ui/SSelect.vue'
 import SButton from './ui/SButton.vue'
@@ -26,6 +28,9 @@ const rooms=ref([]), choices=ref([]), roomsError=ref(''), choicesError=ref(''), 
 const choosingReservation = ref(false)
 const reservationFromEntry = computed(() => props.initialReservationId != null && props.initialReservationId !== '')
 const useReservation = computed(() => type.value === 'occupation')
+const selectedVisibility = ref(null), publicSummary = ref(''), previewOpen = ref(false)
+const visibility = computed(() => selectedVisibility.value ?? (useReservation.value ? 'private' : 'campus'))
+const previewRoom = computed(() => useReservation.value ? context.value?.room_name : rooms.value.find(room => room.id === roomId.value)?.name)
 const roomSeats = ref([]), selectedSeat = ref(null), seatDialog = ref(false)
 const seatsLoading = ref(false), seatsError = ref('')
 const seatColumns = computed(() => Math.max(1, ...roomSeats.value.map(seat => seat.col_no)))
@@ -134,7 +139,7 @@ async function refreshCreated() {
   catch{if(alive&&ticket===readSequence)readError.value='求助已提交，暂时无法加载详情。'}
   finally{if(alive&&ticket===readSequence)reading.value=false}
 }
-async function submit() {
+async function submit({ confirmed = false } = {}) {
   if(submitting.value||uploading.value||receipt.value)return
   error.value=''
   if(!uncertain.value){
@@ -143,6 +148,11 @@ async function submit() {
       if(contextLoading.value||contextError.value)throw new Error(contextError.value || '正在加载预约，请稍后提交。')
       const requestType = otherRequestType.value === customType ? customRequestType.value : otherRequestType.value
       const body=complaintPayload({type:type.value,description:description.value,reservationId:useReservation.value?reservationId.value:null,roomId:roomId.value,seatId:selectedSeat.value?.id,items:currentPhotos.value,context:context.value,serviceKind:serviceKind.value,repair:repair.value,unsafeArea:unsafeArea.value,otherRequestType:requestType})
+      Object.assign(body, complaintVisibilityPayload(visibility.value, publicSummary.value))
+      if (body.visibility === 'campus' && !confirmed) {
+        previewOpen.value = true
+        return
+      }
       const signature=JSON.stringify(body)
       if(!frozenBody||signature!==fingerprint){frozenBody={...body,operation_id:crypto.randomUUID()};fingerprint=signature}
     }catch(failure){error.value=failure.message;return}
@@ -173,13 +183,19 @@ async function submit() {
   }
   finally{if(alive&&ticket===scope)submitting.value=false}
 }
-function reset() {if(submitting.value||uncertain.value)return;scope++;readSequence++;receipt.value=null;record.value=null;readError.value='';description.value='';queue.reset();frozenBody=null;fingerprint='';error.value='';applyInitial()}
+function confirmSubmission() {
+  if (!previewOpen.value) return
+  previewOpen.value = false
+  return submit({ confirmed: true })
+}
+function reset() {if(submitting.value||uncertain.value)return;scope++;readSequence++;receipt.value=null;record.value=null;readError.value='';description.value='';selectedVisibility.value=null;publicSummary.value='';queue.reset();frozenBody=null;fingerprint='';error.value='';applyInitial()}
 function applyInitial() {
   if(locked.value)return
   scope++
   choicesSequence++
   choicesLoading.value = false
   seatDialog.value = false
+  previewOpen.value = false
   type.value = reservationFromEntry.value ? 'occupation' : props.initialType || 'service'
   void selectReservation(reservationFromEntry.value ? props.initialReservationId : null)
   if (useReservation.value && !reservationFromEntry.value) changeReservation()
@@ -259,11 +275,13 @@ onBeforeUnmount(()=>{queue.dispose();alive=false;scope++;choicesSequence++;conte
         </template>
         <label>情况说明<SInput v-model="description" type="textarea" :rows="5" required maxlength="2000" :disabled="locked" placeholder="请描述遇到的问题" /></label>
         <p class="muted">{{ description.trim().length }}/2000字</p>
+        <ComplaintVisibilityFields :visibility="visibility" v-model:summary="publicSummary" v-model:preview-open="previewOpen"
+          :room-name="previewRoom" :disabled="locked" confirm-label="确认公开并提交" @update:visibility="selectedVisibility = $event" @confirm="confirmSubmission" />
         <p v-if="type==='service'&&serviceKind==='other'&&currentPhotos.length" class="muted">移除已选照片后即可提交此类求助。</p>
         <EvidenceUploadQueue v-if="type==='occupation'||serviceKind==='facility'||items.length" :items="items" :disabled="locked" :upload-disabled="type==='service'&&serviceKind==='other'" :uploading="uploading" complaint-privacy @select="selectFiles" @retry="uploadItem" @remove="removeItem" />
         <div class="submit-actions">
           <p v-if="expiredCount" role="status" class="muted">{{ expiredCount }} 张照片已失效</p>
-          <SButton type="submit" variant="primary" :loading="submitting" :disabled="uploading || (!uncertain && hasUnfinishedPhotos)">{{ uncertain ? '确认提交结果' : '提交求助' }}</SButton>
+          <SButton type="submit" variant="primary" :loading="submitting" :disabled="uploading || (!uncertain && hasUnfinishedPhotos)">{{ uncertain ? '确认提交结果' : visibility === 'campus' ? '预览并提交' : '提交求助' }}</SButton>
         </div>
       </form>
     </template>

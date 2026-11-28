@@ -11,27 +11,88 @@ import javax.validation.Validator;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.*;
 
-/** 本人提交事实与公开进度的唯一投影；管理私有核实不进入公开DTO。 */
+/** 本人投诉记录和校园动态的读取，以及提交人对可见范围的管理。 */
 @Service
 public class ComplaintService {
-    private static final String BASIC="SELECT c.id,c.operation_id,c.type,c.status,c.description,c.reservation_id,c.room_id,c.context_snapshot,c.submitted_at,c.version,c.accepted_at,c.service_kind,c.service_topic,c.fault_type,c.impact_scope,c.safety_risk,c.unsafe_area,c.initial_priority,c.priority_status,c.priority_mapping_version,c.auto_rule_version,c.triaged_priority,c.triaged_safety_risk,c.triaged_unsafe_area,c.triaged_reason,c.triaged_at,CASE WHEN c.service_kind IN('facility_repair','other_service') THEN (SELECT e.initial_arrangement FROM complaint_events e WHERE e.complaint_id=c.id AND e.event_type='accepted' ORDER BY e.id LIMIT 1) END AS initial_arrangement,(SELECT COALESCE(NULLIF(h.real_name,''),h.username) FROM users h WHERE h.id=c.handler_id) AS handler_name,count(a.id) AS attachment_count FROM complaints c LEFT JOIN evidence_attachments a ON a.complaint_id=c.id ";
+    private static final String PRIVATE = "private";
+    private static final String CAMPUS = "campus";
+    private static final String CAMPUS_FILTER = " WHERE c.visibility='campus' AND c.status<>'withdrawn'";
+    private static final String PUBLIC_ROOM_NAME = "COALESCE(c.context_snapshot->>'room_name', (SELECT r.name FROM rooms r WHERE r.id=c.room_id))";
+    private static final String BASIC="SELECT c.id,c.operation_id,c.type,c.status,c.description,c.reservation_id,c.room_id,c.context_snapshot,c.submitted_at,c.version,c.accepted_at,c.service_kind,c.service_topic,c.fault_type,c.impact_scope,c.safety_risk,c.unsafe_area,c.initial_priority,c.priority_status,c.priority_mapping_version,c.auto_rule_version,c.triaged_priority,c.triaged_safety_risk,c.triaged_unsafe_area,c.triaged_reason,c.triaged_at,c.visibility,c.public_summary,"+PUBLIC_ROOM_NAME+" AS room_name,CASE WHEN c.service_kind IN('facility_repair','other_service') THEN (SELECT e.initial_arrangement FROM complaint_events e WHERE e.complaint_id=c.id AND e.event_type='accepted' ORDER BY e.id LIMIT 1) END AS initial_arrangement,(SELECT COALESCE(NULLIF(h.real_name,''),h.username) FROM users h WHERE h.id=c.handler_id) AS handler_name,count(a.id) AS attachment_count FROM complaints c LEFT JOIN evidence_attachments a ON a.complaint_id=c.id ";
+    private record Publication(String visibility, String summary) {}
     private final Store db;private final AttachmentService attachments;private final AuditService audit;private final ObjectMapper json;private final Validator validator;private final Clock clock;private final ComplaintPhaseProjection phases;private final ComplaintTargetService targets;private final ComplaintPriorityService priorities;
     public ComplaintService(Store db,AttachmentService attachments,AuditService audit,ObjectMapper json,Validator validator,Clock clock,ComplaintPhaseProjection phases,ComplaintTargetService targets,ComplaintPriorityService priorities) { this.db=db;this.attachments=attachments;this.audit=audit;this.json=json;this.validator=validator;this.clock=clock;this.phases=phases;this.targets=targets;this.priorities=priorities; }
     @Transactional
     public Map<String,Object> create(long actor,Requests.Complaint request) {
+        return create(actor,request,PRIVATE,null);
+    }
+    @Transactional
+    public Map<String,Object> create(long actor,Requests.Complaint request,String visibility,String publicSummary) {
         db.lockBookings();attachments.requireOrdinary(actor);Api.require(request!=null,400,"投诉内容必填");String operation=AttachmentService.uuid(request.operationId(),"operation_id");var existing=db.list("SELECT id,user_id,request_hash FROM complaints WHERE operation_id=CAST(? AS UUID)",operation);
         boolean legacyShape=request.serviceKind()==null&&request.serviceTopic()==null&&request.faultType()==null&&request.impactScope()==null&&request.safetyRisk()==null&&request.unsafeArea()==null;
         boolean replay=legacyShape&&!existing.isEmpty();
-        Requests.Complaint normalized;try { normalized=normalize(request,operation,replay); } catch(Api.Failure failure) { if(!existing.isEmpty()) throw Api.fail(409,"操作标识已用于其他内容，请按原请求重试");throw failure; }
-        String intent=hash(actor,normalized,!legacyShape);
+        Requests.Complaint normalized;
+        Publication publication;
+        try {
+            normalized = normalize(request,operation,replay);
+            publication = publication(visibility,publicSummary);
+        } catch(Api.Failure failure) {
+            if(!existing.isEmpty()) throw Api.fail(409,"操作标识已用于其他内容，请按原请求重试");
+            throw failure;
+        }
+        String intent=hash(actor,normalized,!legacyShape,publication);
         if(!existing.isEmpty()) { var saved=existing.get(0);Api.require(Store.id(saved,"user_id")==actor&&intent.equals(saved.get("request_hash")),409,"操作标识已用于其他内容，不能修改原投诉请求");var result=detailInternal(Store.id(saved,"id"));result.put("replayed",true);locationNotice(result,normalized);return result; }
         Map<String,Object> context=context(actor,normalized);Long room=context==null?null:Store.id(context,"room_id");var now=LocalDateTime.ofInstant(clock.instant(),BookingPolicy.CAMPUS_ZONE).truncatedTo(ChronoUnit.MICROS);var classification="facility_repair".equals(normalized.serviceKind())?classification(normalized):null;
-        long id=db.insert("INSERT INTO complaints(user_id,operation_id,request_hash,type,status,description,reservation_id,room_id,context_snapshot,submitted_at,service_kind,service_topic,fault_type,impact_scope,safety_risk,unsafe_area,initial_priority,priority_status,priority_mapping_version,auto_rule_version) VALUES(?,CAST(? AS UUID),?,?,'submitted',?,?,?,CAST(? AS JSONB),?,?,?,?,?,?,?,?,?,?,?)",actor,operation,intent,normalized.type(),normalized.description(),normalized.reservationId(),room,context==null?null:write(context),java.sql.Timestamp.valueOf(now),normalized.serviceKind(),normalized.serviceTopic(),normalized.faultType(),normalized.impactScope(),normalized.safetyRisk(),normalized.unsafeArea(),classification==null?null:classification.priority(),classification==null?null:classification.status(),null,classification==null?null:classification.ruleVersion());
+        long id=db.insert("""
+            INSERT INTO complaints(user_id,operation_id,request_hash,type,status,description,reservation_id,room_id,
+                context_snapshot,submitted_at,service_kind,service_topic,fault_type,impact_scope,safety_risk,unsafe_area,
+                initial_priority,priority_status,priority_mapping_version,auto_rule_version,visibility,public_summary)
+            VALUES(?,CAST(? AS UUID),?,?,'submitted',?,?,?,CAST(? AS JSONB),?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,actor,operation,intent,normalized.type(),normalized.description(),normalized.reservationId(),room,
+            context==null?null:write(context),java.sql.Timestamp.valueOf(now),normalized.serviceKind(),
+            normalized.serviceTopic(),normalized.faultType(),normalized.impactScope(),normalized.safetyRisk(),
+            normalized.unsafeArea(),classification==null?null:classification.priority(),
+            classification==null?null:classification.status(),null,classification==null?null:classification.ruleVersion(),
+            publication.visibility(),publication.summary());
         var targetSnapshot=targets.initialize(id,normalized.type(),room,now,normalized.serviceKind());
         db.update("INSERT INTO complaint_events(complaint_id,actor_id,event_type,source,created_at) VALUES(?,?,'submitted','user_submit',?)",id,actor,java.sql.Timestamp.valueOf(now));attachments.bind(actor,id,normalized.attachmentIds(),now);
         var evidence=new LinkedHashMap<String,Object>();evidence.put("complaint_id",id);evidence.put("type",normalized.type());evidence.put("service_kind",normalized.serviceKind());evidence.put("status","submitted");evidence.put("reservation_id",normalized.reservationId());evidence.put("room_id",room);evidence.put("attachment_count",normalized.attachmentIds().size());evidence.put("initial_priority",classification==null?null:classification.priority());evidence.put("priority_status",classification==null?null:classification.status());evidence.put("auto_rule_version",classification==null?null:classification.ruleVersion());evidence.put("service_target",targetSnapshot);evidence.put("submitted_at",now.toString());
+        evidence.put("visibility",publication.visibility());
         if(context!=null&&context.containsKey("seat_id")) evidence.put("seat_id",context.get("seat_id"));
         audit.record(actor,"complaint.submit","complaint",Long.toString(id),"用户提交求助投诉，当前待受理且内容尚未核实",Map.of(),evidence);var result=detailInternal(id);result.put("replayed",false);locationNotice(result,normalized);return result;
+    }
+    @Transactional(readOnly=true,isolation=Isolation.REPEATABLE_READ)
+    public Map<String,Object> campus(long actor,Map<String,String> parameters) {
+        attachments.requireActive(actor);
+        Api.require(Set.of("page","page_size").containsAll(parameters.keySet()),400,"校园动态仅支持分页查询");
+        var page = RecordPage.parse(parameters,RecordPage.Domain.COMPLAINT,false);
+        var snapshot = now();
+        long total = db.count("SELECT count(*) FROM complaints c" + CAMPUS_FILTER);
+        var items = db.list("SELECT " + PUBLIC_ROOM_NAME + " AS room_name,c.public_summary,c.status FROM complaints c"
+            + CAMPUS_FILTER + " ORDER BY c.submitted_at DESC,c.id DESC LIMIT ? OFFSET ?",
+            page.size,(long) (page.page - 1) * page.size);
+        return page.result(items,total,snapshot);
+    }
+    @Transactional
+    public Map<String,Object> changeVisibility(long actor,long complaint,long version,String visibility,String publicSummary) {
+        db.lockBookings();
+        attachments.requireOrdinary(actor);
+        var before = db.one("SELECT user_id,version,status,visibility,public_summary FROM complaints WHERE id=?",complaint);
+        Api.require(Store.id(before,"user_id")==actor,403,"只能修改本人提交的投诉");
+        Api.require(version>0,400,"版本须为正整数");
+        var publication = publication(visibility,publicSummary);
+        Api.require(!CAMPUS.equals(visibility)||!"withdrawn".equals(before.get("status")),409,"已撤回的投诉无法公开");
+        Api.require(Store.id(before,"version")==version,409,"这条投诉已更新，请重新打开后再修改可见范围");
+        if(Objects.equals(before.get("visibility"),publication.visibility())
+                && Objects.equals(before.get("public_summary"),publication.summary())) {
+            return detailInternal(complaint);
+        }
+        db.update("UPDATE complaints SET visibility=?,public_summary=?,version=version+1 WHERE id=?",
+            publication.visibility(),publication.summary(),complaint);
+        audit.record(actor,"complaint.visibility_change","complaint",Long.toString(complaint),"提交人更新可见范围或公开摘要",
+            Map.of("visibility",before.get("visibility"),"version",version),
+            Map.of("visibility",publication.visibility(),"version",version+1));
+        return detailInternal(complaint);
     }
     @Transactional(readOnly=true)
     public List<Map<String,Object>> reportableSeats(long actor,long room) {
@@ -84,11 +145,24 @@ public class ComplaintService {
         boolean differentSeat=request.seatId()!=null&&!Objects.equals(request.seatId(),((Number)snapshot.get("seat_id")).longValue());
         if(differentRoom||differentSeat) result.put("location_notice","已采用关联预约中的地点和座位");
     }
-    private String hash(long actor,Requests.Complaint request) {
-        return hash(actor,request,true);
+    private Publication publication(String visibility,String publicSummary) {
+        if(PRIVATE.equals(visibility)) {
+            Api.require(publicSummary==null,400,"私密投诉无需填写公开摘要");
+            return new Publication(PRIVATE,null);
+        }
+        Api.require(CAMPUS.equals(visibility),400,"请选择可见范围");
+        String summary = publicSummary == null ? "" : publicSummary.strip();
+        Api.require(!summary.isEmpty()&&summary.indexOf(0)<0&&summary.codePointCount(0,summary.length())<=300,
+            400,"公开摘要须为1至300字");
+        return new Publication(CAMPUS,summary);
     }
-    private String hash(long actor,Requests.Complaint request,boolean includeService){
+    private String hash(long actor,Requests.Complaint request,boolean includeService,Publication publication){
         var intent=new TreeMap<String,Object>();intent.put("actor_id",actor);intent.put("type",request.type());intent.put("reservation_id",request.reservationId());intent.put("room_id",request.roomId());intent.put("description",request.description());intent.put("attachment_ids",request.attachmentIds());if(request.seatId()!=null) intent.put("seat_id",request.seatId());if(includeService){intent.put("service_kind",request.serviceKind());intent.put("service_topic",request.serviceTopic());intent.put("fault_type",request.faultType());intent.put("impact_scope",request.impactScope());intent.put("safety_risk",request.safetyRisk());intent.put("unsafe_area",request.unsafeArea());}
+        // 保留已有私密提交的请求指纹，使升级前留下的操作标识仍可重试。
+        if(CAMPUS.equals(publication.visibility())) {
+            intent.put("visibility",publication.visibility());
+            intent.put("public_summary",publication.summary());
+        }
         try { return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(write(intent).getBytes(StandardCharsets.UTF_8))); } catch(java.security.NoSuchAlgorithmException e) { throw new IllegalStateException(e); }
     }
     private ComplaintPriorityService.Classification classification(Requests.Complaint request){return priorities.classify(request.faultType(),request.impactScope(),Boolean.TRUE.equals(request.safetyRisk()),Boolean.TRUE.equals(request.unsafeArea()));}

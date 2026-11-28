@@ -1,16 +1,20 @@
 <script setup>
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { getComplaint, withdrawComplaint, confirmComplaintFeedback, objectComplaintFeedback } from '../api/complaint'
+import { getComplaint, withdrawComplaint, confirmComplaintFeedback, objectComplaintFeedback, updateComplaintVisibility } from '../api/complaint'
 import { useServiceTargetClock } from '../composables/useServiceTargetClock.js'
 import { ownerComplaintActions } from '../composables/complaintForm.js'
+import { complaintVisibilityPayload, visibilityLabels } from '../composables/complaintVisibility.js'
 import { confirmDialog } from '../components/ui/feedback'
 import ComplaintRecord from '../components/ComplaintRecord.vue'
+import ComplaintVisibilityFields from '../components/ComplaintVisibilityFields.vue'
 import SButton from '../components/ui/SButton.vue'
 import SInput from '../components/ui/SInput.vue'
 import SBanner from '../components/ui/SBanner.vue'
 const props=defineProps({id:{type:[String,Number],required:true}})
 const record=ref(null),loading=ref(false),error=ref(''),description=ref(''),submitting=ref(false),unknown=ref(false),readPending=ref(false),pending=ref(null),actionError=ref(''),writeNotice=ref('')
+const visibilityDraft = ref(null), visibilityPreview = ref(false), visibilityError = ref('')
 const actions=computed(()=>ownerComplaintActions(record.value)),busy=computed(()=>submitting.value||unknown.value||readPending.value)
+const currentVisibility = computed(() => record.value?.status === 'withdrawn' ? 'private' : record.value?.visibility || 'private')
 const actionLabels={withdraw:'撤回投诉',confirm:'接受回复并结案',object:'提交异议'}
 const actionResults={withdraw:'投诉已撤回。',confirm:'已接受回复，投诉已结案。',object:'异议已提交，将重新处理。'}
 const actionApis={withdraw:withdrawComplaint,confirm:confirmComplaintFeedback,object:objectComplaintFeedback}
@@ -44,8 +48,91 @@ async function act(action){if(busy.value||loading.value||error.value||!actions.v
   }finally{if(alive&&ticket===scope)submitting.value=false}
 }
 async function retryUnknown(){if(!unknown.value||submitting.value||!pending.value)return;submitting.value=true;try{await sendPending()}finally{if(alive)submitting.value=false}}
-function refresh(){if(submitting.value||unknown.value)return;return load({afterWrite:readPending.value})}
-watch(()=>props.id,()=>{scope++;sequence++;record.value=null;pending.value=null;submitting.value=false;unknown.value=false;readPending.value=false;description.value='';actionError.value='';writeNotice.value='';void load()},{immediate:true})
+async function refresh() {
+  if (submitting.value || unknown.value) return
+  const read = await load({ afterWrite: readPending.value, preserve: !!visibilityDraft.value })
+  if (read && visibilityDraft.value && visibilityError.value) visibilityDraft.value.version = record.value.version
+  return read
+}
+function editVisibility() {
+  if (!record.value || record.value.status === 'withdrawn' || busy.value || loading.value || error.value) return
+  visibilityError.value = ''
+  visibilityDraft.value = {
+    version: record.value.version,
+    visibility: record.value.visibility || 'private',
+    summary: record.value.public_summary || ''
+  }
+}
+function cancelVisibility() {
+  visibilityDraft.value = null
+  visibilityPreview.value = false
+  visibilityError.value = ''
+}
+async function saveVisibility({ confirmed = false } = {}) {
+  if (!visibilityDraft.value || !record.value || record.value.status === 'withdrawn' || busy.value || loading.value || error.value) return
+  visibilityError.value = ''
+  const draft = visibilityDraft.value
+  let fields
+  try {
+    fields = complaintVisibilityPayload(draft.visibility, draft.summary)
+  } catch (failure) {
+    visibilityError.value = failure.message
+    return
+  }
+  if (fields.visibility === 'campus' && !confirmed) {
+    visibilityPreview.value = true
+    return
+  }
+  const id = record.value.id
+  const ticket = scope
+  const current = () => alive && ticket === scope
+  const matches = value => String(value?.id) === String(id) && value.visibility === fields.visibility && value.public_summary === fields.public_summary
+  const saved = () => {
+    cancelVisibility()
+    writeNotice.value = '可见范围已保存。'
+  }
+  submitting.value = true
+  writeNotice.value = ''
+  try {
+    const { data } = await updateComplaintVisibility(id, { version: draft.version, ...fields })
+    if (!current()) return
+    if (!matches(data) || !Number.isSafeInteger(data.version) || !Array.isArray(data.attachments) || !Array.isArray(data.events)) {
+      throw new Error('暂时无法确认可见范围是否已保存。')
+    }
+    record.value = data
+    saved()
+  } catch (failure) {
+    if (!current()) return
+    const conflict = failure.status === 409
+    if (conflict || failure.status == null || failure.status === 408 || failure.status >= 500) {
+      const read = await load({ allowDuringWrite: true, preserve: true })
+      if (!current()) return
+      if (read && record.value.status === 'withdrawn') {
+        cancelVisibility()
+        actionError.value = '这条求助已撤回。'
+        return
+      }
+      if (read && matches(record.value)) {
+        saved()
+        return
+      }
+      if (read) draft.version = record.value.version
+      visibilityError.value = read
+        ? '请核对当前可见范围，再保存你的修改。'
+        : '暂时无法确认可见范围是否已保存，草稿已保留。'
+    } else {
+      visibilityError.value = failure.message
+    }
+  } finally {
+    if (current()) submitting.value = false
+  }
+}
+function confirmVisibility() {
+  if (!visibilityPreview.value) return
+  visibilityPreview.value = false
+  return saveVisibility({ confirmed: true })
+}
+watch(()=>props.id,()=>{scope++;sequence++;record.value=null;pending.value=null;submitting.value=false;unknown.value=false;readPending.value=false;description.value='';actionError.value='';writeNotice.value='';cancelVisibility();void load()},{immediate:true})
 onBeforeUnmount(()=>{alive=false;sequence++;scope++})
 </script>
 <template>
@@ -64,6 +151,23 @@ onBeforeUnmount(()=>{alive=false;sequence++;scope++})
       </SBanner>
       <SBanner v-if="writeNotice" type="success" :title="writeNotice" />
       <ComplaintRecord v-if="record && !loading" :record="record" :target-progress="targetClock.progress(record)" compact />
+      <section v-if="record && !loading" class="owner-visibility" aria-label="可见范围">
+        <div class="visibility-heading">
+          <div><h3>可见范围</h3><p class="muted">{{ visibilityLabels[currentVisibility] }}</p></div>
+          <SButton v-if="!visibilityDraft && record.status !== 'withdrawn'" size="sm" :disabled="busy || !!error" @click="editVisibility">修改可见范围</SButton>
+        </div>
+        <p v-if="currentVisibility === 'campus' && record.public_summary" class="published-summary">当前公开摘要：{{ record.public_summary }}</p>
+        <form v-if="visibilityDraft && record.status !== 'withdrawn'" class="owner-visibility" @submit.prevent="saveVisibility">
+          <SBanner v-if="visibilityError" type="error" :title="visibilityError" />
+          <ComplaintVisibilityFields v-model:visibility="visibilityDraft.visibility" v-model:summary="visibilityDraft.summary"
+            v-model:preview-open="visibilityPreview" :room-name="record.room_name ?? record.context_snapshot?.room_name" :status="record.status"
+            :disabled="busy || !!error" confirm-label="确认公开并保存" @confirm="confirmVisibility" />
+          <div class="row-actions">
+            <SButton type="submit" variant="primary" :loading="submitting" :disabled="busy || !!error">{{ visibilityDraft.visibility === 'campus' ? '预览并保存' : '保存' }}</SButton>
+            <SButton :disabled="busy" @click="cancelVisibility">取消</SButton>
+          </div>
+        </form>
+      </section>
       <section v-if="record && !loading && !error && actions.length" class="owner-actions">
         <SButton v-if="actions.includes('withdraw')" :disabled="busy" @click="act('withdraw')">{{ actionLabels.withdraw }}</SButton>
         <SButton v-if="actions.includes('confirm')" variant="primary" :disabled="busy" @click="act('confirm')">{{ actionLabels.confirm }}</SButton>
@@ -83,4 +187,8 @@ onBeforeUnmount(()=>{alive=false;sequence++;scope++})
 .complaint-detail > .card, .owner-actions { display: grid; justify-items: start; gap: 16px; min-width: 0; }
 .owner-actions { width: 100%; }
 .owner-actions label { display: grid; gap: 8px; width: 100%; }
+.owner-visibility { display: grid; gap: 12px; min-width: 0; width: 100%; }
+.visibility-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
+.visibility-heading p { margin: 4px 0 0; }
+.published-summary { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
 </style>
