@@ -37,7 +37,33 @@ public class RestrictionPolicy {
         return credit.appealFingerprint(user, violation, now);
     }
     Map<String,Object> eligibility(long user,LocalDateTime now){var account=db.one("SELECT role,status FROM users WHERE id=?",user);var active=rows("WHERE r.user_id=? AND "+BLOCKS_BOOKING,user,stamp(now),stamp(now)).stream().map(row->view(row,now,false)).toList();String blocked=!AuthService.isOrdinary(account.get("role"))?"role":!"active".equals(account.get("status"))?"disabled":active.isEmpty()?null:"restrictions";var result=new LinkedHashMap<String,Object>();result.put("can_book",blocked==null);result.put("blocked_by",blocked);result.put("active_restrictions",active);result.put("server_now",offset(now));result.put("campus_zone",BookingPolicy.CAMPUS_ZONE.toString());return result;}
-    Map<String,Object> denial(Map<String,Object> eligibility){var result=new LinkedHashMap<String,Object>();result.put("code","booking_restricted");for(String key:List.of("active_restrictions","server_now","campus_zone"))result.put(key,eligibility.get(key));return result;}
+    Map<String,Object> bookingSummary(Map<String,Object> eligibility) {
+        var result = new LinkedHashMap<>(eligibility);
+        var records = (List<?>) eligibility.get("active_restrictions");
+        result.put("active_restrictions", records.stream().map(record -> bookingRestriction((Map<?,?>) record)).toList());
+        return result;
+    }
+
+    private Map<String,Object> bookingRestriction(Map<?,?> record) {
+        var result = new LinkedHashMap<String,Object>();
+        result.put("ends_at", record.get("ends_at"));
+        result.put("reason", record.get("reason"));
+        if (record.get("automatic_evaluation") instanceof Map<?,?> evaluation
+                && evaluation.get("source_violations") instanceof List<?> sources) {
+            result.put("violations", sources.stream().map(source -> {
+                var violation = (Map<?,?>) source;
+                return Map.of("id", violation.get("id"), "type", violation.get("type"),
+                        "occurred_at", violation.get("occurred_at"));
+            }).toList());
+        }
+        return result;
+    }
+
+    Map<String,Object> denial(Map<String,Object> eligibility) {
+        var result = bookingSummary(eligibility);
+        result.put("code", "booking_restricted");
+        return result;
+    }
     boolean legacyActive(long user,LocalDateTime now){return db.count("SELECT count(*) FROM restrictions r WHERE r.user_id=? AND r.source='legacy' AND "+BLOCKS_BOOKING,user,stamp(now),stamp(now))>0;}
     List<Map<String,Object>> list(Long user,String status,LocalDateTime now,boolean admin){return RecordPage.items(records(RecordPage.legacy(status==null?Map.of():Map.of("status",status),RecordPage.Domain.RESTRICTION,admin),user,now,admin));}
     Map<String,Object> records(RecordPage query,Long user,LocalDateTime now,boolean admin){var selected=query.select(db,RecordPage.Domain.RESTRICTION,user,now);var result=selected.ids().isEmpty()?new ArrayList<Map<String,Object>>():rows("WHERE r.id IN ("+RecordPage.marks(selected.ids())+") ORDER BY r.created_at DESC,r.id DESC",selected.ids().toArray()).stream().map(row->view(row,now,admin)).toList();for(var item:result)for(String key:List.of("verification_note","facts_confirmed","release_verification_note","release_facts_confirmed"))item.remove(key);return query.result(result,selected.total(),now);}

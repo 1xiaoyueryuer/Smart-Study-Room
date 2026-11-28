@@ -6,6 +6,16 @@ defineProps({
   collapseDetails: Boolean
 })
 const violationTypeLabels={abandon:'开始后主动放弃',no_show:'超时未签到',occupation_refusal:'核实拒不配合占座'}
+const restrictionSources = {
+  automatic: '因累计违规暂停预约',
+  legacy: '历史限制',
+  manual: '管理员设置'
+}
+function durationText(hours) {
+  return Number.isFinite(hours) && hours > 0
+    ? (hours % 24 === 0 ? `${hours / 24} 天` : `${hours} 小时`)
+    : '—'
+}
 function completeEvaluation(value) {
   if (!value) return false
   const { threshold, duration_hours, source_violations: sources } = value
@@ -25,19 +35,19 @@ function completeEvaluation(value) {
 <template>
   <article class="restriction-record">
     <header class="record-heading">
-      <h4>限制 #{{ record.id }}</h4>
+      <h4>预约限制 #{{ record.id }}</h4>
       <span class="record-status" :class="{ 'record-status--active': record.status === 'active' }">
         {{ restrictionStatuses[record.status] || record.status }}
       </span>
-      <p class="record-source">{{ record.source==='legacy'?'历史限制（仅保留剩余期限）':record.source==='manual'?'管理员设置':record.source==='automatic'?'按违规次数自动暂停预约':record.source }}</p>
+      <p v-if="restrictionSources[record.source]" class="record-source">{{ restrictionSources[record.source] }}</p>
     </header>
     <dl class="record-summary">
       <div class="record-reason">
-        <dt>公开原因</dt>
-        <dd class="public-reason">{{ record.reason }}</dd>
+        <dt>限制原因</dt>
+        <dd class="public-reason">{{ record.legacy_remaining_only ? '原限制原因未记录' : record.reason }}</dd>
       </div>
       <div class="record-time">
-        <dt>{{ record.legacy_remaining_only ? '剩余效力接管起点' : '生效起点' }}</dt>
+        <dt>{{ record.legacy_remaining_only ? '历史记录开始时间' : '生效时间' }}</dt>
         <dd>{{ formatCampusDateTime(record.starts_at) }}</dd>
       </div>
       <div class="record-time">
@@ -45,40 +55,40 @@ function completeEvaluation(value) {
         <dd>{{ formatCampusDateTime(record.ends_at) }}</dd>
       </div>
     </dl>
-    <p v-if="record.legacy_remaining_only" class="record-source">这里只保留当时尚未结束的限制期限；原开始时间和原因未记录。</p>
+    <p v-if="record.legacy_remaining_only" class="record-source">原生效时间未记录，以上为后来补录的限制期限。</p>
     <component :is="collapseDetails ? 'details' : 'div'" class="record-details">
       <summary v-if="collapseDetails">限制详情</summary>
       <div class="record-detail-content">
-        <p>记录时间：{{ formatCampusDateTime(record.created_at) }}；{{ record.creator_display_name || (record.source==='automatic'?'系统自动记录':record.source==='legacy'?'历史记录':'未注明记录人') }}。</p>
+        <p>记录时间 {{ formatCampusDateTime(record.created_at) }}<span v-if="record.creator_display_name"> · {{ record.creator_display_name }}</span></p>
         <section v-if="record.source==='automatic'" class="automatic-evaluation">
           <h5>触发限制的违规记录</h5>
           <template v-if="record.automatic_evaluation">
-            <p>限制判定时间：{{ formatCampusDateTime(record.automatic_evaluation.evaluated_at) }}</p>
-            <p>核对的违规时间范围：{{ formatCampusDateTime(record.automatic_evaluation.window_start) }} — {{ formatCampusDateTime(record.automatic_evaluation.window_end) }}<span v-if="record.automatic_evaluation.window_start_inclusive===true && record.automatic_evaluation.window_end_inclusive===true">（起止时刻均计入）</span>。</p>
-            <p>
-              触发条件：{{ record.automatic_evaluation.threshold }} 次有效违规；暂停新预约 {{ record.automatic_evaluation.duration_hours }} 小时<span v-if="record.automatic_evaluation.duration_hours === 168">（7天）</span><span v-else-if="record.automatic_evaluation.duration_hours === 360">（15天）</span>。
-            </p>
+            <p>累计 {{ record.automatic_evaluation.threshold }} 次有效违规，暂停预约 {{ durationText(record.automatic_evaluation.duration_hours) }}。</p>
+            <p>决定时间 {{ formatCampusDateTime(record.automatic_evaluation.evaluated_at) }}</p>
+            <p>统计时间 {{ formatCampusDateTime(record.automatic_evaluation.window_start) }} 至 {{ formatCampusDateTime(record.automatic_evaluation.window_end) }}</p>
           </template>
-          <p v-if="!completeEvaluation(record.automatic_evaluation)" role="alert">限制记录信息不完整，请刷新后重试。</p>
+          <p v-if="!completeEvaluation(record.automatic_evaluation)" role="alert">暂时无法显示完整的违规记录。</p>
           <ol v-if="Array.isArray(record.automatic_evaluation?.source_violations)">
             <li v-for="(item, index) in record.automatic_evaluation.source_violations" :key="item?.id || 'missing-' + index">
               <template v-if="item">
-                <p>违规#{{ item.id }} · {{ violationTypeLabels[item.type] || item.type }} · {{ item.source==='manual'?'管理员核实后登记':item.source==='automatic'?'系统自动事件':item.source }} · 当前{{ item.status==='revoked'?'已撤销':item.status==='active'?'有效':item.status }}</p>
-                <p>事实发生：{{ formatCampusDateTime(item.occurred_at) }}；原登记：{{ formatCampusDateTime(item.registered_at) }}</p>
-                <p class="public-reason">公开事实依据：{{ item.reason }}</p>
-                <p v-if="item.source==='manual'">关联预约涉及他人，不公开编号</p>
-                <p v-else-if="item.reservation_id">本人预约#{{ item.reservation_id }}</p>
+                <p>违规 #{{ item.id }} · {{ violationTypeLabels[item.type] || '其他违规' }} · {{ item.status==='revoked'?'已撤销':item.status==='active'?'有效':item.status }}</p>
+                <p>发生时间 {{ formatCampusDateTime(item.occurred_at) }}</p>
+                <p>登记时间 {{ formatCampusDateTime(item.registered_at) }}<span v-if="item.source==='manual'"> · 管理员登记</span><span v-else-if="item.source==='automatic'"> · 系统登记</span></p>
+                <p class="public-reason">{{ item.reason }}</p>
+                <p v-if="item.source!=='manual' && item.reservation_id">关联预约 #{{ item.reservation_id }}</p>
               </template>
-              <p v-else>来源记录缺失，请刷新核对。</p>
+              <p v-else>这条违规记录暂时无法显示。</p>
             </li>
           </ol>
         </section>
-        <p v-if="record.effects_applied_at">预约调整时间：{{ formatCampusDateTime(record.effects_applied_at) }}。</p>
+        <p v-if="record.effects_applied_at">预约调整时间 {{ formatCampusDateTime(record.effects_applied_at) }}</p>
         <template v-if="record.released_at">
-          <p class="public-reason">单条解除：{{ formatCampusDateTime(record.released_at) }} · {{ record.releaser_display_name || '解除人未提供' }}；公开解除原因：{{ record.release_reason }}</p>
-          <p>已取消的预约仍保持取消。能否新预约以服务端核对的当前资格为准。</p>
+          <p>解除时间 {{ formatCampusDateTime(record.released_at) }}<span v-if="record.releaser_display_name"> · {{ record.releaser_display_name }}</span></p>
+          <p v-if="record.release_reason" class="public-reason">{{ record.release_reason }}</p>
+          <p>如需使用已取消的座位，请重新预约。</p>
         </template>
-        <p>通知时间：{{ record.notified_at ? formatCampusDateTime(record.notified_at) : '未记录' }}<span v-if="record.release_notified_at">；解除通知：{{ formatCampusDateTime(record.release_notified_at) }}</span>。</p>
+        <p v-if="record.notified_at">通知时间 {{ formatCampusDateTime(record.notified_at) }}</p>
+        <p v-if="record.release_notified_at">解除通知 {{ formatCampusDateTime(record.release_notified_at) }}</p>
       </div>
     </component>
   </article>

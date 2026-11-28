@@ -195,7 +195,7 @@ class AutomaticRestrictionIntegrationTest {
         assertEquals(1,automaticCount(student));
     }
     @Test void abandonSecondViolationTriggersSameTransactionAndReturnsItsRealUnusedState(){long id=reservation(student,seat1),pending=future(student);currentViolation(student,now().minusDays(1));clock.set(base.atTime(10,1));var result=bookings.action(student,id,"abandon");assertEquals(200,result.status());assertEquals("unused_ended",result.data().get("status"));assertEquals("cancelled",row(pending).get("status"));assertEquals(2,db.count("SELECT count(*) FROM violations WHERE user_id=?",student));assertEquals(1,automaticCount(student));}
-    @Test void newBookingTyped403CommitsEvaluationAndNoShowFacts()throws Exception{String owner=token("student");long id=reservation(student,seat1);currentViolation(student,now().minusDays(1));clock.set(base.atTime(10,15));http.perform(body(post("/api/reservations"),new Requests.Reservation(seat2,base.plusDays(1).toString(),"14:00","15:00"),owner)).andExpect(status().isForbidden()).andExpect(jsonPath("$.details.active_restrictions[0].automatic_evaluation.source_violations.length()").value(2));assertEquals("unused_ended",row(id).get("status"));assertEquals(1,automaticCount(student));}
+    @Test void newBookingTyped403CommitsEvaluationAndNoShowFacts()throws Exception{String owner=token("student");long id=reservation(student,seat1);currentViolation(student,now().minusDays(1));clock.set(base.atTime(10,15));http.perform(body(post("/api/reservations"),new Requests.Reservation(seat2,base.plusDays(1).toString(),"14:00","15:00"),owner)).andExpect(status().isForbidden()).andExpect(jsonPath("$.details.active_restrictions[0].violations.length()").value(2));assertEquals("unused_ended",row(id).get("status"));assertEquals(1,automaticCount(student));}
     @Test void appliedRestrictionStillBlocksBookingsWhenServerClockMovesBack() throws Exception {
         String owner = token("student");
         long missed = reservation(student, seat1);
@@ -216,7 +216,12 @@ class AutomaticRestrictionIntegrationTest {
         clock.set(appliedAt.minusMinutes(1));
         http.perform(auth(get("/api/booking-eligibility"), owner)).andExpect(status().isOk())
             .andExpect(jsonPath("$.data.can_book").value(false))
-            .andExpect(jsonPath("$.data.active_restrictions[0].id").value(restriction));
+            .andExpect(jsonPath("$.data.active_restrictions[0].ends_at").isString())
+            .andExpect(jsonPath("$.data.active_restrictions[0].violations.length()").value(2))
+            .andExpect(jsonPath("$.data.active_restrictions[0].violations[0].id").isNumber())
+            .andExpect(jsonPath("$.data.active_restrictions[0].id").doesNotExist())
+            .andExpect(jsonPath("$.data.active_restrictions[0].starts_at").doesNotExist())
+            .andExpect(jsonPath("$.data.active_restrictions[0].automatic_evaluation").doesNotExist());
         http.perform(body(post("/api/reservations"), new Requests.Reservation(seat2, base.plusDays(1).toString(), "14:00", "15:00"), owner))
             .andExpect(status().isForbidden()).andExpect(jsonPath("$.details.code").value("booking_restricted"));
         assertEquals(before, facts());
