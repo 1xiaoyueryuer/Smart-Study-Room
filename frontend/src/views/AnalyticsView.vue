@@ -31,15 +31,18 @@ let disposed=false,selectionSequence=0,roomsRequest=0,heatCompletion=Promise.res
 const motionMedia=window.matchMedia('(prefers-reduced-motion: reduce)')
 const animateCharts=()=>!motionMedia.matches
 const CHART=computed(()=>{const dark=themeStore.isDark;return{axisLine:dark?'#33453a':'#d7cab2',splitLine:dark?'#24312a':'#efe7d8',label:dark?'#8d9c90':'#7b877d',title:dark?'#f1f5ee':'#4f5f54',tooltipBg:dark?'#1a241e':'#23372d',heatRange:dark?['#202c25','#7fb391']:['#f3ecdd','#2f5d46'],heatBorder:dark?'#1a241e':'#fffdf8'}})
-const scopeText=computed(()=>overview.value ? `${overview.value.scope.room_id===null?'全校':`空间 #${overview.value.scope.room_id}`} · 所选日 ${overview.value.scope.selected_date}` : '尚未读取统计快照')
-const attemptedText=computed(()=>attemptedQuery.value ? `${attemptedQuery.value.room_id?`空间 #${attemptedQuery.value.room_id}`:'全校'} · ${attemptedQuery.value.date||'服务端校园今天'}` : '')
-const heatAttemptedText=computed(()=>heatQuery.value?`空间 #${heatQuery.value.room_id} · ${heatQuery.value.date}`:attemptedText.value)
+function roomName(id) {
+ return id ? rooms.value.find(room=>room.id===id)?.name ?? `空间 #${id}` : '全校'
+}
+const scopeText=computed(()=>overview.value ? `${roomName(overview.value.scope.room_id)} · ${overview.value.scope.selected_date}` : '')
+const attemptedText=computed(()=>attemptedQuery.value ? `${roomName(attemptedQuery.value.room_id)} · ${attemptedQuery.value.date||'今天'}` : '')
+const heatAttemptedText=computed(()=>heatQuery.value?`${roomName(heatQuery.value.room_id)} · ${heatQuery.value.date}`:attemptedText.value)
 const dayMetrics=computed(()=>overview.value ? [
- {label:'当日成功创建',value:overview.value.day.created_count},
- {label:'当日真实取消',value:overview.value.day.cancelled_count},
- {label:'当日签到人次',value:overview.value.day.checkin_count},
- {label:'当日累计使用（人·小时）',text:usageHours(overview.value.day.usage_seconds).toFixed(2)},
- {label:'当日有效违规',value:overview.value.day.active_violation_count}
+ {label:'新建预约',value:overview.value.day.created_count},
+ {label:'取消预约',value:overview.value.day.cancelled_count},
+ {label:'签到人次',value:overview.value.day.checkin_count},
+ {label:'使用时长（人·小时）',text:usageHours(overview.value.day.usage_seconds).toFixed(2)},
+ {label:'有效违规',value:overview.value.day.active_violation_count}
 ] : [])
 function snapshotText(value){return value ? formatCampusDateTime(value) : '尚未读取'}
 function createChart(element,height=320){if(!element?.clientWidth)return null;return echarts.init(element,null,{width:element.clientWidth,height:element.clientHeight||height})}
@@ -78,8 +81,8 @@ async function loadRoomBars(){
   if(disposed||sequence!==roomBarSequence)return
   roomBars.value=settled.filter(result=>result.status==='fulfilled').map(result=>result.value)
   const failed=settled.filter(result=>result.status==='rejected')
-  if(!roomBars.value.length)roomBarsError.value=failed[0]?.reason?.message||'空间统计读取失败'
-  else if(failed.length)roomBarsError.value=`${failed.length} 个空间读取失败，下列仅展示已成功读取的空间。`
+  if(!roomBars.value.length)roomBarsError.value='暂时无法加载空间对比'
+  else if(failed.length)roomBarsError.value=`${failed.length} 个空间的数据暂时无法加载`
   await renderRoomBars()
  } finally { if(!disposed&&sequence===roomBarSequence)roomBarsLoading.value=false }
 }
@@ -140,46 +143,81 @@ onUnmounted(()=>{disposed=true;++selectionSequence;++roomsRequest;++roomBarSeque
 
 <template>
  <div v-reveal class="page-view">
-  <header class="view-heading has-page-help"><div class="heading-copy" data-page-title><h1>热力图与统计</h1><p class="heading-sub">真实使用记录、当日运营与近七日时段分布</p></div><PageHelp title="指标说明"><ul class="tips">
-   <li>所选日的创建按预约创建时刻计数，取消按实际取消时刻计数；签到与使用时长取真实使用记录。</li>
-   <li>使用时长按校园日期、小时切片；尚未结束的使用截至快照时刻，且不超过预约结束。</li>
-   <li>当前使用比例为开放可用座位中的使用中数量 ÷ 开放可用座位数；分母为零时显示不适用。</li>
-   <li>近七日以快照当天为末日，不随所选日移动。有效违规不含已撤销记录和一般提醒。</li>
-   <li>热力图的 1 表示该小时与真实使用记录相交，0 表示无相交记录；不能证明人在座，也不表示预约概率。</li>
+  <header class="view-heading has-page-help"><div class="heading-copy" data-page-title><h1>热力图与统计</h1></div><PageHelp title="怎么看统计"><ul class="tips">
+   <li>新建和取消预约按操作当天统计。</li>
+   <li>当前使用比例只统计开放且可用的座位。</li>
+   <li>近 7 天的图表包含今天和前 6 天。</li>
   </ul></PageHelp></header>
   <div class="split analytics-split"><div class="split-left">
    <section class="card stats-panel">
-    <div class="card-title-row"><h3>统计参数</h3><span class="muted">选择范围后查看快照</span></div>
+    <div class="card-title-row"><h3>统计筛选</h3></div>
     <div class="stats-filters" role="group" aria-label="统计筛选">
      <div class="filter-row"><label>空间</label><SSelect v-model="roomId" :options="roomOptions" label-key="name" value-key="id" /></div>
-     <div class="filter-row"><label>校园日期</label><SDatePicker v-model="date" /></div>
-     <div class="filter-actions"><SButton type="button" @click="applyFilters">应用筛选</SButton><SButton type="button" variant="ghost" @click="date='';applyFilters()">校园今天</SButton></div>
+     <div class="filter-row"><label>日期</label><SDatePicker v-model="date" /></div>
+     <div class="filter-actions"><SButton type="button" @click="applyFilters">应用筛选</SButton><SButton type="button" variant="ghost" @click="date='';applyFilters()">今天</SButton></div>
     </div>
     <SBanner v-if="formError" type="error" :title="formError" />
-    <SBanner v-if="roomsError" type="error" :title="roomsError"><SButton size="sm" @click="loadRooms">重读空间</SButton></SBanner>
+    <SBanner v-if="roomsError" type="error" title="暂时无法加载空间列表"><SButton size="sm" @click="loadRooms">重试</SButton></SBanner>
     <div class="snapshot-block">
-     <div class="snapshot-head"><h4>运营快照</h4><span class="muted">{{ scopeText }}<template v-if="overview"> · 快照 {{ snapshotText(overview.snapshot_at) }}</template></span></div>
-     <p v-if="overviewLoading&&!overview" role="status">正在读取统计快照…</p>
-     <SBanner v-if="overviewError" type="error" :title="overviewError"><p>本次查询：{{ attemptedText }}。保留最近成功数据及其原范围。</p><SButton size="sm" @click="retryOverview">重试原查询</SButton></SBanner>
+     <div class="snapshot-head"><h4>统计概览</h4><span v-if="overview" class="muted">更新于 {{ snapshotText(overview.snapshot_at) }}</span></div>
+     <p v-if="overviewLoading&&!overview" role="status">正在加载统计…</p>
+     <SBanner v-if="overviewError" type="error" title="暂时无法加载统计">
+      <p>{{ attemptedText }}<span v-if="overview"> · 下方显示上次的数据</span></p>
+      <SButton size="sm" @click="retryOverview">重试</SButton>
+     </SBanner>
      <template v-if="overview">
+      <p class="snapshot-scope">{{ scopeText }}</p>
       <div class="kpi-grid"><div v-for="metric in dayMetrics" :key="metric.label" class="kpi"><div class="kpi-num"><span v-if="metric.text!==undefined">{{ metric.text }}</span><SAnimatedNumber v-else :value="metric.value" /></div><div class="kpi-label">{{ metric.label }}</div></div></div>
-      <dl class="current-metrics"><dt>当前开放可用座位</dt><dd>{{ overview.current.open_available_seats }}</dd><dt>其中使用中</dt><dd>{{ overview.current.in_use_now }}</dd><dt>当前使用比例</dt><dd>{{ ratioText(overview.current.usage_ratio) }}</dd><dt>投诉待办</dt><dd>{{ overview.current.complaint_todo_count }}</dd><dt>投诉待确认</dt><dd>{{ overview.current.complaint_awaiting_count }}</dd></dl>
+      <h5>当前情况</h5>
+      <dl class="current-metrics">
+       <dt>开放可用座位</dt><dd>{{ overview.current.open_available_seats }}</dd>
+       <dt>使用中的座位</dt><dd>{{ overview.current.in_use_now }}</dd>
+       <dt>使用比例</dt><dd>{{ ratioText(overview.current.usage_ratio) }}</dd>
+       <dt>待处理投诉</dt><dd>{{ overview.current.complaint_todo_count }}</dd>
+       <dt>待确认投诉</dt><dd>{{ overview.current.complaint_awaiting_count }}</dd>
+      </dl>
      </template>
-     <p v-else-if="!overviewLoading" class="muted">尚无成功统计快照。</p>
+     <p v-else-if="!overviewLoading&&!overviewError" class="muted">暂无统计数据</p>
     </div>
    </section>
   </div><div ref="chartRoot" class="split-right">
    <nav class="chart-tabs" aria-label="统计视图"><button v-for="tab in chartTabs" :key="tab.key" type="button" :class="{active:chartTab===tab.key}" :aria-pressed="chartTab===tab.key" @click="chartTab=tab.key">{{ tab.label }}</button></nav>
-   <section v-show="chartTab==='heat'" class="card chart-panel"><div class="card-title-row"><h3>座位 × 小时 使用记录</h3></div>
-    <p v-if="!heatApplicable" class="muted">请选择具体空间并应用筛选以查看热力图。</p>
-    <p v-if="heatLoading" role="status" class="muted">正在读取热力图；已有数据保留为上次成功快照。</p>
-    <SBanner v-if="heatError" type="error" :title="heatError"><p>本次查询：{{ heatAttemptedText }}。</p><SButton size="sm" @click="retryHeat">重试热力原查询</SButton></SBanner>
-    <div v-show="heatApplicable&&heatmap"><p v-if="heatmap" class="snapshot-scope">最近成功快照：{{ heatmap.room.name }} · {{ heatmap.date }} · {{ snapshotText(heatmap.snapshot_at) }}</p><p class="muted">包括历史停用座位；单元格仅表示真实使用记录与该小时是否相交。</p><p v-if="heatmap&&!heatmap.seats.length" class="muted">该空间没有座位记录。</p><div class="responsive-scroll" tabindex="0" aria-label="座位时段使用记录，可左右滑动"><div ref="heatEl" class="chart chart-heat chart-wide"></div></div></div>
-    <p v-if="heatApplicable&&!heatmap&&!heatLoading&&!heatError" class="muted">尚无成功热力图快照。</p>
+   <section v-show="chartTab==='heat'" class="card chart-panel"><div class="card-title-row"><h3>各座位分时使用情况</h3></div>
+    <p v-if="!heatApplicable" class="muted">选择一个空间，再点「应用筛选」查看热力图。</p>
+    <p v-if="heatLoading" role="status" class="muted">正在加载热力图…</p>
+    <SBanner v-if="heatError" type="error" title="暂时无法加载热力图">
+     <p>{{ heatAttemptedText }}<span v-if="heatmap"> · 下方显示上次的数据</span></p>
+     <SButton size="sm" @click="retryHeat">重试</SButton>
+    </SBanner>
+    <div v-show="heatApplicable&&heatmap">
+     <p v-if="heatmap" class="snapshot-scope">{{ heatmap.room.name }} · {{ heatmap.date }} · 更新于 {{ snapshotText(heatmap.snapshot_at) }}</p>
+     <p class="muted">每格代表一小时，含已停用座位的历史记录。</p>
+     <p v-if="heatmap&&!heatmap.seats.length" class="muted">这个空间暂无座位记录</p>
+     <div class="responsive-scroll" tabindex="0" aria-label="座位时段使用记录，可左右滑动"><div ref="heatEl" class="chart chart-heat chart-wide"></div></div>
+    </div>
+    <p v-if="heatApplicable&&!heatmap&&!heatLoading&&!heatError" class="muted">暂无热力图数据</p>
    </section>
-   <section v-show="chartTab==='trend'" class="card chart-panel"><div class="card-title-row"><h3>近七日运营趋势与时段</h3></div><p class="muted">趋势按各指标发生日计数；时段分布累计近七日真实使用小时与签到人次。</p><p v-if="!overview" class="muted">尚无成功统计快照。</p><div v-show="overview" class="charts-row"><div ref="trendEl" class="chart"></div><div ref="peakEl" class="chart"></div></div></section>
-   <section v-show="chartTab==='rooms'" class="card chart-panel"><div class="card-title-row"><h3>空间使用对比</h3></div><p v-if="roomBarsLoading" role="status" class="muted">正在读取各空间统计…</p><SBanner v-if="roomBarsError" type="error" :title="roomBarsError"><SButton size="sm" @click="loadRoomBars">重试空间对比</SButton></SBanner><p v-if="roomBars.length" class="snapshot-scope">{{ roomBars[0]?.selected_date }} · {{ roomBars.length }} 个空间 · 使用小时与签到人次</p><p v-if="!roomBarsLoading&&!roomBars.length&&!roomBarsError" class="muted">暂无可比较的空间统计。</p><div v-show="roomBars.length" class="responsive-scroll" tabindex="0" aria-label="空间使用对比柱状图，可左右滑动"><div ref="roomBarEl" class="chart chart-bar"></div></div></section>
-   <section v-show="chartTab==='top'" class="card chart-panel"><div class="card-title-row"><h3>近七日热门座位 Top 10</h3></div><p class="muted">按真实使用时长排序，保留历史停用座位。</p><p v-if="overview&&!overview.top_seats.length" class="muted">该范围没有使用记录。</p><p v-if="!overview" class="muted">尚无成功统计快照。</p><div v-show="overview" class="responsive-scroll" tabindex="0" aria-label="热门座位图，可左右滑动"><div ref="topEl" class="chart chart-bar"></div></div></section>
+   <section v-show="chartTab==='trend'" class="card chart-panel">
+    <div class="card-title-row"><h3>近 7 天趋势</h3></div>
+    <p v-if="overview" class="snapshot-scope">{{ overview.scope.trend_from }} 至 {{ overview.scope.trend_to }}</p>
+    <p v-else-if="!overviewLoading" class="muted">暂无趋势数据</p>
+    <div v-show="overview" class="charts-row"><div ref="trendEl" class="chart"></div><div ref="peakEl" class="chart"></div></div>
+   </section>
+   <section v-show="chartTab==='rooms'" class="card chart-panel">
+    <div class="card-title-row"><h3>空间使用对比</h3></div>
+    <p v-if="roomBarsLoading" role="status" class="muted">正在加载空间对比…</p>
+    <SBanner v-if="roomBarsError" type="error" :title="roomBarsError"><SButton size="sm" @click="loadRoomBars">重试</SButton></SBanner>
+    <p v-if="roomBars.length" class="snapshot-scope">{{ roomBars[0]?.selected_date }} · {{ roomBars.length }} 个空间</p>
+    <p v-else-if="!roomBarsLoading&&!roomBarsError" class="muted">暂无可比较的空间数据</p>
+    <div v-show="roomBars.length" class="responsive-scroll" tabindex="0" aria-label="空间使用对比柱状图，可左右滑动"><div ref="roomBarEl" class="chart chart-bar"></div></div>
+   </section>
+   <section v-show="chartTab==='top'" class="card chart-panel">
+    <div class="card-title-row"><h3>近 7 天热门座位</h3></div>
+    <p v-if="overview?.top_seats.length" class="muted">使用时长前 10 名，含已停用座位的历史记录。</p>
+    <p v-else-if="overview" class="muted">这段时间暂无使用记录</p>
+    <p v-else-if="!overviewLoading" class="muted">暂无座位排名</p>
+    <div v-show="overview" class="responsive-scroll" tabindex="0" aria-label="热门座位图，可左右滑动"><div ref="topEl" class="chart chart-bar"></div></div>
+   </section>
   </div></div>
  </div>
 </template>

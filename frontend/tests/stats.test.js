@@ -58,7 +58,7 @@ test('heatmap validates exact room/date, hourly boundaries and binary real-usage
 
 test('chart options use truthful seconds-to-hours and separate counts; resource labels never enter an HTML tooltip',()=>{
  const data=overviewData();data.trend[0]={...data.trend[0],created_count:9,cancelled_count:2,checkin_count:3,usage_seconds:7200.5,active_violation_count:1};data.peak[23]={hour:'23:00',usage_seconds:3600,checkin_count:4};data.top_seats=[{seat_id:1,room_id:1,room_name:'<img src=x onerror=alert(1)>',seat_no:'<b>A1</b>',usage_seconds:5400,checkin_count:2}];const options=statsCharts.overviewChartOptions(data,{label:'#000',splitLine:'#eee',tooltipBg:'#222'},false);assert.equal(options.trend.series[0].data[0],9);assert.equal(options.trend.series[4].data[0],7200.5/3600);assert.equal(options.peak.series[0].data[23],1);assert.equal(options.peak.series[1].data[23],4);assert.equal(options.top.series[0].data[0],1.5);for(const key of ['trend','peak','top'])assert.equal(options[key].tooltip.renderMode,'richText');assert.match(options.top.tooltip.formatter([{dataIndex:0}]),/签到人次：2/)
- const heat=heatData(1,'2026-10-30',{seats:[{id:1,seat_no:'<script>bad</script>',row_no:1,col_no:1}]});const option=statsCharts.heatChartOption(heat,{label:'#000',heatRange:['#fff','#00f'],heatBorder:'#fff'},false);assert.deepEqual(option.series[0].data[0],[0,0,1]);assert.equal(option.tooltip.renderMode,'richText');assert.match(option.tooltip.formatter({value:[23,0,0]}),/23:00—24:00\n使用记录相交：无/)
+ const heat=heatData(1,'2026-10-30',{seats:[{id:1,seat_no:'<script>bad</script>',row_no:1,col_no:1}]});const option=statsCharts.heatChartOption(heat,{label:'#000',heatRange:['#fff','#00f'],heatBorder:'#fff'},false);assert.deepEqual(option.series[0].data[0],[0,0,1]);assert.equal(option.tooltip.renderMode,'richText');assert.match(option.tooltip.formatter({value:[23,0,0]}),/23:00—24:00\n使用记录：无/)
 })
 
 test('default statistics load waits for server campus date before exactly one heat GET',async()=>{
@@ -78,7 +78,17 @@ test('all-school selection needs no heat GET; theme redraw reuses successful sna
 })
 
 test('actual template distinguishes selected date, current null ratio, seven-day scope and historical heatmap snapshot',async()=>{
- const p=await component();await p.applyQuery({room_id:1,date:'1582-10-10'});const html=await render(p);assert.match(html,/所选日 1582-10-10/);assert.match(html,/不适用/);assert.match(html,/历史空间1/);assert.match(html,/包括历史停用座位/);assert.doesNotMatch(html,/近 14 天|今日利用率|颜色越深.*概率/)
+ const p=await component()
+ await p.loadRooms()
+ await p.applyQuery({room_id:1,date:'1582-10-10'})
+ const html=await render(p)
+ assert.match(html,/历史空间1 · 1582-10-10 · 更新于 2026-10-30 23:45:01/)
+ assert.match(html,/历史空间1 · 1582-10-10<\/p>/)
+ assert.match(html,/2026-10-24 至 2026-10-30/)
+ assert.match(html,/当前情况/)
+ assert.match(html,/不适用/)
+ assert.match(html,/含已停用座位的历史记录/)
+ assert.doesNotMatch(html,/近 14 天|今日利用率|颜色越深.*概率/)
 })
 
 test('hidden trend charts wait for real layout, then initialize and resize to each visible column without re-reading data',async()=>{
