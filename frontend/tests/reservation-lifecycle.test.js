@@ -4,7 +4,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import vm from 'node:vm'
 import { readFile } from 'node:fs/promises'
-import { ref, computed } from 'vue'
+import { ref, computed, reactive, watch, nextTick } from 'vue'
 async function script(file, mocks, exports, extra={}) {
   const source=(await readFile(new URL(file,import.meta.url),'utf8')).split('<script setup>')[1].split('</script>')[0]
   const context=vm.createContext({defineExpose(){},defineProps:()=>({autoLoad:false}),...extra})
@@ -143,8 +143,8 @@ test('violation failure is separate from empty data and can recover through actu
   const source=await readFile(new URL('../src/components/ViolationsPanel.vue',import.meta.url),'utf8')
   assert.match(source,/v-else-if="error"/)
   assert.match(source,/v-else-if="!loaded"/)
-  assert.match(source,/尚未读取本人独立违规记录/)
-  assert.match(source,/尚无已登记的独立违规记录/)
+  assert.match(source,/等待加载违规记录/)
+  assert.match(source,/没有符合筛选条件的违规记录/)
 })
 test('profile displays current credit and restoration separately from server booking eligibility',async()=>{
   for(const file of ['ProfileView','HomeView','LoginView','MyReservationsView']){
@@ -173,7 +173,8 @@ test('profile reloads authoritative credit and booking eligibility at the server
     historical_logs: [{ id: 1, delta: 1 }]
   }
   const profile = await script('../src/views/ProfileView.vue', {
-    vue: { ref, computed, onMounted: callback => { mounted = callback }, onBeforeUnmount: callback => { unmount = callback } },
+    vue: { ref, computed, watch, onMounted: callback => { mounted = callback }, onBeforeUnmount: callback => { unmount = callback } },
+    'vue-router': { useRoute: () => ({ fullPath: '/profile', hash: '' }) },
     '../api/auth': { fetchProfile: async () => ({ data: {} }), updateProfile() {}, changePassword() {} },
     '../api/credit': { getCreditOverview: async () => ({ data: ++creditReads === 1 ? data : { ...data, score: 100, reset_at: null } }) },
     '../stores/auth': { useAuthStore: () => ({ isOrdinary: true, setUser() {} }) },
@@ -199,14 +200,15 @@ test('profile reloads authoritative credit and booking eligibility at the server
   unmount()
 })
 
-test('profile reacts only to a changed current score previously seen by the same account', async () => {
+test('profile reacts only to a changed current score previously seen by the same account', async t => {
   const auth = { isOrdinary: true, user: { id: 1 }, setUser() {} }
   const scores = new Map()
   let response = { score: 90 }
   let failed = false
-  async function openProfile() {
+  async function openProfile(route = { fullPath: '/profile', hash: '' }) {
     return script('../src/views/ProfileView.vue', {
-      vue: { ref, computed, onMounted() {}, onBeforeUnmount() {} },
+      vue: { ref, computed, watch, onMounted() {}, onBeforeUnmount() {} },
+      'vue-router': { useRoute: () => route },
       '../api/auth': { fetchProfile() {}, updateProfile() {}, changePassword() {} },
       '../api/credit': {
         async getCreditOverview() {
@@ -219,7 +221,7 @@ test('profile reacts only to a changed current score previously seen by the same
       '../components/admin/userForm.js': { contactPayload() {} },
       '../components/ui/feedback': { message: {} },
       '../composables/usePagination': { usePagination: items => ({ page: ref(1), pages: ref(1), pageItems: items }) }
-    }, 'loadCredit, creditChange, creditError', {
+    }, 'loadCredit, creditChange, creditError, profileTab, mountedProfileTabs, selectProfileTab', {
       sessionStorage: {
         getItem: key => scores.get(key) ?? null,
         setItem: (key, value) => scores.set(key, value)
@@ -262,6 +264,17 @@ test('profile reacts only to a changed current score previously seen by the same
   response = { score: 35 }
   await anotherAccount.loadCredit()
   assert.equal(anotherAccount.creditChange.value, 10)
+
+  await t.test('a direct link opens the violations tab on arrival and when the linked record changes', async () => {
+    const route = reactive({ fullPath: '/profile?violation_id=5#violations', hash: '#violations' })
+    const profile = await openProfile(route)
+    assert.equal(profile.profileTab.value, 'violations')
+    assert.equal(profile.mountedProfileTabs.value.has('violations'), true)
+    profile.selectProfileTab('credit')
+    route.fullPath = '/profile?violation_id=6#violations'
+    await nextTick()
+    assert.equal(profile.profileTab.value, 'violations')
+  })
 })
 
 test('an older mine response cannot restore pending actions after a newer deadline refresh',async()=>{
@@ -293,7 +306,7 @@ test('deferred violation panel stays uninitialized rather than claiming zero bef
 
 test('only current checkout action is available and confirmation prevents duplicate early checkout before real refresh',async()=>{
   let release
-  const page=await mine({confirmDialog:text=>{assert.match(text,/释放剩余时段/);assert.match(text,/正常提前签退和到期均不扣分/);return new Promise(resolve=>{release=resolve})},listMyReservations:async()=>({data:[{id:10,status:'completed',termination_reason:'early_checkout',allowed_actions:[],usage_record:{id:1,checkin_at:'2026-10-30T08:00:00',ended_at:'2026-10-30T08:01:00.5',duration_seconds:60.5,origin:'seat_code'}}]})})
+  const page=await mine({confirmDialog:text=>{assert.match(text,/座位会立即释放/);assert.match(text,/签退不扣分/);return new Promise(resolve=>{release=resolve})},listMyReservations:async()=>({data:[{id:10,status:'completed',termination_reason:'early_checkout',allowed_actions:[],usage_record:{id:1,checkin_at:'2026-10-30T08:00:00',ended_at:'2026-10-30T08:01:00.5',duration_seconds:60.5,origin:'seat_code'}}]})})
   assert.deepEqual(Array.from(page.actionsOf({allowed_actions:['leave','return','checkout']}),action=>action.key),['checkout'])
   const attempt=page.doAction({id:10,status:'checked_in',allowed_actions:['checkout']},'checkout')
   await page.doAction({id:10,status:'checked_in',allowed_actions:['checkout']},'checkout')
