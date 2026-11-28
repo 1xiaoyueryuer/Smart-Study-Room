@@ -1,18 +1,28 @@
 <script setup>
-import { formatCampusDateTime } from '../../composables/campusDateTime.js'
 import { ref, shallowRef, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { gsap } from 'gsap'
-import RestrictionRecord from '../RestrictionRecord.vue'
+import BookingRestrictionNotice from '../BookingRestrictionNotice.vue'
 import SButton from '../ui/SButton.vue'
 import { feedbackState } from '../ui/feedback'
 import { matchesSeatPreferences, rankSeatsByPreference, seatState, stateLabels, stateColors } from './seatPresentation'
 
-const props = defineProps({ origin: Object, room: Object, seats: Array, preferences: Array, selectedId: Number, selectedWindow: Object, date: String, start: String, end: String, requestedStart: String, loading: Boolean, submitting: Boolean, submitError: String, restrictionFailure: Object, policyReady: Boolean, strategyLabel: String, requiredMinutes: Number, shortfall: String })
+const props = defineProps({
+  origin: Object, room: Object, seats: Array, preferences: Array, selectedId: Number,
+  selectedWindow: Object, date: String, start: String, end: String, loading: Boolean,
+  submitting: Boolean, browsingOnly: Boolean, submitError: String,
+  restrictionRecords: { type: Array, default: () => [] }, eligibilityCheckedAt: String,
+  policyReady: Boolean, shortfall: String, checkBookingResult: Boolean
+})
 const emit = defineEmits(['select', 'update:start', 'update:end', 'submit', 'closed'])
 const panel = ref(null), backdrop = ref(null), content = ref(null), snapshot = ref(null)
 const Scene = shallowRef(null), error = ref(''), ready = ref(false), closing = ref(false), opening = ref(true), view = ref('overview')
 const selected = computed(() => props.seats.find(s => s.id === props.selectedId))
 const rankedSeats = computed(() => rankSeatsByPreference(props.seats, props.preferences))
+const legendLabels = computed(() => ({
+  ...stateLabels,
+  available: props.browsingOnly ? '当天有空档' : stateLabels.available,
+  no_window: props.browsingOnly ? '当天无空档' : stateLabels.no_window,
+}))
 const sceneRef = ref(null)
 const canExperience = computed(() => ready.value && props.room?.enabled && !error.value && selected.value?.status === 'available' && selected.value?.matching_windows?.length > 0)
 watch(canExperience, valid => { if (!valid && view.value === 'firstPerson') view.value = 'overview' })
@@ -74,7 +84,7 @@ function close(force = false) {
   })
 }
 defineExpose({ close: () => close(true) })
-function focusables(root) { return [...root.querySelectorAll('button:not(:disabled), select:not(:disabled), [tabindex="0"]')].filter(el => el.getClientRects().length) }
+function focusables(root) { return [...root.querySelectorAll('button:not(:disabled), select:not(:disabled), a[href], summary, [tabindex="0"]')].filter(el => el.getClientRects().length) }
 function onKey(e) {
   const top = document.querySelector('.msgbox__panel')
   const root = top || panel.value
@@ -153,7 +163,10 @@ onBeforeUnmount(() => {
         <div ref="snapshot" class="explorer-snapshot" aria-hidden="true" />
         <div ref="content" class="explorer-content">
           <header class="explorer-head">
-            <div><div class="explorer-eyebrow">SPACE / 3D SEATING</div><h3 id="explorer-title">{{ room?.name || '自习室' }} <span>3D 选座</span></h3><p>{{ date }} · {{ selectedWindow ? start + ' – ' + end + '（本次预约）' : '请选择连续空档' }} <span class="layout-note">· {{ strategyLabel }} · 座位布局示意</span></p></div>
+            <div>
+              <h3 id="explorer-title">{{ room?.name || '自习室' }} <span>{{ browsingOnly ? '3D 浏览' : '3D 选座' }}</span></h3>
+              <p>{{ date }}<template v-if="selectedWindow"> · {{ start }}–{{ end }}</template></p>
+            </div>
             <button class="explorer-close" aria-label="关闭 3D 选座" :disabled="submitting" @click="close()">×</button>
           </header>
           <div class="explorer-toolbar">
@@ -162,19 +175,33 @@ onBeforeUnmount(() => {
               <button :class="{ active: view === 'top' }" :disabled="busy" @click="view = 'top'">▦ 俯视</button>
               <button :class="{ active: view === 'firstPerson' }" :disabled="busy || !canExperience" :title="canExperience ? '从所选座位环视室内' : '请先选择有连续空档的座位'" @click="view = 'firstPerson'">坐席体验</button>
             </div>
-            <div class="explorer-legend"><span v-for="(label, state) in Object.fromEntries(Object.entries(stateLabels).filter(([state]) => state !== 'occupied'))" :key="state"><i :style="{ background: stateColors[state] }" />{{ label }}</span></div>
+            <div class="explorer-legend"><span v-for="(label, state) in Object.fromEntries(Object.entries(legendLabels).filter(([state]) => state !== 'occupied'))" :key="state"><i :style="{ background: stateColors[state] }" />{{ label }}</span></div>
           </div>
           <div class="explorer-stage" :aria-busy="!ready || loading">
-            <component :is="Scene" v-if="Scene && !error && room" ref="sceneRef" :room="room" :seats="seats" :preferences="preferences" :selected-id="selectedId" :view="view" :blocked="busy || !room?.enabled" @select="emit('select', $event)" @ready="ready = true" @error="error = $event" @manual-view="view = ''" @exit-first-person="view = 'overview'" />
-            <div v-if="error || !ready || loading" class="scene-message" role="status"><strong>{{ error ? '暂时无法显示 3D' : loading ? '正在更新座位' : '正在搭建你的自习空间' }}</strong><p>{{ error || '窗户、桌椅和座位正在就位…' }}</p><SButton v-if="error" @click="close()">返回座位平面图</SButton></div>
+            <component :is="Scene" v-if="Scene && !error && room" ref="sceneRef" :room="room" :seats="seats" :preferences="preferences" :selected-id="selectedId" :view="view" :blocked="busy || !room?.enabled" :selection-enabled="!browsingOnly && !loading && !submitting" :browsing-only="browsingOnly" @select="emit('select', $event)" @ready="ready = true" @error="error = $event" @manual-view="view = ''" @exit-first-person="view = 'overview'" />
+            <div v-if="error || !ready || loading" class="scene-message">
+              <strong role="status">{{ error ? '暂时无法显示 3D' : loading ? '正在更新座位…' : '正在加载 3D…' }}</strong>
+              <SButton v-if="error" @click="close()">返回座位平面图</SButton>
+            </div>
             <div v-if="ready && !error && view === 'firstPerson'" class="seated-tools"><span aria-live="polite">正在体验 {{ selected?.seat_no }}</span><button :disabled="busy" @click="sceneRef?.resetLook()">回正视线</button></div>
-            <div v-if="ready && !error" class="scene-hint">{{ view === 'firstPerson' ? '拖动 / 方向键环视 · 点击总览退出体验' : '拖动旋转 · 滚轮 / 双指缩放 · 点击桌椅选座' }}</div>
+            <div v-if="ready && !error" class="scene-hint">
+              <template v-if="browsingOnly">拖动旋转 · 滚轮 / 双指缩放<span v-if="!restrictionRecords.length"> · 填写预约条件后可选座</span></template>
+              <template v-else-if="view === 'firstPerson'">拖动 / 方向键环视 · 点击总览退出体验</template>
+              <template v-else>拖动旋转 · 滚轮 / 双指缩放 · 点击桌椅选座</template>
+            </div>
           </div>
-          <p v-if="shortfall" role="status" class="explorer-shortfall">{{ shortfall }}；本次预约已短于筛选时长。</p><p v-if="requiredMinutes" class="explorer-required">筛选条件：从{{ requestedStart }}开始，连续学习{{ requiredMinutes }}分钟。</p>
-          <p v-if="submitError" role="alert" class="explorer-submit-error">{{ submitError }}</p><details v-if="restrictionFailure" class="explorer-restrictions"><summary>查看服务端确认的{{restrictionFailure.active_restrictions.length}}条有效预约限制</summary><div><p>核对时刻：{{ formatCampusDateTime(restrictionFailure.server_now) }}（{{restrictionFailure.campus_zone}}），解除一条不代表其他记录也已解除。</p><RestrictionRecord v-for="record in restrictionFailure.active_restrictions" :key="record.id" :record="record" /><RouterLink to="/profile#restrictions">查看本人限制与当前资格</RouterLink></div></details>
+          <p v-if="shortfall" role="status" class="explorer-shortfall">{{ shortfall }}</p>
+          <div v-if="submitError" class="explorer-submit-error">
+            <span role="alert">{{ submitError }}</span>
+            <RouterLink v-if="checkBookingResult" :to="{ name: 'mine' }">查看我的预约</RouterLink>
+          </div>
+          <BookingRestrictionNotice v-if="restrictionRecords.length" class="explorer-restrictions" :records="restrictionRecords" :checked-at="eligibilityCheckedAt" />
           <footer class="explorer-footer">
-            <label class="seat-list"><span class="sr-only">按编号选择座位</span><select :value="selectedId ?? ''" :disabled="busy || !!error" @change="chooseFromList"><option value="" disabled>按编号选座</option><option v-for="s in rankedSeats" :key="s.id" :value="s.id" :disabled="s.status !== 'available' || !s.matching_windows?.length">{{ s.seat_no }} · {{ stateLabels[seatState(s, selectedId, preferences)] }}{{ matchesSeatPreferences(s, preferences) ? ' · 偏好' : '' }}</option></select></label>
-            <SButton variant="primary" size="lg" :disabled="!policyReady || !room?.enabled || !selected || !selectedWindow || busy || !!error" :loading="submitting" @click="emit('submit')">提交预约</SButton>
+            <label class="seat-list"><span class="sr-only">按编号选择座位</span><select :value="selectedId ?? ''" :disabled="busy || !!error || browsingOnly" @change="chooseFromList"><option value="" disabled>按编号选座</option><option v-for="s in rankedSeats" :key="s.id" :value="s.id" :disabled="browsingOnly || s.status !== 'available' || !s.matching_windows?.length">{{ s.seat_no }} · {{ legendLabels[seatState(s, selectedId, preferences, browsingOnly)] }}{{ matchesSeatPreferences(s, preferences) ? ' · 偏好' : '' }}</option></select></label>
+            <div>
+              <SButton variant="primary" size="lg" :disabled="!policyReady || !room?.enabled || !selected || !selectedWindow || busy || !!error || !!restrictionRecords.length" :loading="submitting" :aria-describedby="restrictionRecords.length ? 'explorer-disabled-reason' : undefined" @click="emit('submit')">提交预约</SButton>
+              <p v-if="restrictionRecords.length" id="explorer-disabled-reason" class="explorer-disabled-reason">预约暂停期间无法提交。</p>
+            </div>
           </footer>
         </div>
       </section>
@@ -183,15 +210,16 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.explorer-shortfall{color:var(--amber-strong);padding:8px 20px;font-size:var(--fs-caption)}.explorer-required{padding:4px 20px;font-size:var(--fs-caption);color:var(--text-2)}
-.explorer-restrictions{margin:0 20px 8px;flex-shrink:0}.explorer-restrictions>div{display:grid;gap:8px;max-height:180px;overflow:auto;padding:8px 0}.explorer-submit-error { color:var(--red-strong); padding:10px 20px; font-size:var(--fs-caption); }
+.explorer-shortfall { color: var(--amber-strong); padding: 8px 20px; font-size: var(--fs-caption); }
+.explorer-restrictions { margin: 0 20px 8px; max-height: 165px; overflow: auto; }
+.explorer-disabled-reason { margin: 5px 0 0; font-size: var(--fs-caption); }
+.explorer-submit-error { display: flex; flex-wrap: wrap; gap: 6px 12px; color: var(--red-strong); padding: 10px 20px; font-size: var(--fs-caption); }
 .seat-explorer { position: fixed; inset: 0; z-index: var(--z-dialog); display: grid; place-items: center; }
 .explorer-backdrop { position: absolute; inset: 0; background: rgb(20 29 43 / 35%); }
 .explorer-panel { position: relative; width: min(1280px, calc(100vw - 48px)); height: min(850px, calc(100dvh - 48px)); background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-xl); box-shadow: var(--shadow-4); overflow: hidden; outline: none; box-sizing: border-box; transform-origin: 0 0; transition: none; }
 .explorer-content { position: absolute; inset: 0; display: flex; flex-direction: column; min-height: 0; }
 .explorer-snapshot { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
 .explorer-head { padding: 22px 26px 16px; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
-.explorer-eyebrow { font-size: 10px; color: var(--text-3); letter-spacing: .17em; margin-bottom: 6px; }
 .explorer-head h3 { margin: 0; font-size: 21px; color: var(--text-1); }
 .explorer-head h3 span { font-size: 12px; font-weight: 500; padding: 4px 8px; border: 1px solid var(--border); border-radius: 6px; margin-left: 8px; white-space: nowrap; }
 .explorer-head p { color: var(--text-3); font-size: 12px; margin: 7px 0 0; }
@@ -204,8 +232,7 @@ onBeforeUnmount(() => {
 .explorer-legend span { display: flex; align-items: center; gap: 5px; }
 .explorer-legend i { width: 8px; height: 8px; border-radius: 3px; }
 .explorer-stage { flex: 1; min-height: 120px; position: relative; overflow: hidden; border-block: 1px solid var(--border); background: var(--surface-2); }
-.scene-message { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 20px; text-align: center; background: var(--surface-2); color: var(--text-2); z-index: 3; }
-.scene-message p { color: var(--text-3); font-size: 13px; }
+.scene-message { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 20px; text-align: center; background: var(--surface-2); color: var(--text-2); z-index: 3; }
 .scene-hint { position: absolute; bottom: 15px; left: 50%; transform: translateX(-50%); padding: 7px 12px; border: 1px solid var(--border); border-radius: 20px; background: var(--surface); color: var(--text-3); font-size: 11px; white-space: nowrap; pointer-events: none; }
 .seated-tools { position: absolute; top: 12px; left: 14px; right: 14px; display: flex; align-items: center; justify-content: space-between; pointer-events: none; gap: 8px; }
 .seated-tools span, .seated-tools button { padding: 8px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 9px; color: var(--text-2); font: inherit; font-size: 12px; }
@@ -216,7 +243,7 @@ onBeforeUnmount(() => {
 button:disabled { opacity: .5; cursor: default; }
 @media (max-width: 640px) {
   .explorer-panel { width: calc(100vw - 24px); height: calc(100dvh - 24px); }
-  .explorer-head { padding: 16px; }.explorer-head h3 { font-size: 17px; }.layout-note { display: none; }
+  .explorer-head { padding: 16px; }.explorer-head h3 { font-size: 17px; }
   .explorer-toolbar { padding: 0 16px 12px; gap: 9px; }.explorer-legend { gap: 8px; }
   .explorer-footer { padding: 12px 16px; flex-wrap: wrap; gap: 10px; }
   .seat-list { flex: 1; }.seat-list select { width: 100%; max-width: none; }.scene-hint { font-size: 10px; }

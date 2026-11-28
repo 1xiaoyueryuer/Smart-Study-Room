@@ -12,7 +12,7 @@ public class RestrictionController {
     public RestrictionController(RestrictionWorkflow workflow,ObjectMapper json){this.workflow=workflow;this.json=json;}
     @GetMapping("/restrictions/mine")Object mine(HttpServletRequest req,@RequestParam Map<String,String> parameters){return Api.ok(workflow.records(WebSecurity.uid(req),parameters,false));}
     @GetMapping("/restrictions/{id}")Object detail(HttpServletRequest req,@PathVariable long id){return Api.ok(workflow.detail(WebSecurity.uid(req),id));}
-    @GetMapping("/booking-eligibility")Object eligibility(HttpServletRequest req){return Api.ok(workflow.eligibility(WebSecurity.uid(req)));}
+    @GetMapping("/booking-eligibility")Object eligibility(HttpServletRequest req){return Api.ok(workflow.bookingEligibility(WebSecurity.uid(req)));}
     @GetMapping("/admin/restrictions")Object list(HttpServletRequest req,@RequestParam Map<String,String> parameters){return Api.ok(workflow.records(WebSecurity.uid(req),parameters,true));}
     @GetMapping("/admin/restrictions/{id}")Object detailAdmin(HttpServletRequest req,@PathVariable long id){return Api.ok(workflow.managementDetail(WebSecurity.uid(req),id));}
     @PostMapping("/admin/restrictions")Object create(HttpServletRequest req,@RequestBody Map<String,Object> body){return Api.ok(workflow.create(WebSecurity.uid(req),convert(body,Set.of("user_id","ends_at","reason","verification_note","facts_confirmed","operation_id"),Requests.RestrictionCreate.class)));}

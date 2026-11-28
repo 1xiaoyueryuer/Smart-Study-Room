@@ -4,7 +4,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import vm from 'node:vm'
 import { readFile } from 'node:fs/promises'
-import { ref, computed } from 'vue'
+import { ref, computed, reactive, watch, nextTick } from 'vue'
 async function script(file, mocks, exports, extra={}) {
   const source=(await readFile(new URL(file,import.meta.url),'utf8')).split('<script setup>')[1].split('</script>')[0]
   const context=vm.createContext({defineExpose(){},defineProps:()=>({autoLoad:false}),...extra})
@@ -28,7 +28,7 @@ async function mine(overrides={}) {
     '../components/ui/feedback':{message:{success(){}},confirmDialog:overrides.confirmDialog|| (async text=>{confirmations.push(text)})},
     '../api/reservation':api,
     '../composables/checkinDeadline.js':{checkinDeadlineOf:()=>null,deadlineLabel:()=>''}
-  },'list,loading,error,actionError,busyId,actionsOf,doAction,refreshAll,terminationLabels,snapshot,requestOccupationHelp')
+  },'list,loading,error,actionError,actionResult,actionResultId,busyId,actionsOf,doAction,readActionResult,refreshAll,terminationLabels,snapshot,requestOccupationHelp,showReviewEntry')
   return{...page,calls,confirmations}
 }
 test('reservation buttons use only server allowed_actions, never infer cancel or abandon from pending',async()=>{
@@ -38,10 +38,19 @@ test('reservation buttons use only server allowed_actions, never infer cancel or
   assert.equal(page.actionsOf({status:'pending'}).length,0)
   assert.equal(page.actionsOf(waiting(['not_implemented'])).length,0)
 })
+test('the review entry appears after actual use ends, including automatic completion', async () => {
+  const page = await mine()
+  const usage = { checkin_at: '09:00', ended_at: '09:30', settled_at: '09:30' }
+  assert.equal(page.showReviewEntry({ status: 'completed', termination_reason: 'auto_end', usage_record: usage }), true)
+  assert.equal(page.showReviewEntry({ status: 'cancelled', termination_reason: 'admin_resource_change', usage_record: usage }), true)
+  assert.equal(page.showReviewEntry({ status: 'checked_in', usage_record: { checkin_at: '09:00' } }), false)
+  assert.equal(page.showReviewEntry({ status: 'unused_ended', usage_record: null }), false)
+  assert.equal(page.showReviewEntry({ status: 'completed', usage_record: { ...usage, settled_at: null } }), false)
+})
 test('before-start cancellation and after-start abandonment have distinct truthful confirmations and refresh both sources',async()=>{
   const cancellation=await mine()
   await cancellation.doAction(waiting(['cancel']),'cancel')
-  assert.match(cancellation.confirmations[0],/不登记新的违规/)
+  assert.match(cancellation.confirmations[0],/开始前取消不扣信用分/)
   assert.deepEqual(cancellation.calls,['cancel','mine'])
   const abandonment=await mine()
   await abandonment.doAction(waiting(['abandon']),'abandon')
@@ -61,7 +70,7 @@ test('action in-flight guard includes confirmation dialog and prevents duplicate
 test('committed deadline 409 is explained and actual no_show state plus independent records are re-read',async()=>{
   const page=await mine({abandonReservation:async()=>{throw{status:409,message:'已超时',details:{reservation_id:10,status:'unused_ended',termination_reason:'no_show'}}},listMyReservations:async()=>({data:[{id:10,status:'unused_ended',termination_reason:'no_show',allowed_actions:[]}]})})
   await page.doAction(waiting(['abandon']),'abandon')
-  assert.match(page.actionError.value,/已按签到期限超时结束/)
+  assert.match(page.actionError.value,/超时未签到结束，记一次违规/)
   assert.equal(page.list.value[0].status,'unused_ended')
   assert.equal(page.actionsOf(page.list.value[0]).length,0)
 
@@ -74,13 +83,39 @@ test('failed reservation refresh stays visible and still refreshes independent v
   await page.doAction(waiting(['cancel']),'cancel')
   assert.equal(page.calls.includes('cancel'),false)
 })
+test('an unconfirmed cancellation can be checked again without repeating the request', async () => {
+  let cancellationCalls = 0
+  let detailCalls = 0
+  const row = { ...waiting([]), status: 'cancelled' }
+  const page = await mine({
+    cancelReservation: async () => {
+      cancellationCalls++
+      throw { status: null }
+    },
+    getReservation: async () => {
+      if (++detailCalls === 1) throw { status: null }
+      return { data: row }
+    },
+    listMyReservations: async () => ({ data: [] })
+  })
+  await page.doAction(waiting(['cancel']), 'cancel')
+  assert.equal(page.actionResultId.value, 10)
+  assert.equal(page.actionResult.value, '')
+
+  await page.readActionResult()
+  assert.equal(page.actionResultId.value, null)
+  assert.equal(page.actionError.value, '')
+  assert.match(page.actionResult.value, /已取消/)
+  assert.equal(cancellationCalls, 1)
+  assert.equal(detailCalls, 2)
+})
 test('legacy terminal state is explained without fabricating an independent violation count',async()=>{
   const page=await mine()
   page.list.value=[{id:10,status:'unused_ended',legacy_status:'violation',termination_reason:'legacy_violation',allowed_actions:[]}]
-  assert.match(page.terminationLabels.legacy_violation,/未转为新独立违规/)
+  assert.match(page.terminationLabels.legacy_violation,/不另计违规/)
   assert.equal(page.snapshot.value,null)
   const source=await readFile(new URL('../src/views/MyReservationsView.vue',import.meta.url),'utf8')
-  assert.match(source,/服务端当前允许/)
+  assert.match(source,/截止时间前扫描座位二维码/)
   assert.doesNotMatch(source,/今日待签到|kpi-label">违约记录/)
 })
 async function violations(loader) {
@@ -108,8 +143,8 @@ test('violation failure is separate from empty data and can recover through actu
   const source=await readFile(new URL('../src/components/ViolationsPanel.vue',import.meta.url),'utf8')
   assert.match(source,/v-else-if="error"/)
   assert.match(source,/v-else-if="!loaded"/)
-  assert.match(source,/尚未读取本人独立违规记录/)
-  assert.match(source,/尚无已登记的独立违规记录/)
+  assert.match(source,/等待加载违规记录/)
+  assert.match(source,/没有符合筛选条件的违规记录/)
 })
 test('profile displays current credit and restoration separately from server booking eligibility',async()=>{
   for(const file of ['ProfileView','HomeView','LoginView','MyReservationsView']){
@@ -138,7 +173,8 @@ test('profile reloads authoritative credit and booking eligibility at the server
     historical_logs: [{ id: 1, delta: 1 }]
   }
   const profile = await script('../src/views/ProfileView.vue', {
-    vue: { ref, computed, onMounted: callback => { mounted = callback }, onBeforeUnmount: callback => { unmount = callback } },
+    vue: { ref, computed, watch, onMounted: callback => { mounted = callback }, onBeforeUnmount: callback => { unmount = callback } },
+    'vue-router': { useRoute: () => ({ fullPath: '/profile', hash: '' }) },
     '../api/auth': { fetchProfile: async () => ({ data: {} }), updateProfile() {}, changePassword() {} },
     '../api/credit': { getCreditOverview: async () => ({ data: ++creditReads === 1 ? data : { ...data, score: 100, reset_at: null } }) },
     '../stores/auth': { useAuthStore: () => ({ isOrdinary: true, setUser() {} }) },
@@ -164,14 +200,15 @@ test('profile reloads authoritative credit and booking eligibility at the server
   unmount()
 })
 
-test('profile reacts only to a changed current score previously seen by the same account', async () => {
+test('profile reacts only to a changed current score previously seen by the same account', async t => {
   const auth = { isOrdinary: true, user: { id: 1 }, setUser() {} }
   const scores = new Map()
   let response = { score: 90 }
   let failed = false
-  async function openProfile() {
+  async function openProfile(route = { fullPath: '/profile', hash: '' }) {
     return script('../src/views/ProfileView.vue', {
-      vue: { ref, computed, onMounted() {}, onBeforeUnmount() {} },
+      vue: { ref, computed, watch, onMounted() {}, onBeforeUnmount() {} },
+      'vue-router': { useRoute: () => route },
       '../api/auth': { fetchProfile() {}, updateProfile() {}, changePassword() {} },
       '../api/credit': {
         async getCreditOverview() {
@@ -184,7 +221,7 @@ test('profile reacts only to a changed current score previously seen by the same
       '../components/admin/userForm.js': { contactPayload() {} },
       '../components/ui/feedback': { message: {} },
       '../composables/usePagination': { usePagination: items => ({ page: ref(1), pages: ref(1), pageItems: items }) }
-    }, 'loadCredit, creditChange, creditError', {
+    }, 'loadCredit, creditChange, creditError, profileTab, mountedProfileTabs, selectProfileTab', {
       sessionStorage: {
         getItem: key => scores.get(key) ?? null,
         setItem: (key, value) => scores.set(key, value)
@@ -227,6 +264,17 @@ test('profile reacts only to a changed current score previously seen by the same
   response = { score: 35 }
   await anotherAccount.loadCredit()
   assert.equal(anotherAccount.creditChange.value, 10)
+
+  await t.test('a direct link opens the violations tab on arrival and when the linked record changes', async () => {
+    const route = reactive({ fullPath: '/profile?violation_id=5#violations', hash: '#violations' })
+    const profile = await openProfile(route)
+    assert.equal(profile.profileTab.value, 'violations')
+    assert.equal(profile.mountedProfileTabs.value.has('violations'), true)
+    profile.selectProfileTab('credit')
+    route.fullPath = '/profile?violation_id=6#violations'
+    await nextTick()
+    assert.equal(profile.profileTab.value, 'violations')
+  })
 })
 
 test('an older mine response cannot restore pending actions after a newer deadline refresh',async()=>{
@@ -258,7 +306,7 @@ test('deferred violation panel stays uninitialized rather than claiming zero bef
 
 test('only current checkout action is available and confirmation prevents duplicate early checkout before real refresh',async()=>{
   let release
-  const page=await mine({confirmDialog:text=>{assert.match(text,/释放剩余时段/);assert.match(text,/正常提前签退和到期均不扣分/);return new Promise(resolve=>{release=resolve})},listMyReservations:async()=>({data:[{id:10,status:'completed',termination_reason:'early_checkout',allowed_actions:[],usage_record:{id:1,checkin_at:'2026-10-30T08:00:00',ended_at:'2026-10-30T08:01:00.5',duration_seconds:60.5,origin:'seat_code'}}]})})
+  const page=await mine({confirmDialog:text=>{assert.match(text,/座位会立即释放/);assert.match(text,/签退不扣分/);return new Promise(resolve=>{release=resolve})},listMyReservations:async()=>({data:[{id:10,status:'completed',termination_reason:'early_checkout',allowed_actions:[],usage_record:{id:1,checkin_at:'2026-10-30T08:00:00',ended_at:'2026-10-30T08:01:00.5',duration_seconds:60.5,origin:'seat_code'}}]})})
   assert.deepEqual(Array.from(page.actionsOf({allowed_actions:['leave','return','checkout']}),action=>action.key),['checkout'])
   const attempt=page.doAction({id:10,status:'checked_in',allowed_actions:['checkout']},'checkout')
   await page.doAction({id:10,status:'checked_in',allowed_actions:['checkout']},'checkout')
@@ -286,14 +334,14 @@ test('current UI removes temporary leave navigation and adapters while retaining
   const mineSource=await readFile(new URL('../src/views/MyReservationsView.vue',import.meta.url),'utf8')
   assert.doesNotMatch(mineSource,/key: 'temp_leave'|leave:\{key|return:\{key|leaveReservation|returnReservation|临离开/)
   assert.match(mineSource,/UsageRecordSummary :record="row.usage_record"/)
-  assert.match(mineSource,/历史暂离登记/);assert.match(mineSource,/已结束/)
+  assert.match(mineSource,/暂离时间/);assert.match(mineSource,/已结束/)
   const api=await readFile(new URL('../src/api/reservation.js',import.meta.url),'utf8');assert.doesNotMatch(api,/leaveReservation|returnReservation/)
   const home=await readFile(new URL('../src/views/HomeView.vue',import.meta.url),'utf8');assert.doesNotMatch(home,/临时离开/)
 })
 
 test('managed cancellation exposes immutable public reason and preserves usage even though reservation is cancelled',async()=>{
   const source=await readFile(new URL('../src/views/MyReservationsView.vue',import.meta.url),'utf8')
-  assert.match(source,/admin_resource_change:'资源管理取消（不记用户违约）'/);assert.match(source,/当次公开管理原因：\{\{ row.termination_note \}\}/)
+  assert.match(source,/admin_resource_change:'因自习室调整取消，不扣分'/);assert.match(source,/取消原因：\{\{ row.termination_note \}\}/)
   assert.match(source,/<UsageRecordSummary :record="row.usage_record"/);assert.doesNotMatch(source,/coordination\.note|room\.resource_reason/)
 })
 

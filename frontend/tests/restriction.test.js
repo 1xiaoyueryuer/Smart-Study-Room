@@ -69,8 +69,9 @@ test('an older in-flight qualification cannot replace the post-expiry eligibilit
 test('actual legacy record template identifies remaining-transfer start and unknown original facts without leaking private evidence',async()=>{
   const recordValue = record({source:'legacy', legacy_remaining_only:true, creator_display_name:null, reason:'旧限制剩余效力，原原因未留存', verification_note:'DO_NOT_RENDER_PRIVATE'})
   const html = await renderRestriction(recordValue)
-  assert.match(html, /剩余效力接管起点/)
-  assert.match(html, /原处罚开始时刻和原原因未留存/)
+  assert.match(html, /历史记录开始时间/)
+  assert.match(html, /原生效时间未记录/)
+  assert.match(html, /原限制原因未记录/)
   assert.doesNotMatch(html, /DO_NOT_RENDER_PRIVATE|旧处罚从2026/)
 })
 test('restriction APIs preserve owner-only reads and frozen create/release paths without a fabricated preview endpoint',async()=>{
@@ -90,20 +91,34 @@ const sources=()=>[
 ]
 const automatic=(extra={})=>record({id:92,source:'automatic',creator_display_name:null,verification_source:'system_rolling_violations',automatic_evaluation:{evaluated_at:'2026-10-31T08:01+08:00',window_start:'2026-10-01T08:01+08:00',window_end:'2026-10-31T08:01+08:00',window_start_inclusive:true,window_end_inclusive:true,threshold:3,duration_hours:168,source_violations:sources()},...extra})
 async function renderRestriction(recordValue, collapseDetails = false){
-  const source=await readFile(new URL('../src/components/RestrictionRecord.vue',import.meta.url),'utf8'),{descriptor}=parse(source),context=vm.createContext({defineProps:()=>({record:recordValue})}),scriptModule=new vm.SourceTextModule(descriptor.scriptSetup.content+'\nexport {restrictionStatuses,violationTypeLabels,completeEvaluation,formatCampusDateTime}',{context})
+  const source=await readFile(new URL('../src/components/RestrictionRecord.vue',import.meta.url),'utf8'),{descriptor}=parse(source),context=vm.createContext({defineProps:()=>({record:recordValue})}),scriptModule=new vm.SourceTextModule(descriptor.scriptSetup.content+'\nexport {restrictionStatuses,violationTypeLabels,restrictionSources,durationText,completeEvaluation,formatCampusDateTime}',{context})
   await scriptModule.link(specifier=>{const values=specifier.endsWith('/campusDateTime.js')?{formatCampusDateTime}:{restrictionStatuses};return new vm.SyntheticModule(Object.keys(values),function(){for(const[key,value]of Object.entries(values))this.setExport(key,value)},{context})});await scriptModule.evaluate()
   const compiled=compileTemplate({source:descriptor.template.content,filename:'RestrictionRecord.vue',id:'s20record',ssr:true,ssrCssVars:[]}),module=new vm.SourceTextModule(compiled.code,{context});await module.link(specifier=>{const values=specifier==='vue'?vue:ssr;return new vm.SyntheticModule(Object.keys(values),function(){for(const[key,value]of Object.entries(values))this.setExport(key,value)},{context})});await module.evaluate();return ssr.renderToString(vue.createSSRApp({props:['record','collapseDetails'],setup:()=>scriptModule.namespace,ssrRender:module.namespace.ssrRender},{record:recordValue,collapseDetails}))
 }
 test('collapsible restrictions show the reason and both dates before the closed details', async () => {
   const html = await renderRestriction(automatic(), true)
-  assert.match(html, /公开原因.*生效起点.*截止时间.*<details class="record-details"><summary>限制详情<\/summary>.*本次累计评估记录.*<\/details>/s)
+  assert.match(html, /限制原因.*生效时间.*截止时间.*<details class="record-details"><summary>限制详情<\/summary>.*触发限制的违规记录.*<\/details>/s)
   assert.doesNotMatch(html, /<details[^>]*\bopen\b/)
   assert.doesNotMatch(await renderRestriction(automatic()), /<details|<summary/)
 })
 test('actual automatic restriction template preserves all three server-ordered sources, original times and current revoked status without private fields',async()=>{
-  const html=await renderRestriction(automatic());assert.match(html,/系统累计自动限制/);assert.match(html,/系统累计评估/);assert.match(html,/2026-10-31 08:01:00/);assert.match(html,/2026-10-01 08:01:00/);assert.match(html,/两端均含/);assert.match(html,/168小时/);assert.match(html,/7×24小时/)
-  assert.ok(html.indexOf('违规#303')<html.indexOf('违规#101'));assert.ok(html.indexOf('违规#101')<html.indexOf('违规#202'));for(const entry of sources()){const occurred=entry.occurred_at.slice(0,16).replace('T',' '),registered=entry.registered_at.slice(0,16).replace('T',' ');assert.ok(html.includes(occurred));assert.ok(html.includes(registered));assert.ok(html.includes(entry.reason))}
-  assert.match(html,/当前已撤销/);assert.match(html,/来源关联永久保留/);assert.match(html,/关联预约涉及他人，不公开编号/);assert.match(html,/本人预约#44/);assert.doesNotMatch(html,/PRIVATE_|complaints\/888|source_event_id|#null|未完整返回/)
+  const html = await renderRestriction(automatic())
+  assert.match(html, /因累计违规暂停预约/)
+  assert.match(html, /触发限制的违规记录/)
+  assert.match(html, /决定时间 2026-10-31 08:01:00/)
+  assert.match(html, /统计时间 2026-10-01 08:01:00 至 2026-10-31 08:01:00/)
+  assert.match(html, /累计 3 次有效违规，暂停预约 7 天/)
+  assert.deepEqual([...html.matchAll(/违规 #(\d+)/g)].map(match => Number(match[1])), [303, 101, 202])
+  for (const entry of sources()) {
+    const occurred = entry.occurred_at.slice(0, 16).replace('T', ' ')
+    const registered = entry.registered_at.slice(0, 16).replace('T', ' ')
+    assert.ok(html.includes(occurred))
+    assert.ok(html.includes(registered))
+    assert.ok(html.includes(entry.reason))
+  }
+  assert.match(html, /违规 #202[^<]*已撤销/)
+  assert.match(html, /关联预约 #44/)
+  assert.doesNotMatch(html, /PRIVATE_|complaints\/888|source_event_id|#null|暂时无法显示|起止时刻均计入/)
 })
 test('credit round restriction displays its two trigger sources and fifteen-day duration', async () => {
   const value = automatic()
@@ -115,23 +130,22 @@ test('credit round restriction displays its two trigger sources and fifteen-day 
     source_violations: sources().slice(0, 2)
   }
   const html = await renderRestriction(value)
-  assert.match(html, /本轮判定区间/)
-  assert.match(html, /本次触发门槛：2 条/)
-  assert.match(html, /360小时.*15×24小时/)
-  assert.equal((html.match(/违规#/g) || []).length, 2)
-  assert.doesNotMatch(html, /未完整返回|违规#202|PRIVATE_/)
+  assert.match(html, /统计时间/)
+  assert.match(html, /累计 2 次有效违规，暂停预约 15 天/)
+  assert.equal((html.match(/违规 #/g) || []).length, 2)
+  assert.doesNotMatch(html, /暂时无法显示|违规 #202|PRIVATE_/)
 })
 test('manual and legacy null evaluations remain their real sources, while automatic missing or incomplete sources are never filled or sliced',async()=>{
-  for(const value of [record({automatic_evaluation:null}),record({source:'legacy',legacy_remaining_only:true,automatic_evaluation:null})]){const html=await renderRestriction(value);assert.doesNotMatch(html,/本次累计评估记录|三条来源数据|系统累计评估/)}
-  const missing=await renderRestriction(automatic({automatic_evaluation:null}));assert.match(missing,/未完整返回/);assert.doesNotMatch(missing,/本次评估时刻：|违规#303/)
-  for(const count of [2,4]){const entries=count===2?sources().slice(0,2):[...sources(),{...sources()[0],id:404,reason:'工程模拟实际多返来源'}],value=automatic();value.automatic_evaluation.source_violations=entries;const html=await renderRestriction(value);assert.match(html,/未完整返回/);assert.equal((html.match(/违规#/g)||[]).length,count);if(count===4)assert.match(html,/违规#404/)}
-  const broken=automatic();broken.automatic_evaluation.source_violations=[...sources().slice(0,2),null];const html=await renderRestriction(broken);assert.match(html,/未完整返回/);assert.match(html,/来源记录缺失/);assert.equal((html.match(/违规#/g)||[]).length,2)
+  for(const value of [record({automatic_evaluation:null}),record({source:'legacy',legacy_remaining_only:true,automatic_evaluation:null})]){const html=await renderRestriction(value);assert.doesNotMatch(html,/触发限制的违规记录|三条来源数据|系统自动记录/)}
+  const missing=await renderRestriction(automatic({automatic_evaluation:null}));assert.match(missing,/暂时无法显示完整的违规记录/);assert.doesNotMatch(missing,/决定时间|违规 #303/)
+  for(const count of [2,4]){const entries=count===2?sources().slice(0,2):[...sources(),{...sources()[0],id:404,reason:'工程模拟实际多返来源'}],value=automatic();value.automatic_evaluation.source_violations=entries;const html=await renderRestriction(value);assert.match(html,/暂时无法显示完整的违规记录/);assert.equal((html.match(/违规 #/g)||[]).length,count);if(count===4)assert.match(html,/违规 #404/)}
+  const broken=automatic();broken.automatic_evaluation.source_violations=[...sources().slice(0,2),null];const html=await renderRestriction(broken);assert.match(html,/暂时无法显示完整的违规记录/);assert.match(html,/这条违规记录暂时无法显示/);assert.equal((html.match(/违规 #/g)||[]).length,2)
 })
 test('later reads keep a historical evaluation window unchanged and show source revocation without dropping the consumed association',async()=>{
   const value=automatic({status:'released',released_at:'2026-11-01T10:00+08:00',release_reason:'工程模拟解除。'}),snapshot=structuredClone(value.automatic_evaluation),html=await renderRestriction(value)
-  assert.deepEqual(value.automatic_evaluation,snapshot);assert.match(html,/已解除/);assert.match(html,/违规#202/);assert.match(html,/当前已撤销/);assert.match(html,/当前资格/);assert.doesNotMatch(html,/解除。<[^>]*>。|资格已恢复/)
+  assert.deepEqual(value.automatic_evaluation,snapshot);assert.match(html,/已解除/);assert.match(html,/违规 #202[^<]*已撤销/);assert.match(html,/解除时间 2026-11-01 10:00:00/);assert.match(html,/请重新预约/);assert.doesNotMatch(html,/解除。<[^>]*>。|资格已恢复/)
 })
 test('releasing the last old restriction can return a distinct automatic batch and still block booking',async()=>{
   let posts=0;const next=automatic(),page=await admin({releaseRestriction:async(id,body)=>{posts++;const released=record({status:'released',version:2,released_at:'2026-11-01T09:01+08:00',release_reason:body.reason,release_notification_id:901,release_notified_at:'2026-11-01T09:01+08:00'});page.setRows([released,next]);return{data:{operation_id:body.operation_id,restriction:released,effects:effects(),eligibility:eligibility([next])}}}})
-  await page.loadList();await page.choose(page.items.value[0]);page.releaseForm.value=form();await page.act('release');assert.equal(posts,1);assert.equal(page.receipt.value.restriction.status,'released');assert.equal(page.receipt.value.eligibility.can_book,false);assert.equal(page.receipt.value.eligibility.active_restrictions[0].id,92);assert.match(eligibilityText(page.receipt.value.eligibility),/仍有有效/);assert.match(page.dialogs[0],/可能立即.*新的累计限制/);const html=await renderRestriction(page.receipt.value.eligibility.active_restrictions[0]);assert.match(html,/违规#303/)
+  await page.loadList();await page.choose(page.items.value[0]);page.releaseForm.value=form();await page.act('release');assert.equal(posts,1);assert.equal(page.receipt.value.restriction.status,'released');assert.equal(page.receipt.value.eligibility.can_book,false);assert.equal(page.receipt.value.eligibility.active_restrictions[0].id,92);assert.match(eligibilityText(page.receipt.value.eligibility),/仍有有效/);assert.match(page.dialogs[0],/可能立即.*新的累计限制/);const html=await renderRestriction(page.receipt.value.eligibility.active_restrictions[0]);assert.match(html,/违规 #303/)
 })

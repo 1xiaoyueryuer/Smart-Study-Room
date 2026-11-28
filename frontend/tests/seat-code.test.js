@@ -105,7 +105,7 @@ async function checkin(overrides={}) {
     '../api/reservation':{getReservation:async id=>{calls.push(['detail',id]);return{data:{id,allowed_actions:['checkin']}}},checkinReservation:async(id,text)=>{calls.push(['checkin',id,text])},...overrides},
     '../composables/seatScanner.js':{createSeatScanner:options=>{scan=options;return{stop(){calls.push(['stop'])},file:async()=>{},camera:async()=>{}}}},
     '../composables/checkinDeadline.js':{checkinDeadlineOf:()=>null}
-  },'load,submitCode,reservation,success,scanError,scanNotice,detailError,submitting,canCheckin', {defineProps:()=>props})
+  },'load,refresh,submitCode,reservation,success,scanError,scanNotice,detailError,submitting,canCheckin,needsResultCheck,checkinStatus', {defineProps:()=>props})
   await tick();return{...page,calls,scan,cleanup,changeId(id){props.id=id;routeChanged()}}
 }
 test('independent scan page loads own detail, submits original decoded code once and re-reads true state',async()=>{
@@ -182,14 +182,42 @@ test('network result uncertainty is resolved only by true checked-in detail, inc
   let reads=0
   const page=await checkin({getReservation:async()=>{reads++;if(reads===2)throw new Error('查询断网');return{data:{status:reads===1?'pending':'checked_in',usage_record:reads===1?null:usage,allowed_actions:reads===1?['checkin']:[]}}},checkinReservation:async()=>{throw{status:null}}})
   await page.submitCode(code);assert.match(page.scanError.value,/结果尚未确认/);assert.match(page.detailError.value,/查询断网/);assert.equal(page.success.value,false)
-  await page.load();assert.equal(page.scanError.value,'');assert.match(page.scanNotice.value,/查询确认当前已签到，无需重试/);assert.equal(page.canCheckin.value,false);assert.equal(page.success.value,false)
+  await page.refresh()
+  assert.equal(page.scanError.value,'')
+  assert.equal(page.needsResultCheck.value,false)
+  assert.equal(page.checkinStatus.value,'已签到，可以开始自习')
+  assert.equal(page.canCheckin.value,false)
+  assert.equal(page.success.value,false)
+})
+
+test('checking a lost sign-in result reads the reservation again without submitting another scan', async () => {
+  let reads = 0, submits = 0
+  const page = await checkin({
+    getReservation: async () => {
+      if (++reads === 2) throw new Error('查询断网')
+      return { data: { status: 'pending', allowed_actions: ['checkin'] } }
+    },
+    checkinReservation: async () => {
+      submits++
+      throw { status: 504 }
+    },
+  })
+
+  await page.submitCode(code)
+  assert.equal(page.needsResultCheck.value, true)
+  assert.equal(page.canCheckin.value, false)
+  await page.submitCode(code)
+  await page.refresh()
+  assert.equal(submits, 1)
+  assert.equal(page.canCheckin.value, true)
+  assert.equal(page.needsResultCheck.value, false)
 })
 
 test('successful checkin HTTP response alone cannot claim usage until true detail record is available',async()=>{
   let reads=0
   const page=await checkin({getReservation:async()=>{reads++;if(reads===2)throw new Error('详情查询失败');return{data:{status:reads===1?'pending':'checked_in',usage_record:reads>=4?usage:null,allowed_actions:reads===1?['checkin']:[]}}}})
-  await page.submitCode(code);assert.equal(page.success.value,false);assert.match(page.scanNotice.value,/使用记录尚未核对/)
-  await page.load();assert.equal(page.success.value,false);assert.match(page.scanNotice.value,/尚未查得可核对的使用记录/)
+  await page.submitCode(code);assert.equal(page.success.value,false);assert.equal(page.needsResultCheck.value,true)
+  await page.load();assert.equal(page.success.value,false);assert.equal(page.needsResultCheck.value,true)
   await page.load();assert.equal(page.success.value,true);assert.equal(page.reservation.value.usage_record.origin,'seat_code')
 })
 test('network unknown is not resolved from legacy top-level checkin timestamp without a usage record',async()=>{
@@ -201,7 +229,7 @@ test('network unknown is not resolved from legacy top-level checkin timestamp wi
 test('checkin detail can display subsequent management cancellation without hiding true usage or private coordination',async()=>{
   let reads=0
   const page=await checkin({getReservation:async()=>({data:{status:++reads===1?'pending':'cancelled',allowed_actions:reads===1?['checkin']:[],termination_reason:reads===1?null:'admin_resource_change',termination_note:'工程模拟：当次公开检修原因',usage_record:reads===1?null:{...usage,ended_at:'2026-10-30T08:01:00.125+08:00',end_reason:'admin_resource_change',duration_seconds:60}}})})
-  await page.submitCode(code);assert.equal(page.success.value,false);assert.match(page.scanNotice.value,/资源管理取消/);assert.equal(page.reservation.value.usage_record.duration_seconds,60);assert.equal(page.reservation.value.termination_note,'工程模拟：当次公开检修原因')
+  await page.submitCode(code);assert.equal(page.success.value,false);assert.equal(page.checkinStatus.value,'预约已取消');assert.equal(page.reservation.value.usage_record.duration_seconds,60);assert.equal(page.reservation.value.termination_note,'工程模拟：当次公开检修原因')
 })
 
 test('fixed clean generated PNG regressions fail generic detection but production file fallback decodes the actual original pixels exactly',async()=>{

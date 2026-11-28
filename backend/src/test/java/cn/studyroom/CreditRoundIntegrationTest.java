@@ -118,8 +118,8 @@ class CreditRoundIntegrationTest {
         var deadline = trigger.plusDays(15);
         assertCredit(80, 2, deadline);
         var active = eligibility().path("active_restrictions").get(0);
-        assertEquals(2, active.path("automatic_evaluation").path("threshold").asInt());
-        assertEquals(360, active.path("automatic_evaluation").path("duration_hours").asInt());
+        assertEquals(2, active.path("violations").size());
+        assertFalse(active.has("automatic_evaluation"));
         assertEquals(deadline, localTime(active.path("ends_at")));
         http.perform(post("/api/reservations").header("Authorization", "Bearer " + token)
             .contentType("application/json")
@@ -175,14 +175,15 @@ class CreditRoundIntegrationTest {
         var newTrigger = oldDeadline.toLocalDate().atTime(13, 0);
         abandon(nextFirst, newTrigger.minusHours(1));
         abandon(nextSecond, newTrigger);
-        long newRestriction = eligibility().path("active_restrictions").get(0).path("id").asLong();
+        var newViolations = eligibility().path("active_restrictions").get(0).path("violations");
+        assertEquals(2, newViolations.size());
 
         approveAppeal(oldAppeal);
         assertEquals("revoked", db.one("SELECT status FROM violations WHERE id=?", firstViolation).get("status"));
         assertCredit(80, 2, newTrigger.plusDays(15));
         var eligibility = eligibility();
         assertFalse(eligibility.path("can_book").asBoolean());
-        assertEquals(newRestriction, eligibility.path("active_restrictions").get(0).path("id").asLong());
+        assertEquals(newViolations, eligibility.path("active_restrictions").get(0).path("violations"));
     }
 
     private long account(String name, String role, String hash) {

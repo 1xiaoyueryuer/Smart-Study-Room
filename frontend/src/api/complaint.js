@@ -1,6 +1,7 @@
 import request from './request'
 export const listMyComplaints = params => request.get('/complaints/mine', {params, silent: true })
 export const getComplaint = id => request.get(`/complaints/${id}`, { silent: true })
+export const getComplaintRoomSeats = roomId => request.get(`/complaints/rooms/${roomId}/seats`, { silent: true })
 export const createComplaint = body => request.post('/complaints', body, { silent: true, timeout: 120000 })
 export function uploadComplaintAttachment(file) {
   const body = new FormData(); body.append('file', file)

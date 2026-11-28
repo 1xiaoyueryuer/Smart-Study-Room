@@ -15,6 +15,9 @@ public class RestrictionPolicy {
     private final CreditRoundService credit;
     private final Store db;private final AuditService audit;private final ObjectMapper json;
     private static final String SELECT="SELECT r.*,COALESCE(NULLIF(c.real_name,''),c.username) AS creator_name,COALESCE(NULLIF(l.real_name,''),l.username) AS releaser_name,n.id AS notification_id,n.created_at AS notified_at,nr.id AS release_notification_id,nr.created_at AS release_notified_at,u.username,u.real_name,u.campus_id,u.role AS subject_role,u.status AS subject_status FROM restrictions r JOIN users u ON u.id=r.user_id LEFT JOIN users c ON c.id=r.creator_id LEFT JOIN users l ON l.id=r.releaser_id LEFT JOIN notifications n ON n.restriction_id=r.id AND n.type='restriction_started' LEFT JOIN notifications nr ON nr.restriction_id=r.id AND nr.type='restriction_released' ";
+    // Once applied, a restriction still blocks new bookings if the system clock moves back.
+    // Keep time-based effects separate so a clock rollback does not backdate cancellations.
+    private static final String BLOCKS_BOOKING = "(r.starts_at<=? OR r.effects_applied_at IS NOT NULL) AND r.ends_at>? AND r.released_at IS NULL";
     public RestrictionPolicy(Store db,AuditService audit,ObjectMapper json,NotificationService messages,CreditRoundService credit) {this.messages=messages;this.db=db;this.audit=audit;this.json=json;this.credit=credit;}
     List<Map<String,Object>> activeRaw(long user,LocalDateTime now){return db.list("SELECT * FROM restrictions WHERE user_id=? AND starts_at<=? AND ends_at>? AND released_at IS NULL ORDER BY id",user,stamp(now),stamp(now));}
     List<Long> activeUsers(LocalDateTime now){return db.list("SELECT DISTINCT user_id FROM restrictions WHERE starts_at<=? AND ends_at>? AND released_at IS NULL ORDER BY user_id",stamp(now),stamp(now)).stream().map(row->Store.id(row,"user_id")).toList();}
@@ -33,9 +36,35 @@ public class RestrictionPolicy {
     Map<String,Object> creditAppealFingerprint(long user, long violation, LocalDateTime now) {
         return credit.appealFingerprint(user, violation, now);
     }
-    Map<String,Object> eligibility(long user,LocalDateTime now){var account=db.one("SELECT role,status FROM users WHERE id=?",user);var active=rows("WHERE r.user_id=? AND r.starts_at<=? AND r.ends_at>? AND r.released_at IS NULL",user,stamp(now),stamp(now)).stream().map(row->view(row,now,false)).toList();String blocked=!AuthService.isOrdinary(account.get("role"))?"role":!"active".equals(account.get("status"))?"disabled":active.isEmpty()?null:"restrictions";var result=new LinkedHashMap<String,Object>();result.put("can_book",blocked==null);result.put("blocked_by",blocked);result.put("active_restrictions",active);result.put("server_now",offset(now));result.put("campus_zone",BookingPolicy.CAMPUS_ZONE.toString());return result;}
-    Map<String,Object> denial(Map<String,Object> eligibility){var result=new LinkedHashMap<String,Object>();result.put("code","booking_restricted");for(String key:List.of("active_restrictions","server_now","campus_zone"))result.put(key,eligibility.get(key));return result;}
-    boolean legacyActive(long user,LocalDateTime now){return db.count("SELECT count(*) FROM restrictions WHERE user_id=? AND source='legacy' AND released_at IS NULL AND starts_at<=? AND ends_at>?",user,stamp(now),stamp(now))>0;}
+    Map<String,Object> eligibility(long user,LocalDateTime now){var account=db.one("SELECT role,status FROM users WHERE id=?",user);var active=rows("WHERE r.user_id=? AND "+BLOCKS_BOOKING,user,stamp(now),stamp(now)).stream().map(row->view(row,now,false)).toList();String blocked=!AuthService.isOrdinary(account.get("role"))?"role":!"active".equals(account.get("status"))?"disabled":active.isEmpty()?null:"restrictions";var result=new LinkedHashMap<String,Object>();result.put("can_book",blocked==null);result.put("blocked_by",blocked);result.put("active_restrictions",active);result.put("server_now",offset(now));result.put("campus_zone",BookingPolicy.CAMPUS_ZONE.toString());return result;}
+    Map<String,Object> bookingSummary(Map<String,Object> eligibility) {
+        var result = new LinkedHashMap<>(eligibility);
+        var records = (List<?>) eligibility.get("active_restrictions");
+        result.put("active_restrictions", records.stream().map(record -> bookingRestriction((Map<?,?>) record)).toList());
+        return result;
+    }
+
+    private Map<String,Object> bookingRestriction(Map<?,?> record) {
+        var result = new LinkedHashMap<String,Object>();
+        result.put("ends_at", record.get("ends_at"));
+        result.put("reason", record.get("reason"));
+        if (record.get("automatic_evaluation") instanceof Map<?,?> evaluation
+                && evaluation.get("source_violations") instanceof List<?> sources) {
+            result.put("violations", sources.stream().map(source -> {
+                var violation = (Map<?,?>) source;
+                return Map.of("id", violation.get("id"), "type", violation.get("type"),
+                        "occurred_at", violation.get("occurred_at"));
+            }).toList());
+        }
+        return result;
+    }
+
+    Map<String,Object> denial(Map<String,Object> eligibility) {
+        var result = bookingSummary(eligibility);
+        result.put("code", "booking_restricted");
+        return result;
+    }
+    boolean legacyActive(long user,LocalDateTime now){return db.count("SELECT count(*) FROM restrictions r WHERE r.user_id=? AND r.source='legacy' AND "+BLOCKS_BOOKING,user,stamp(now),stamp(now))>0;}
     List<Map<String,Object>> list(Long user,String status,LocalDateTime now,boolean admin){return RecordPage.items(records(RecordPage.legacy(status==null?Map.of():Map.of("status",status),RecordPage.Domain.RESTRICTION,admin),user,now,admin));}
     Map<String,Object> records(RecordPage query,Long user,LocalDateTime now,boolean admin){var selected=query.select(db,RecordPage.Domain.RESTRICTION,user,now);var result=selected.ids().isEmpty()?new ArrayList<Map<String,Object>>():rows("WHERE r.id IN ("+RecordPage.marks(selected.ids())+") ORDER BY r.created_at DESC,r.id DESC",selected.ids().toArray()).stream().map(row->view(row,now,admin)).toList();for(var item:result)for(String key:List.of("verification_note","facts_confirmed","release_verification_note","release_facts_confirmed"))item.remove(key);return query.result(result,selected.total(),now);}
     static void validateFilter(Long user,String status){Api.require(user==null||user>0,400,"用户编号须为正整数");Api.require(status==null||Set.of("active","expired","released").contains(status),400,"限制状态筛选错误");}

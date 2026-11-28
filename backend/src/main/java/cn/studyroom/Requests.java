@@ -9,7 +9,12 @@ public final class Requests {
                             @NotBlank @Size(max=2000) String description,@JsonProperty("attachment_ids") java.util.List<String> attachmentIds,@JsonProperty("operation_id") @NotBlank String operationId,
                             @JsonProperty("service_kind") String serviceKind,@JsonProperty("service_topic") String serviceTopic,
                             @JsonProperty("fault_type") String faultType,@JsonProperty("impact_scope") String impactScope,
-                            @JsonProperty("safety_risk") Boolean safetyRisk,@JsonProperty("unsafe_area") Boolean unsafeArea) {
+                            @JsonProperty("safety_risk") Boolean safetyRisk,@JsonProperty("unsafe_area") Boolean unsafeArea,
+                            @JsonProperty("seat_id") @Positive Long seatId) {
+        public Complaint(String type,Long reservationId,Long roomId,String description,java.util.List<String> attachmentIds,String operationId,
+                         String serviceKind,String serviceTopic,String faultType,String impactScope,Boolean safetyRisk,Boolean unsafeArea) {
+            this(type,reservationId,roomId,description,attachmentIds,operationId,serviceKind,serviceTopic,faultType,impactScope,safetyRisk,unsafeArea,null);
+        }
         /** Source compatibility for internal callers; HTTP submissions still provide the explicit V1.1 branch. */
         public Complaint(String type,Long reservationId,Long roomId,String description,java.util.List<String> attachmentIds,String operationId) {
             this(type,reservationId,roomId,description,attachmentIds,operationId,null,null,null,null,null,null);

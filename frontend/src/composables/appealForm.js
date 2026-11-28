@@ -1,5 +1,11 @@
 import {offsetInstant} from './restrictionForm.js'
-export const appealBlockedText={revoked:'该违规已撤销，当前不能新提交申诉',pending:'已有待审核申诉，请查看原申诉进度',notification_unknown:'历史未留存可靠通知时间，无法确认线上申诉期限；可联系管理核查',before_notification:'尚未到服务端记录的通知时刻，当前不能提交',deadline_passed:'原通知起算的申诉期限已届满，当前不能提交'}
+export const appealBlockedText = {
+  revoked: '这条违规已撤销。',
+  pending: '你已提交申诉，正在等待审核。',
+  notification_unknown: '暂时无法确认申诉期限，请联系管理员。',
+  before_notification: '这条违规暂未开放申诉。',
+  deadline_passed: '申诉期限已过。',
+}
 export const violationLabels={abandon:'开始后主动放弃',no_show:'超时未签到',occupation_refusal:'核实拒不配合占座'}
 export function appealPayload(description,items){const text=String(description||'').trim();if(!text||text.length>2000)throw new Error('请填写1至2000字的申诉说明')
   if(items.length>3||items.some(item=>item.phase!=='uploaded'||!item.metadata?.id))throw new Error('请成功上传全部已选照片，或明确移除失败照片后再提交')

@@ -2,6 +2,7 @@
 import { usePagination } from '../composables/usePagination'
 import SPagination from '../components/ui/SPagination.vue'
 import { ref, computed, onBeforeUnmount, onMounted, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { fetchProfile, updateProfile, changePassword } from '../api/auth'
 import { contactPayload } from '../components/admin/userForm.js'
 import { message } from '../components/ui/feedback'
@@ -20,6 +21,7 @@ import SBanner from '../components/ui/SBanner.vue'
 import { formatCampusDateTime } from '../composables/campusDateTime.js'
 
 const auth = useAuthStore()
+const route = useRoute()
 const overview = ref(null)
 const creditLoading = ref(false), creditError = ref('')
 const creditHintOpen = ref(false)
@@ -207,8 +209,8 @@ function resetAvatar() {
 }
 
 const profileTabs = [
-  { key: 'restrictions', label: '资格与限制', title: '本人预约限制与当前资格' },
-  { key: 'violations', label: '违规记录', title: '本人独立违规记录' },
+  { key: 'restrictions', label: '预约状态', title: '预约状态与限制' },
+  { key: 'violations', label: '违规记录', title: '违规记录' },
   { key: 'appeals', label: '申诉进度', title: '本人申诉进度' },
   { key: 'reminders', label: '提醒', title: '本人提醒（不计违规）' },
   { key: 'credit', label: '信誉流水', title: '本人信誉分变动记录' }
@@ -221,13 +223,16 @@ function selectProfileTab(key) {
     mountedProfileTabs.value = new Set([...mountedProfileTabs.value, key])
   }
 }
+watch(() => route.fullPath, () => {
+  const key = route.hash.slice(1)
+  if (profileTabs.some(tab => tab.key === key)) selectProfileTab(key)
+}, { immediate: true })
 </script>
 
 <template>
   <div v-reveal class="page-view">
     <header class="view-heading" data-page-title>
       <h1>个人中心</h1>
-      <p class="heading-sub">账户联系方式、预约资格、本人违规与信誉记录</p>
     </header>
     <div class="split profile-split" :class="{ 'profile-admin': auth.isAdmin }">
     <div class="split-left">
@@ -301,15 +306,17 @@ function selectProfileTab(key) {
                     </Transition>
                   </div>
                 </div>
-                <SButton size="sm" variant="ghost" :loading="creditLoading" @click="loadCredit()">刷新</SButton>
+                <SButton v-if="!creditError" size="sm" variant="ghost" :loading="creditLoading" @click="loadCredit()">刷新</SButton>
               </div>
             </div>
-            <p v-if="creditError" class="credit-error" role="alert">信誉分读取失败，请刷新重试。</p>
+            <SBanner v-if="creditError" type="error" role="alert" title="暂时无法显示信誉分">
+              <SButton size="sm" @click="loadCredit()">重新查询</SButton>
+            </SBanner>
           </div>
 
           <div class="profile-edit">
             <p v-if="profileLoading" class="muted" role="status">正在读取最新资料…</p>
-            <SBanner v-else-if="profileError" type="error" :title="profileError"><SButton size="sm" @click="loadProfile">重试读取</SButton></SBanner>
+            <SBanner v-else-if="profileError" type="error" title="暂时无法加载个人资料"><SButton size="sm" @click="loadProfile">重新加载</SButton></SBanner>
             <form id="profile-form" v-else class="contact-form" @submit.prevent="saveContacts">
               <div class="password-field">
                 <div class="password-row">
@@ -339,11 +346,14 @@ function selectProfileTab(key) {
       <section v-if="mountedProfileTabs.has('credit')" v-show="profileTab==='credit'" class="card">
         <div class="card-title-row">
           <h3>信誉分变动记录</h3>
-          <SButton size="sm" :loading="creditLoading" @click="loadCredit()">刷新</SButton>
+          <SButton v-if="!creditError" size="sm" :loading="creditLoading" @click="loadCredit()">刷新</SButton>
         </div>
-        <p v-if="creditLoading" role="status">正在读取信誉流水…</p><p v-else-if="creditError" class="muted">信誉流水未读取成功，请点击右上角刷新重试。</p>
+        <p v-if="creditLoading" role="status">正在加载信誉分记录…</p>
+        <SBanner v-else-if="creditError" type="error" title="暂时无法加载信誉分记录">
+          <SButton size="sm" @click="loadCredit()">重新加载</SButton>
+        </SBanner>
         <div v-if="creditLogs.length" v-list-motion="pageItems.map(row => row.recordKey).join()" class="table-wrap">
-          <div class="table-scroll" tabindex="0" aria-label="信誉分流水表格，可左右滑动">
+          <div class="table-scroll" tabindex="0" aria-label="信誉分变动记录，可左右滑动">
             <table class="table credit-table">
               <thead>
                 <tr>
@@ -533,7 +543,6 @@ function selectProfileTab(key) {
 @media (prefers-reduced-motion: reduce) {
   .credit-reaction-enter-active, .credit-reaction-leave-active { transition: none; }
 }
-.credit-error { color: var(--red-strong); font-size: var(--fs-caption); margin-top: 6px; }
 .profile-name {
   font-size: 20px;
   font-weight: 650;

@@ -33,6 +33,7 @@ class ComplaintIntegrationTest {
     @Autowired OpeningScheduleService opening;
     @Autowired ResourceService resources;
     @Autowired ComplaintService complaints;
+    @Autowired ComplaintManagementService management;
     @Autowired AttachmentService attachments;
     @Autowired org.springframework.transaction.support.TransactionTemplate transactions;
     @Autowired MinuteBookingIntegrationTest.TestClock clock;
@@ -96,6 +97,25 @@ class ComplaintIntegrationTest {
         var free=complaints.create(student,service(List.of(),UUID.randomUUID().toString()));assertEquals(room,Store.id(free,"room_id"));@SuppressWarnings("unchecked") var context=(Map<String,Object>)free.get("context_snapshot");assertEquals(Set.of("room_id","room_name","building","floor","location"),context.keySet());
         long own=reservation(student,seat1),foreign=reservation(other,seat2);assertEquals(403,assertThrows(Api.Failure.class,()->complaints.create(student,complaint("occupation",foreign,null,"不能关联他人",List.of(),UUID.randomUUID().toString()))).status);assertEquals(400,assertThrows(Api.Failure.class,()->complaints.create(student,complaint("occupation",null,null,"缺预约",List.of(),UUID.randomUUID().toString()))).status);assertEquals(400,assertThrows(Api.Failure.class,()->complaints.create(student,new Requests.Complaint("service",own,room,"服务问题不关联预约",List.of(),UUID.randomUUID().toString(),"other_service","环境卫生",null,null,null,null))).status);assertEquals(404,assertThrows(Api.Failure.class,()->complaints.create(student,complaint("service",null,Long.MAX_VALUE,"不存在空间",List.of(),UUID.randomUUID().toString()))).status);
     }
+    @Test void selectedSeatIsScopedToTheRoomAndReservationContextWins() throws Exception {
+        String studentToken=token("student");
+        http.perform(auth(get("/api/complaints/rooms/"+room+"/seats"),studentToken)).andExpect(status().isOk())
+            .andExpect(jsonPath("$.data[0].id").value(seat1)).andExpect(jsonPath("$.data[0].seat_no").value("01"))
+            .andExpect(jsonPath("$.data[1].col_no").value(2));
+        long anotherRoom=db.insert("INSERT INTO rooms(name,seat_rows,seat_cols) VALUES('另一模拟空间',1,1)");
+        long anotherSeat=db.insert("INSERT INTO seats(room_id,seat_no,row_no,col_no) VALUES(?,'01',1,1)",anotherRoom);
+        var request=new LinkedHashMap<String,Object>(Map.of("type","service","room_id",room,"seat_id",anotherSeat,"description","位置异常","service_kind","other_service","service_topic","环境卫生","operation_id",UUID.randomUUID().toString()));
+        http.perform(auth(post("/api/complaints"),studentToken).contentType("application/json").content(json.writeValueAsString(request))).andExpect(status().isBadRequest());
+        request.put("seat_id",seat2);
+        var result=http.perform(auth(post("/api/complaints"),studentToken).contentType("application/json").content(json.writeValueAsString(request))).andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.context_snapshot.seat_id").value(seat2)).andExpect(jsonPath("$.data.context_snapshot.seat_no").value("02")).andReturn();
+        long complaintId=json.readTree(result.getResponse().getContentAsString()).path("data").path("id").asLong();
+        http.perform(auth(get("/api/complaints/"+complaintId),studentToken)).andExpect(status().isOk()).andExpect(jsonPath("$.data.context_snapshot.seat_no").value("02"));
+        long own=reservation(student,seat1);
+        var associated=Map.of("type","occupation","reservation_id",own,"room_id",anotherRoom,"seat_id",anotherSeat,"description","座位被占","operation_id",UUID.randomUUID().toString());
+        http.perform(auth(post("/api/complaints"),studentToken).contentType("application/json").content(json.writeValueAsString(associated))).andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.context_snapshot.seat_id").value(seat1)).andExpect(jsonPath("$.data.location_notice").value("已采用关联预约中的地点和座位"));
+    }
     @Test void validPngJpegAndOptionalContainersPreserveOriginalBytesAndSafeGeneratedName() throws Exception {
         byte[] png=image("png",8,8);var meta=upload(student,png,"../../untrusted.html","text/html");assertEquals("image/png",meta.get("content_type"));assertTrue(meta.get("display_name").toString().matches("material-[0-9a-f-]{36}[.]png"));assertFalse(meta.containsKey("file_bytes"));assertEquals(java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(png)),meta.get("sha256"));assertArrayEquals(png,attachments.content(student,fileId(meta)).bytes());
         byte[] extra=insertBeforeEnd(png,chunk("vpAg",new byte[]{1,2,3,4}));assertArrayEquals(extra,attachments.content(student,fileId(upload(student,extra,"optional.png","application/octet-stream"))).bytes());
@@ -112,12 +132,28 @@ class ComplaintIntegrationTest {
         byte[] maximum=paddedPng(AttachmentService.MAX_BYTES);assertEquals(AttachmentService.MAX_BYTES,upload(student,maximum,"5m.png","image/png").get("size_bytes"));assertEquals(400,assertThrows(Api.Failure.class,()->upload(student,Arrays.copyOf(maximum,maximum.length+1),"over.png","image/png")).status);
     }
 
-    @Test void materialsAreOwnerOnlyWhileTemporaryAndAdminCanReadOnlyAfterBinding() throws Exception {
+    @Test void onlyReporterAndAssignedHandlerCanReadComplaintPhotos() throws Exception {
+        db.update("INSERT INTO users(username,password_hash,role,campus_id) SELECT 's14_admin2',password_hash,'admin','S14-admin2' FROM users WHERE id=?", admin);
+        String nonHandler = token("admin2");
         byte[] bytes=image("png",10,10);var uploaded=upload(student,bytes,"photo.jpg","image/jpeg");String id=fileId(uploaded),owner=token("student"),foreign=token("other"),adminToken=token("admin");String path="/api/complaint-attachments/"+id+"/content";
         http.perform(get(path)).andExpect(status().isUnauthorized());http.perform(auth(get(path),foreign)).andExpect(status().isForbidden());http.perform(auth(get(path),adminToken)).andExpect(status().isForbidden());
         http.perform(auth(get(path),owner)).andExpect(status().isOk()).andExpect(header().string("Cache-Control","no-store")).andExpect(header().string("X-Content-Type-Options","nosniff")).andExpect(content().contentType("image/png")).andExpect(content().bytes(bytes));
         var complaint=complaints.create(student,service(List.of(id),UUID.randomUUID().toString()));@SuppressWarnings("unchecked") var metadata=(Map<String,Object>)((List<?>)complaint.get("attachments")).get(0);assertNull(metadata.get("expires_at"));assertFalse(metadata.containsKey("owner_id"));assertFalse(metadata.containsKey("file_bytes"));assertFalse(metadata.containsKey("complaint_id"));
-        http.perform(auth(get(path),adminToken)).andExpect(status().isOk()).andExpect(content().bytes(bytes));http.perform(auth(get(path),foreign)).andExpect(status().isForbidden());http.perform(auth(get("/api/complaints/"+complaint.get("id")),adminToken)).andExpect(status().isForbidden());
+        long complaintId = Store.id(complaint, "id");
+        String adminDetail = "/api/admin/complaints/" + complaintId;
+        http.perform(auth(get(path),adminToken)).andExpect(status().isForbidden());
+        http.perform(auth(get(adminDetail),adminToken)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.attachments.length()").value(0));
+        management.accept(admin,complaintId,new Requests.ComplaintAccept(1L,UUID.randomUUID().toString(),"检查现场",null,null,null,null));
+        http.perform(auth(get(path),adminToken)).andExpect(status().isOk()).andExpect(content().bytes(bytes));
+        http.perform(auth(get(adminDetail),adminToken)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.attachments[0].id").value(id));
+        http.perform(auth(get(path),nonHandler)).andExpect(status().isForbidden());
+        http.perform(auth(get(adminDetail),nonHandler)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.attachments.length()").value(0));
+        http.perform(auth(get(path),owner)).andExpect(status().isOk()).andExpect(content().bytes(bytes));
+        http.perform(auth(get(path),foreign)).andExpect(status().isForbidden());
+        http.perform(auth(get("/api/complaints/"+complaintId),adminToken)).andExpect(status().isForbidden());
     }
     @Test void descriptionAndMaterialCountOwnershipExpiryAndBindingAreStrict() throws Exception {
         for(String description:List.of("","  ","x".repeat(2001))) assertEquals(400,assertThrows(Api.Failure.class,()->complaints.create(student,complaint("service",null,null,description,List.of(),UUID.randomUUID().toString()))).status);
@@ -160,7 +196,7 @@ class ComplaintIntegrationTest {
     }
     @Test void exactly24HoursDeniesUnboundReadAndCleanupNeverDeletesBoundHistory() throws Exception {
         byte[] bytes=image("png",6,6);String unbound=fileId(upload(student,bytes,"temp.png","image/png")),bound=fileId(upload(student,bytes,"bound.png","image/png"));complaints.create(student,service(List.of(bound),UUID.randomUUID().toString()));clock.set(base.plusDays(1).atTime(8,59,59,999999000));assertEquals(0,attachments.cleanupExpired());assertArrayEquals(bytes,attachments.content(student,unbound).bytes());clock.set(base.plusDays(1).atTime(9,0));assertEquals(410,assertThrows(Api.Failure.class,()->attachments.content(student,unbound)).status);
-        new ComplaintAttachmentCleanupScheduler(attachments).cleanup();assertEquals(0,db.count("SELECT count(*) FROM evidence_attachments WHERE id=CAST(? AS UUID)",unbound));assertArrayEquals(bytes,attachments.content(admin,bound).bytes());clock.set(base.plusDays(10).atTime(9,0));assertEquals(0,attachments.cleanupExpired());assertEquals(1,db.count("SELECT count(*) FROM evidence_attachments"));
+        new ComplaintAttachmentCleanupScheduler(attachments).cleanup();assertEquals(0,db.count("SELECT count(*) FROM evidence_attachments WHERE id=CAST(? AS UUID)",unbound));assertArrayEquals(bytes,attachments.content(student,bound).bytes());clock.set(base.plusDays(10).atTime(9,0));assertEquals(0,attachments.cleanupExpired());assertEquals(1,db.count("SELECT count(*) FROM evidence_attachments"));
     }
     @org.junit.jupiter.params.ParameterizedTest @org.junit.jupiter.params.provider.ValueSource(booleans={false,true})
     void cleanupAndSubmissionAtExpiryBoundaryHaveAtomicDeterministicOutcomes(boolean expired) throws Exception {

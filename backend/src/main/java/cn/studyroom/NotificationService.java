@@ -13,6 +13,7 @@ import org.springframework.transaction.annotation.*;
 public class NotificationService {
     private static final Set<String> RESERVATION_TYPES=Set.of("reservation_success","reservation_cancelled","reservation_checkin","reservation_completed","management_cancelled","restriction_cancelled","reservation_corrected_checkin");
     private static final Set<String> TYPES=Set.of("reservation_success","reservation_cancelled","reservation_checkin","reservation_completed","management_cancelled","restriction_cancelled","reservation_corrected_checkin","violation","restriction_started","restriction_released","complaint_feedback","complaint_auto_closed","complaint_initial_arrangement","complaint_priority_assessed","complaint_service_progress","appeal_reviewed","review_replied","review_hidden","checkin_reminder","credit_change","waitlist_promoted","system");
+    private static final String VISIBLE_OWNER = " WHERE user_id=? AND created_at<=?";
     private final Store db;private final AuthService auth;private final Clock clock;
     public NotificationService(Store db,AuthService auth,Clock clock){this.db=db;this.auth=auth;this.clock=clock;}
     public long reservation(long owner,long reservation,Long restriction,String type,String title,String content,LocalDateTime occurred){Api.require(RESERVATION_TYPES.contains(type)&&("restriction_cancelled".equals(type)==(restriction!=null)),400,"预约通知类型或限制关联不正确");return publish(owner,type,title,content,type+":"+reservation,occurred,reservation,null,restriction,null,null,null,null,null);}
@@ -26,17 +27,71 @@ public class NotificationService {
         return db.insert("INSERT INTO notifications(user_id,type,title,content,created_at,event_key,reservation_id,violation_id,restriction_id,complaint_id,complaint_event_id,appeal_id,review_reservation_id,review_operation_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,CAST(? AS UUID))",owner,type,title,content,Timestamp.valueOf(occurred.truncatedTo(ChronoUnit.MICROS)),key,reservation,violation,restriction,complaint,event,appeal,reviewReservation,reviewOperation);
     }
     @Transactional(readOnly=true,isolation=Isolation.REPEATABLE_READ)
-    public Map<String,Object> list(long actor,Map<String,String> parameters){
-        active(actor);Api.require(Set.of("page","page_size","type","is_read").containsAll(parameters.keySet()),400,"通知查询包含不允许的参数");int page=number(parameters.getOrDefault("page","1")),size=number(parameters.getOrDefault("page_size","20"));Api.require(size<=50,400,"每页最多50条");String type=parameters.get("type"),read=parameters.get("is_read");Api.require(type==null||TYPES.contains(type),400,"通知类型筛选无效");Api.require(read==null||Set.of("true","false").contains(read),400,"已读筛选须为true或false");var where=new StringBuilder(" WHERE user_id=?");var args=new ArrayList<Object>();args.add(actor);if(type!=null){where.append(" AND type=?");args.add(type);}if(read!=null){where.append(" AND is_read=?");args.add(Boolean.valueOf(read));}long total=db.count("SELECT count(*) FROM notifications"+where,args.toArray());args.add(size);args.add((long)(page-1)*size);var items=db.list("SELECT * FROM notifications"+where+" ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?",args.toArray()).stream().map(this::projection).toList();var byType=new LinkedHashMap<String,Object>();for(var row:db.list("SELECT type,count(*) AS count FROM notifications WHERE user_id=? GROUP BY type ORDER BY type",actor))byType.put(Store.text(row,"type"),row.get("count"));return Map.of("items",items,"total",total,"page",page,"page_size",size,"server_now",AttachmentService.offset(now()),"counts",Map.of("total",db.count("SELECT count(*) FROM notifications WHERE user_id=?",actor),"unread",unreadCount(actor),"by_type",byType));
+    public Map<String,Object> list(long actor,Map<String,String> parameters) {
+        active(actor);
+        Api.require(Set.of("page","page_size","type","is_read").containsAll(parameters.keySet()),400,"通知查询包含不允许的参数");
+        int page = number(parameters.getOrDefault("page","1"));
+        int size = number(parameters.getOrDefault("page_size","20"));
+        Api.require(size<=50,400,"每页最多50条");
+        String type = parameters.get("type");
+        String read = parameters.get("is_read");
+        Api.require(type==null||TYPES.contains(type),400,"通知类型筛选无效");
+        Api.require(read==null||Set.of("true","false").contains(read),400,"已读筛选须为true或false");
+
+        LocalDateTime snapshot = now();
+        Timestamp cutoff = Timestamp.valueOf(snapshot);
+        var where = new StringBuilder(VISIBLE_OWNER);
+        var args = new ArrayList<Object>(List.of(actor, cutoff));
+        if (type != null) {
+            where.append(" AND type=?");
+            args.add(type);
+        }
+        if (read != null) {
+            where.append(" AND is_read=?");
+            args.add(Boolean.valueOf(read));
+        }
+        long total = db.count("SELECT count(*) FROM notifications" + where, args.toArray());
+        args.add(size);
+        args.add((long) (page - 1) * size);
+        var items = db.list("SELECT * FROM notifications" + where + " ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?",
+            args.toArray()).stream().map(this::projection).toList();
+
+        var byType = new LinkedHashMap<String,Object>();
+        for (var row : db.list("SELECT type,count(*) AS count FROM notifications" + VISIBLE_OWNER + " GROUP BY type ORDER BY type", actor, cutoff)) {
+            byType.put(Store.text(row,"type"),row.get("count"));
+        }
+        return Map.of("items",items,"total",total,"page",page,"page_size",size,"server_now",AttachmentService.offset(snapshot),
+            "counts",Map.of("total",db.count("SELECT count(*) FROM notifications" + VISIBLE_OWNER, actor, cutoff),
+                "unread",unreadCount(actor, cutoff),"by_type",byType));
     }
     private Map<String,Object> projection(Map<String,Object> row){var result=new LinkedHashMap<String,Object>();for(String key:List.of("id","type","title","content","is_read","event_key","reservation_id","violation_id","restriction_id","complaint_id","complaint_event_id","appeal_id","review_reservation_id","review_operation_id"))result.put(key,row.get(key));result.put("created_at",AttachmentService.offset(row.get("created_at")));String business=null;Object id=null;for(String[] target:List.of(new String[]{"reservation_id","reservation"},new String[]{"review_reservation_id","review"},new String[]{"complaint_id","complaint"},new String[]{"appeal_id","appeal"},new String[]{"violation_id","violation"},new String[]{"restriction_id","restriction"})){if(row.get(target[0])!=null){business=target[1];id=row.get(target[0]);break;}}result.put("business_type",business);result.put("business_id",id);return result;}
     @Transactional(readOnly=true)
-    public Map<String,Object> unread(long actor){active(actor);return Map.of("count",unreadCount(actor));}
+    public Map<String,Object> unread(long actor) {
+        active(actor);
+        return Map.of("count", unreadCount(actor, Timestamp.valueOf(now())));
+    }
     @Transactional
-    public Map<String,Object> read(long actor,long id){db.lockBookings();active(actor);Api.require(Store.id(db.one("SELECT user_id FROM notifications WHERE id=?",id),"user_id")==actor,403,"无权读取他人通知");int marked=db.update("UPDATE notifications SET is_read=true WHERE id=? AND user_id=? AND is_read=false",id,actor);return Map.of("id",id,"marked",marked,"unread_count",unreadCount(actor));}
+    public Map<String,Object> read(long actor,long id) {
+        db.lockBookings();
+        active(actor);
+        Timestamp cutoff = Timestamp.valueOf(now());
+        var notification = db.one("SELECT user_id,created_at<=? AS visible FROM notifications WHERE id=?", cutoff, id);
+        Api.require(Store.id(notification,"user_id") == actor,403,"无权读取他人通知");
+        Api.require(Boolean.TRUE.equals(notification.get("visible")),404,"记录不存在");
+        int marked = db.update("UPDATE notifications SET is_read=true WHERE id=? AND user_id=? AND is_read=false", id, actor);
+        return Map.of("id",id,"marked",marked,"unread_count",unreadCount(actor, cutoff));
+    }
     @Transactional
-    public Map<String,Object> readAll(long actor){db.lockBookings();active(actor);int marked=db.update("UPDATE notifications SET is_read=true WHERE user_id=? AND is_read=false",actor);return Map.of("marked",marked,"unread_count",unreadCount(actor));}
-    private long unreadCount(long actor){return db.count("SELECT count(*) FROM notifications WHERE user_id=? AND is_read=false",actor);}
+    public Map<String,Object> readAll(long actor) {
+        db.lockBookings();
+        active(actor);
+        Timestamp cutoff = Timestamp.valueOf(now());
+        int marked = db.update("UPDATE notifications SET is_read=true" + VISIBLE_OWNER + " AND is_read=false", actor, cutoff);
+        return Map.of("marked",marked,"unread_count",unreadCount(actor, cutoff));
+    }
+    private long unreadCount(long actor, Timestamp cutoff) {
+        return db.count("SELECT count(*) FROM notifications" + VISIBLE_OWNER + " AND is_read=false", actor, cutoff);
+    }
     private void active(long actor){Api.require("active".equals(auth.profile(actor).get("status")),403,"账号已停用");}
     private int number(String value){try{Api.require(value!=null&&value.matches("[0-9]+"),400,"通知页码须为正整数");int parsed=Integer.parseInt(value);Api.require(parsed>0,400,"通知页码须为正整数");return parsed;}catch(NumberFormatException e){throw Api.fail(400,"通知页码超出范围");}}
     private LocalDateTime now(){return LocalDateTime.ofInstant(clock.instant(),BookingPolicy.CAMPUS_ZONE).truncatedTo(ChronoUnit.MICROS);}

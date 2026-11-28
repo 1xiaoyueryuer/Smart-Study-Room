@@ -37,6 +37,10 @@ public class RestrictionWorkflow {
     @Transactional
     public Map<String,Object> eligibility(long actor){db.lockBookings();auth.profile(actor);var now=now();bookings.enforceRestrictions(actor,now,null,null);return policy.eligibility(actor,now);}
     @Transactional
+    public Map<String,Object> bookingEligibility(long actor) {
+        return policy.bookingSummary(eligibility(actor));
+    }
+    @Transactional
     public List<Map<String,Object>> list(long actor,Long user,String status){db.lockBookings();admin(actor);RestrictionPolicy.validateFilter(user,status);var now=now();if(user!=null){db.one("SELECT id FROM users WHERE id=?",user);bookings.enforceRestrictions(user,now,null,null);}else bookings.settleRestrictions(now);return policy.list(user,status,now,true);}
     @Transactional
     public Map<String,Object> records(long actor,Map<String,String> parameters,boolean management){var query=RecordPage.parse(parameters,RecordPage.Domain.RESTRICTION,management);db.lockBookings();if(management)admin(actor);else auth.profile(actor);var snapshot=now();Long user=management?query.user():Long.valueOf(actor);if(user==null)bookings.settleRestrictions(snapshot);else if(db.count("SELECT count(*) FROM users WHERE id=?",user)>0)bookings.enforceRestrictions(user,snapshot,null,null);return policy.records(query,user,snapshot,management);}

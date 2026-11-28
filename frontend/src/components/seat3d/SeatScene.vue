@@ -7,7 +7,7 @@ import { buildRoom } from './models'
 import { seatType, seatState, stateLabels, zoneName, seatPosition } from './seatPresentation'
 import { useThemeStore } from '../../stores/theme'
 
-const props = defineProps({ room: Object, seats: Array, selectedId: Number, preferences: Array, view: String, blocked: Boolean })
+const props = defineProps({ room: Object, seats: Array, selectedId: Number, preferences: Array, view: String, blocked: Boolean, selectionEnabled: Boolean, browsingOnly: Boolean })
 const emit = defineEmits(['select', 'error', 'ready', 'manual-view', 'exit-first-person'])
 const host = ref(null)
 const tip = ref(null)
@@ -107,10 +107,10 @@ function onKey(e) {
 function rebuild() {
   if (!renderer) return
   if (model) { scene.remove(model.root); model.dispose() }
-  model = buildRoom(props.room, props.seats, theme.isDark)
+  model = buildRoom(props.room, props.seats, theme.isDark, props.browsingOnly)
   scene.add(model.root)
   scene.background = new THREE.Color(theme.isDark ? '#1c2632' : '#f1f3f0')
-  model.updateSelection(props.selectedId, props.preferences)
+  model.updateSelection(props.selectedId, props.preferences, props.browsingOnly)
   tip.value = null
   if (!seated) setView(props.view, false)
   invalidate()
@@ -122,8 +122,14 @@ function hit(event) {
   const item = ray.intersectObjects(model.pickables, false)[0]
   const seat = item?.object.userData.seats?.[item.instanceId]
   tip.value = seat ? { seat, x: Math.max(8, Math.min(event.clientX - rect.left + 14, rect.width - 225)), y: Math.max(8, Math.min(event.clientY - rect.top + 14, rect.height - 100)) } : null
-  renderer.domElement.style.cursor = seat?.status === 'available' && seat.matching_windows?.length ? 'pointer' : 'grab'
+  renderer.domElement.style.cursor = props.selectionEnabled && seat?.status === 'available' && seat.matching_windows?.length ? 'pointer' : 'grab'
   return seat
+}
+function seatLabel(seat) {
+  const state = seatState(seat, props.selectedId, props.preferences, props.browsingOnly)
+  if (props.browsingOnly && state === 'available') return '当天有空档'
+  if (props.browsingOnly && state === 'no_window') return '当天无空档'
+  return stateLabels[state]
 }
 function onDown(e) {
   if (props.blocked || transitioning.value || (e.pointerType === 'mouse' && e.button !== 0)) return
@@ -144,7 +150,7 @@ function onMove(e) {
 function onUp(e) {
   pointerCount = Math.max(0, pointerCount - 1)
   if (host.value?.hasPointerCapture(e.pointerId)) host.value.releasePointerCapture(e.pointerId)
-  if (!seated && !transitioning.value && down?.id === e.pointerId && !props.blocked && Math.hypot(e.clientX - down.x, e.clientY - down.y) < 6) {
+  if (!seated && !transitioning.value && down?.id === e.pointerId && props.selectionEnabled && !props.blocked && Math.hypot(e.clientX - down.x, e.clientY - down.y) < 6) {
     const seat = hit(e); if (seat?.status === 'available' && seat.matching_windows?.length) emit('select', seat)
   }
   down = null
@@ -152,14 +158,14 @@ function onUp(e) {
 function cancel() { down = null; pointerCount = 0; tip.value = null }
 function contextLost(e) { e.preventDefault(); emit('error', '3D 显示已中断，请返回平面图后重试。') }
 function manual() { tip.value = null; if (!seated) emit('manual-view') }
-watch(() => [props.selectedId, props.preferences], ([id, preferences]) => {
-  model?.updateSelection(id, preferences)
+watch(() => [props.selectedId, props.preferences, props.browsingOnly], ([id, preferences, browsingOnly]) => {
+  model?.updateSelection(id, preferences, browsingOnly)
   if (props.view === 'firstPerson') enterSeat()
   invalidate()
 })
 watch(() => [props.room, props.seats, theme.isDark], rebuild)
 watch(() => props.view, value => { if (value) setView(value) })
-watch(() => props.blocked, () => { cancel(); syncControls() })
+watch(() => [props.blocked, props.selectionEnabled], () => { cancel(); syncControls() })
 onMounted(() => {
   try {
     renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' })
@@ -191,9 +197,9 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div ref="host" class="scene-host" tabindex="0" aria-label="三维座位场景，坐席体验中可拖动或使用方向键环视" @keydown="onKey" @pointerdown="onDown" @pointermove="onMove" @pointerup="onUp" @pointercancel="cancel" @pointerleave="cancel">
+  <div ref="host" class="scene-host" tabindex="0" :aria-label="selectionEnabled ? '三维座位场景，可拖动旋转和点击选座' : '三维座位场景，只读浏览；可拖动旋转'" @keydown="onKey" @pointerdown="onDown" @pointermove="onMove" @pointerup="onUp" @pointercancel="cancel" @pointerleave="cancel">
     <div v-if="tip" class="model-tip" :style="{ left: `${tip.x}px`, top: `${tip.y}px` }">
-      <strong>{{ tip.seat.seat_no }} · {{ stateLabels[seatState(tip.seat, selectedId, preferences)] }}</strong>
+      <strong>{{ tip.seat.seat_no }} · {{ seatLabel(tip.seat) }}</strong>
       <span>{{ seatType(tip.seat) }} · {{ zoneName[tip.seat.zone] }}</span>
       <span v-if="tip.seat.near_window">靠窗座位</span>
       <span>全部空闲时间：{{ tip.seat.all_windows?.map(window => `${window.available_start}–${window.available_end}`).join('、') || '无' }}</span>

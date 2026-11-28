@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { minuteValue, minuteText, normalizeStartTime, parseLearningDuration, serverStartMinute, validateSlot, validateOpeningWindow, validateAvailabilitySnapshot } from '../src/composables/bookingPolicy.js'
 import { activeBookingRestrictions, bookingRestrictionDetails, isBookingRestricted } from '../src/composables/restrictionForm.js'
-import { windowKey, validateWindowSlot, shortfallText } from '../src/composables/availabilitySelection.js'
+import { windowKey, validateWindowSlot, shortfallText, buildBrowseWindowRows } from '../src/composables/availabilitySelection.js'
 
 const policy = { campus_today: '2026-11-20', dates: ['2026-11-20', '2026-11-21', '2026-11-22'], campus_zone: 'Asia/Shanghai', server_now: '2026-11-20T19:00:00+08:00', min_duration_minutes: 30 }
 
@@ -84,6 +84,20 @@ test('window identity and actual selection stay inside the same continuous gap',
   assert.equal(shortfallText(120, '19:00', '19:30'), '本次30分钟，短于找座时输入的120分钟')
 })
 
+test('read-only availability browsing lists only open seats with windows', () => {
+  const seats = [
+    { id: 1, seat_no: '01-02', row_no: 1, col_no: 2, status: 'available', all_windows: [{ room_id: 8, seat_id: 1, available_start: '10:00', available_end: '12:00', duration_minutes: 120 }] },
+    { id: 2, seat_no: '01-01', row_no: 1, col_no: 1, status: 'available', all_windows: [{ room_id: 8, seat_id: 2, available_start: '09:00', available_end: '10:00', duration_minutes: 60 }] },
+    { id: 3, seat_no: '01-03', row_no: 1, col_no: 3, status: 'maintenance', all_windows: [{ room_id: 8, seat_id: 3, available_start: '08:00', available_end: '12:00', duration_minutes: 240 }] },
+  ]
+
+  assert.deepEqual(buildBrowseWindowRows(seats, true).map(window => [window.seat_no, window.available_start]), [
+    ['01-01', '09:00'],
+    ['01-02', '10:00'],
+  ])
+  assert.deepEqual(buildBrowseWindowRows(seats, false), [])
+})
+
 test('BookingView uses fixed start + duration + optional preference and no strategy selector', async () => {
   const source = await readFile(new URL('../src/views/BookingView.vue', import.meta.url), 'utf8')
   assert.match(source, /座位偏好（可选）/)
@@ -104,6 +118,10 @@ test('BookingView uses fixed start + duration + optional preference and no strat
   assert.match(source, /openingHour = 8, lastStartHour = 22/)
   assert.match(source, /startMinute < openingHour \* 60 \|\| startMinute > lastStartHour \* 60/)
   assert.doesNotMatch(source, /formatCampusDateTime\(window\.(?:available|suggested)_/)
+  assert.match(source, /buildBrowseWindowRows\(seats\.value, room\.value\?\.enabled\)/)
+  assert.match(source, /:browsing-only="readOnlyBrowse"/)
+  assert.match(source, /presentation === 'list' && !loading && !mapError && \(readOnlyBrowse \? browseWindows\.length : results\.length\)/)
+  assert.match(source, /:disabled="submitting \|\| !room \|\| loading \|\| mapError \|\| !seats\.length" aria-label="打开 3D 座位浏览"/)
 })
 
 test('availability snapshot supplies the current server time and room opening schedule', () => {

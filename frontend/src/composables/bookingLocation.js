@@ -21,3 +21,21 @@ export function locationOptions(items, field, missingLabel, format = value => va
       : format(value.slice(LOCATION_VALUE_PREFIX.length)),
   }))
 }
+
+export function bookingZone(room) {
+  return String(room?.name || '').match(/([A-D])区\s*$/i)?.[1].toUpperCase() ?? ''
+}
+
+export function findRoomInZone(rooms, zone) {
+  if (typeof zone !== 'string' || !/^[A-D]$/i.test(zone)) return null
+
+  const matches = rooms.filter(room => bookingZone(room) === zone.toUpperCase())
+  if (!matches.length) return null
+
+  const enabled = matches.filter(room => room.enabled)
+  const candidates = enabled.length ? enabled : matches
+  const building = locationOptions(candidates, 'building', '')[0].value
+  const buildingRooms = candidates.filter(room => locationValue(room.building) === building)
+  const floor = locationOptions(buildingRooms, 'floor', '')[0].value
+  return buildingRooms.find(room => locationValue(room.floor) === floor)
+}
