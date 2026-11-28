@@ -209,10 +209,10 @@ function timeText(row) {
     <template v-else>
       <section v-if="cancellations.length" class="cancel-notice">
         <div class="cancel-copy">
-          <span class="pill pill-warning">资源管理取消</span>
+          <span class="pill pill-warning">预约已取消</span>
           <h3>{{ cancellations[0].title }}</h3>
           <p>{{ cancellations[0].content }}</p>
-          <p class="cancel-meta">本次管理取消不记本人违规；预计恢复时间以系统可预约状态为准。无需专程到场确认，已到场或需要帮助可点“需要协助”。</p>
+          <p class="cancel-meta">本次取消不扣信用分，无需到场。</p>
         </div>
         <div class="cancel-actions">
           <SButton variant="primary" @click="router.push('/notifications')">查看通知</SButton>
@@ -306,10 +306,9 @@ function timeText(row) {
       <div class="user-bottom">
         <StudyTips title="使用须知">
           <ul class="tips tips-list">
-            <li>可预约当天至后天，单次至少 30 分钟，起止在开放空档内自选。</li>
-            <li>开始前取消不记违规；开始后未签到放弃记一次违约。</li>
-            <li>签到窗口为开始时刻起至开始后 15 分钟；本系统当前不提供签到延期。</li>
-            <li>短暂离开不延长原结束时间；提前签退释放剩余时段。</li>
+            <li>可预约今天到后天的座位，每次至少 30 分钟。</li>
+            <li>请在预约卡片显示的截止时间前扫描座位二维码。</li>
+            <li>开始前取消不扣分。提前离开时可以签退。</li>
           </ul>
         </StudyTips>
       </div>

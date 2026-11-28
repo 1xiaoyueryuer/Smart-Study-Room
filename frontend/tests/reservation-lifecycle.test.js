@@ -28,7 +28,7 @@ async function mine(overrides={}) {
     '../components/ui/feedback':{message:{success(){}},confirmDialog:overrides.confirmDialog|| (async text=>{confirmations.push(text)})},
     '../api/reservation':api,
     '../composables/checkinDeadline.js':{checkinDeadlineOf:()=>null,deadlineLabel:()=>''}
-  },'list,loading,error,actionError,busyId,actionsOf,doAction,refreshAll,terminationLabels,snapshot,requestOccupationHelp,showReviewEntry')
+  },'list,loading,error,actionError,actionResult,actionResultId,busyId,actionsOf,doAction,readActionResult,refreshAll,terminationLabels,snapshot,requestOccupationHelp,showReviewEntry')
   return{...page,calls,confirmations}
 }
 test('reservation buttons use only server allowed_actions, never infer cancel or abandon from pending',async()=>{
@@ -50,7 +50,7 @@ test('the review entry appears after actual use ends, including automatic comple
 test('before-start cancellation and after-start abandonment have distinct truthful confirmations and refresh both sources',async()=>{
   const cancellation=await mine()
   await cancellation.doAction(waiting(['cancel']),'cancel')
-  assert.match(cancellation.confirmations[0],/不登记新的违规/)
+  assert.match(cancellation.confirmations[0],/开始前取消不扣信用分/)
   assert.deepEqual(cancellation.calls,['cancel','mine'])
   const abandonment=await mine()
   await abandonment.doAction(waiting(['abandon']),'abandon')
@@ -70,7 +70,7 @@ test('action in-flight guard includes confirmation dialog and prevents duplicate
 test('committed deadline 409 is explained and actual no_show state plus independent records are re-read',async()=>{
   const page=await mine({abandonReservation:async()=>{throw{status:409,message:'已超时',details:{reservation_id:10,status:'unused_ended',termination_reason:'no_show'}}},listMyReservations:async()=>({data:[{id:10,status:'unused_ended',termination_reason:'no_show',allowed_actions:[]}]})})
   await page.doAction(waiting(['abandon']),'abandon')
-  assert.match(page.actionError.value,/已按签到期限超时结束/)
+  assert.match(page.actionError.value,/超时未签到结束，记一次违规/)
   assert.equal(page.list.value[0].status,'unused_ended')
   assert.equal(page.actionsOf(page.list.value[0]).length,0)
 
@@ -83,13 +83,39 @@ test('failed reservation refresh stays visible and still refreshes independent v
   await page.doAction(waiting(['cancel']),'cancel')
   assert.equal(page.calls.includes('cancel'),false)
 })
+test('an unconfirmed cancellation can be checked again without repeating the request', async () => {
+  let cancellationCalls = 0
+  let detailCalls = 0
+  const row = { ...waiting([]), status: 'cancelled' }
+  const page = await mine({
+    cancelReservation: async () => {
+      cancellationCalls++
+      throw { status: null }
+    },
+    getReservation: async () => {
+      if (++detailCalls === 1) throw { status: null }
+      return { data: row }
+    },
+    listMyReservations: async () => ({ data: [] })
+  })
+  await page.doAction(waiting(['cancel']), 'cancel')
+  assert.equal(page.actionResultId.value, 10)
+  assert.equal(page.actionResult.value, '')
+
+  await page.readActionResult()
+  assert.equal(page.actionResultId.value, null)
+  assert.equal(page.actionError.value, '')
+  assert.match(page.actionResult.value, /已取消/)
+  assert.equal(cancellationCalls, 1)
+  assert.equal(detailCalls, 2)
+})
 test('legacy terminal state is explained without fabricating an independent violation count',async()=>{
   const page=await mine()
   page.list.value=[{id:10,status:'unused_ended',legacy_status:'violation',termination_reason:'legacy_violation',allowed_actions:[]}]
-  assert.match(page.terminationLabels.legacy_violation,/未转为新独立违规/)
+  assert.match(page.terminationLabels.legacy_violation,/不另计违规/)
   assert.equal(page.snapshot.value,null)
   const source=await readFile(new URL('../src/views/MyReservationsView.vue',import.meta.url),'utf8')
-  assert.match(source,/服务端当前允许/)
+  assert.match(source,/截止时间前扫描座位二维码/)
   assert.doesNotMatch(source,/今日待签到|kpi-label">违约记录/)
 })
 async function violations(loader) {
@@ -295,14 +321,14 @@ test('current UI removes temporary leave navigation and adapters while retaining
   const mineSource=await readFile(new URL('../src/views/MyReservationsView.vue',import.meta.url),'utf8')
   assert.doesNotMatch(mineSource,/key: 'temp_leave'|leave:\{key|return:\{key|leaveReservation|returnReservation|临离开/)
   assert.match(mineSource,/UsageRecordSummary :record="row.usage_record"/)
-  assert.match(mineSource,/历史暂离登记/);assert.match(mineSource,/已结束/)
+  assert.match(mineSource,/暂离时间/);assert.match(mineSource,/已结束/)
   const api=await readFile(new URL('../src/api/reservation.js',import.meta.url),'utf8');assert.doesNotMatch(api,/leaveReservation|returnReservation/)
   const home=await readFile(new URL('../src/views/HomeView.vue',import.meta.url),'utf8');assert.doesNotMatch(home,/临时离开/)
 })
 
 test('managed cancellation exposes immutable public reason and preserves usage even though reservation is cancelled',async()=>{
   const source=await readFile(new URL('../src/views/MyReservationsView.vue',import.meta.url),'utf8')
-  assert.match(source,/admin_resource_change:'资源管理取消（不记用户违约）'/);assert.match(source,/当次公开管理原因：\{\{ row.termination_note \}\}/)
+  assert.match(source,/admin_resource_change:'因自习室调整取消，不扣分'/);assert.match(source,/取消原因：\{\{ row.termination_note \}\}/)
   assert.match(source,/<UsageRecordSummary :record="row.usage_record"/);assert.doesNotMatch(source,/coordination\.note|room\.resource_reason/)
 })
 
