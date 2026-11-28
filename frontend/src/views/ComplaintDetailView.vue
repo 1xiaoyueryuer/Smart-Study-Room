@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { getCampusComplaintPhoto, getComplaint, withdrawComplaint, confirmComplaintFeedback, objectComplaintFeedback, updateComplaintVisibility } from '../api/complaint'
+import { getCampusComplaintPhoto, getCampusComplaintThumbnail, getComplaint, withdrawComplaint, confirmComplaintFeedback, objectComplaintFeedback, updateComplaintVisibility } from '../api/complaint'
 import { useServiceTargetClock } from '../composables/useServiceTargetClock.js'
 import { ownerComplaintActions } from '../composables/complaintForm.js'
 import { complaintVisibilityPayload, visibilityLabels } from '../composables/complaintVisibility.js'
@@ -169,7 +169,8 @@ onBeforeUnmount(()=>{alive=false;sequence++;scope++})
         </div>
         <ComplaintCampusCard v-if="!visibilityDraft && currentVisibility === 'campus' && record.public_summary"
           :key="`published:${record.version}`" :room-name="publicationRoom" :category="publicationCategory" :status="record.status"
-          :summary="record.public_summary" :details="record.public_details" :photo-ids="record.public_attachment_ids" :load-photo="getCampusComplaintPhoto" />
+          :summary="record.public_summary" :details="record.public_details" :photo-ids="record.public_attachment_ids"
+          :load-photo="getCampusComplaintPhoto" :load-thumbnail="getCampusComplaintThumbnail" />
         <form v-if="visibilityDraft && record.status !== 'withdrawn'" class="owner-visibility" @submit.prevent="saveVisibility">
           <SBanner v-if="visibilityError" type="error" :title="visibilityError" />
           <ComplaintVisibilityFields v-model:visibility="visibilityDraft.visibility" v-model:summary="visibilityDraft.summary"

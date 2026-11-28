@@ -21,26 +21,28 @@ async function render(record) {
   const template=await evaluate(compiled.code,{'vue/server-renderer':ssr,vue})
   return ssr.renderToString(vue.createSSRApp({props:['record'],setup:()=>({...bindings}),ssrRender:template.ssrRender},{record}))
 }
-test('actual usage SFC renders null as absent, and ongoing nanosecond seconds as a server snapshot without client arithmetic',async()=>{
+test('actual usage SFC displays whole seconds from the last server snapshot',async()=>{
   assert.match(await render(null),/尚无使用记录/)
   const html=await render({checkin_at:'2026-10-30T08:00:00.000000001',ended_at:null,duration_seconds:'123.000000001',observed_at:'2026-10-30T08:02:03.000000002',origin:'seat_code'})
-  assert.match(html,/123\.000000001秒/);assert.match(html,/截至本次服务端读取，非实时计时/);assert.match(html,/2026-10-30 08:02:03/);assert.match(html,/座位码签到/)
+  assert.match(html,/2 分钟 3 秒/);assert.match(html,/截至 2026-10-30 08:02:03/);assert.match(html,/座位码签到/)
+  assert.doesNotMatch(html,/123\.000000001/)
+  assert.match(await render({ duration_seconds: 0.192661, ended_at: '2026-10-30T08:00:01' }), /不足 1 秒/)
   assert.doesNotMatch(source,/checkout_at|Date\(|Date.now|setInterval|Math.round|toFixed/)
 })
 test('actual usage SFC distinguishes completed legacy facts from explicit simulated usage',async()=>{
   const historical=await render({checkin_at:'2026-10-29T08:00:00',ended_at:'2026-10-29T09:00:00.125',duration_seconds:3600.125,settled_at:'2026-10-30T01:00:00',end_reason:'legacy_unclassified',origin:'legacy'})
-  assert.match(historical,/3600\.125秒/);assert.match(historical,/历史结束，具体方式未记录/);assert.match(historical,/历史迁移/);assert.match(historical,/结算登记/);assert.doesNotMatch(historical,/截至本次/)
+  assert.match(historical,/1 小时/);assert.match(historical,/历史结束，具体方式未记录/);assert.match(historical,/历史记录/);assert.match(historical,/查看结算时间/);assert.doesNotMatch(historical,/截至/)
   const demo=await render({checkin_at:'2026-10-29T08:00:00',ended_at:'2026-10-29T09:00:00',duration_seconds:3600,end_reason:'demo_completed',origin:'demo_seed'})
-  assert.match(demo,/演示模拟（非到场证据）/);assert.match(demo,/演示模拟结束/)
+  assert.match(demo,/演示记录（未实际到场）/);assert.match(demo,/演示模拟结束/)
   const timeout=await render({checkin_at:'2026-10-29T08:00:00',ended_at:'2026-10-29T08:40:00',duration_seconds:2400,end_reason:'temp_leave_timeout',origin:'legacy'});assert.match(timeout,/旧暂离流程结束（历史）/)
 })
 test('missing or invalid usage duration is never fabricated as zero or inferred from timestamps',async()=>{
   for(const duration_seconds of [null,undefined,-1,'invalid']) {
     const html=await render({checkin_at:'2026-10-30T08:00:00',ended_at:'2026-10-30T09:00:00',duration_seconds,origin:'legacy'})
-    assert.match(html,/时长未登记/);assert.doesNotMatch(html,/使用时长：0秒|3600秒/)
+    assert.match(html,/时长未登记/);assert.doesNotMatch(html,/使用时长：0 秒|使用时长：1 小时/)
   }
 })
 test('correction summary renders public reason and distinct actual operation time without private fields',async()=>{
  const html=await render({origin:'admin_correction',checkin_at:'2026-10-30T10:01',duration_seconds:60,correction:{operated_at:'2026-10-30T10:02+08:00',reason:'公开补签说明',actor_display_name:'模拟管理员',source:'admin_self_report',verification_note:'PRIVATE_S23'},management_correction:{correction_note:'PRIVATE_S23'}})
- assert.match(html,/管理员核实补签/);assert.match(html,/公开补签说明/);assert.match(html,/补签实际操作：2026-10-30 10:02:00/);assert.match(html,/管理员自报/);assert.doesNotMatch(html,/PRIVATE_S23|correction_note|verification_note/)
+ assert.match(html,/管理员核实补签/);assert.match(html,/公开补签说明/);assert.match(html,/补签办理时间：2026-10-30 10:02:00/);assert.doesNotMatch(html,/管理员自报|PRIVATE_S23|correction_note|verification_note/)
 })

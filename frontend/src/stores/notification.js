@@ -5,7 +5,7 @@ import {useAuthStore} from './auth'
 
 export const useNotificationStore=defineStore('notification',()=>{
  const unread=ref(0),hasValue=ref(false),error=ref(''),loading=ref(false),auth=useAuthStore();let sequence=0
- const identity=()=>auth.isLoggedIn&&auth.isOrdinary?`${auth.user?.id}:${auth.token}`:null
+ const identity=()=>auth.isLoggedIn&&(auth.isOrdinary||auth.isAdmin)?`${auth.user?.id}:${auth.token}:${auth.user?.role}`:null
  function reset(){sequence++;unread.value=0;hasValue.value=false;error.value='';loading.value=false}
  watch(()=>[auth.user?.id,auth.token,auth.user?.role],reset)
  function beginUpdate(){loading.value=false;return{identity:identity(),sequence:++sequence}}

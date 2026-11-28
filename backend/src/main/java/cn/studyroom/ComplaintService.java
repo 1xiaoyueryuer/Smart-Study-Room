@@ -25,7 +25,8 @@ public class ComplaintService {
     private static final String BASIC="SELECT c.id,c.operation_id,c.type,c.status,c.description,c.reservation_id,c.room_id,c.context_snapshot,c.submitted_at,c.version,c.accepted_at,c.service_kind,c.service_topic,c.fault_type,c.impact_scope,c.safety_risk,c.unsafe_area,c.initial_priority,c.priority_status,c.priority_mapping_version,c.auto_rule_version,c.triaged_priority,c.triaged_safety_risk,c.triaged_unsafe_area,c.triaged_reason,c.triaged_at,c.visibility,c.public_summary,c.public_details,"+PUBLIC_PHOTO_IDS+","+PUBLIC_ROOM_NAME+" AS room_name,CASE WHEN c.service_kind IN('facility_repair','other_service') THEN (SELECT e.initial_arrangement FROM complaint_events e WHERE e.complaint_id=c.id AND e.event_type='accepted' ORDER BY e.id LIMIT 1) END AS initial_arrangement,(SELECT COALESCE(NULLIF(h.real_name,''),h.username) FROM users h WHERE h.id=c.handler_id) AS handler_name,count(a.id) AS attachment_count FROM complaints c LEFT JOIN evidence_attachments a ON a.complaint_id=c.id ";
     record Publication(String visibility, String summary, String details, List<String> photoIds) {}
     private final Store db;private final AttachmentService attachments;private final AuditService audit;private final ObjectMapper json;private final Validator validator;private final Clock clock;private final ComplaintPhaseProjection phases;private final ComplaintTargetService targets;private final ComplaintPriorityService priorities;
-    public ComplaintService(Store db,AttachmentService attachments,AuditService audit,ObjectMapper json,Validator validator,Clock clock,ComplaintPhaseProjection phases,ComplaintTargetService targets,ComplaintPriorityService priorities) { this.db=db;this.attachments=attachments;this.audit=audit;this.json=json;this.validator=validator;this.clock=clock;this.phases=phases;this.targets=targets;this.priorities=priorities; }
+    private final NotificationService messages;
+    public ComplaintService(Store db,AttachmentService attachments,AuditService audit,ObjectMapper json,Validator validator,Clock clock,ComplaintPhaseProjection phases,ComplaintTargetService targets,ComplaintPriorityService priorities,NotificationService messages) { this.db=db;this.attachments=attachments;this.audit=audit;this.json=json;this.validator=validator;this.clock=clock;this.phases=phases;this.targets=targets;this.priorities=priorities;this.messages=messages; }
     @Transactional
     public Map<String,Object> create(long actor,Requests.Complaint request) {
         return create(actor,request,new Publication(PRIVATE,null,null,List.of()));
@@ -60,7 +61,11 @@ public class ComplaintService {
             classification==null?null:classification.status(),null,classification==null?null:classification.ruleVersion(),
             publication.visibility(),publication.summary(),publication.details());
         var targetSnapshot=targets.initialize(id,normalized.type(),room,now,normalized.serviceKind());
-        db.update("INSERT INTO complaint_events(complaint_id,actor_id,event_type,source,created_at) VALUES(?,?,'submitted','user_submit',?)",id,actor,java.sql.Timestamp.valueOf(now));attachments.bind(actor,id,normalized.attachmentIds(),now);
+        long submittedEvent=db.insert("INSERT INTO complaint_events(complaint_id,actor_id,event_type,source,created_at) VALUES(?,?,'submitted','user_submit',?)",id,actor,java.sql.Timestamp.valueOf(now));
+        attachments.bind(actor,id,normalized.attachmentIds(),now);
+        if(classification!=null&&Integer.valueOf(5).equals(classification.priority())) {
+            messages.urgentComplaint(id,submittedEvent,now);
+        }
         if(!publication.photoIds().isEmpty()) replacePublicPhotos(id,publication.photoIds());
         var evidence=new LinkedHashMap<String,Object>();evidence.put("complaint_id",id);evidence.put("type",normalized.type());evidence.put("service_kind",normalized.serviceKind());evidence.put("status","submitted");evidence.put("reservation_id",normalized.reservationId());evidence.put("room_id",room);evidence.put("attachment_count",normalized.attachmentIds().size());evidence.put("initial_priority",classification==null?null:classification.priority());evidence.put("priority_status",classification==null?null:classification.status());evidence.put("auto_rule_version",classification==null?null:classification.ruleVersion());evidence.put("service_target",targetSnapshot);evidence.put("submitted_at",now.toString());
         evidence.put("visibility",publication.visibility());

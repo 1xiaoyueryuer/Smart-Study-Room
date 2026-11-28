@@ -64,6 +64,15 @@ test('room editing sends expected version, string B1 floor and explicit public r
   assert.equal('open_time' in call[1].payload, false)
   assert.equal('close_time' in call[1].payload, false)
   assert.equal(page.roomDialog.value, false)
+  assert.equal(page.writeNotice.value, '资源变更已保存。')
+})
+test('a recovered resource change reports actual cancellations without technical receipt wording', async () => {
+  const page = await resources({ confirmChange: async () => ({ cancelled_count: 2, replayed: true }) })
+  await page.openSeats(room())
+  page.editSeat(seat())
+  page.seatForm.value.reason = '座位停用'
+  await page.saveSeat()
+  assert.equal(page.writeNotice.value, '资源变更已保存，已取消 2 条受影响的预约。')
 })
 test('single seat creation uses room version and editing uses seat version; both refresh real resource data', async () => {
   const page = await resources()
@@ -122,7 +131,7 @@ test('acknowledged resource write followed by reload failure is explicit and nev
   let changes=0
   const page=await resources({confirmChange:async()=>{changes++;return{cancelled_count:1}},getRooms:async()=>{throw new Error('读取失败')}})
   page.openEdit(room());page.roomForm.value.reason='工程模拟：资源维护';await page.saveRoom()
-  assert.equal(changes,1);assert.equal(page.roomDialog.value,false);assert.match(page.writeNotice.value,/已确认写入/);assert.match(page.writeNotice.value,/不要重复提交/)
+  assert.equal(changes,1);assert.equal(page.roomDialog.value,false);assert.equal(page.writeNotice.value,'空间已保存。列表更新失败，请刷新列表。')
 })
 test('batch seat code API posts the explicit reason to the admin batch endpoint', async () => {
   const calls = []

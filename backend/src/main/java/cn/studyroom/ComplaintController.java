@@ -47,10 +47,11 @@ public class ComplaintController {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore())
             .body(Api.ok(complaints.campus(WebSecurity.uid(req),parameters)));
     }
-    @GetMapping("/complaints/campus/photos/{id}/content")
-    ResponseEntity<byte[]> campusPhoto(HttpServletRequest req,@PathVariable String id) {
-        byte[] image = attachments.campusPhoto(WebSecurity.uid(req),id);
-        return ResponseEntity.ok().contentType(MediaType.IMAGE_PNG).contentLength(image.length)
+    @GetMapping("/complaints/campus/photos/{id}/{size:content|thumbnail}")
+    ResponseEntity<byte[]> campusPhoto(HttpServletRequest req,@PathVariable String id,@PathVariable String size) {
+        boolean thumbnail = "thumbnail".equals(size);
+        byte[] image = attachments.campusPhoto(WebSecurity.uid(req),id,thumbnail);
+        return ResponseEntity.ok().contentType(thumbnail ? MediaType.IMAGE_JPEG : MediaType.IMAGE_PNG).contentLength(image.length)
             .cacheControl(CacheControl.noStore()).header("X-Content-Type-Options","nosniff").body(image);
     }
     @GetMapping("/complaints/{id}") Object detail(HttpServletRequest req,@PathVariable long id) { return Api.ok(workflow.detail(WebSecurity.uid(req),id)); }

@@ -1,4 +1,4 @@
-import {recordTestImport} from './record-fixtures.js'
+import {pageFixture,recordTestImport} from './record-fixtures.js'
 import * as reviewManagement from '../src/composables/reviewManagement.js'
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -18,7 +18,7 @@ async function owner(overrides={}){
   const calls=[],cleanup=[];let state=awaiting(),uuid=0,routeChanged
   const props={id:'88'}
   const write=action=>async(id,body)=>{calls.push([action,id,body]);state={...state,version:state.version+1,status:action==='object'?'processing':action==='withdraw'?'withdrawn':'closed',allowed_actions:[],closure_type:action==='confirm'?'confirmed':null,events:[{id:10,type:action==='object'?'objected':action==='withdraw'?'withdrawn':'confirmed',description:body.description}]};return{data:{operation_id:body.operation_id,event_id:10,replayed:false,complaint:state}}}
-  const api={getCampusComplaintPhoto:async()=>new Blob(),getComplaint:async id=>{calls.push(['detail',id]);return{data:structuredClone(state)}},withdrawComplaint:write('withdraw'),confirmComplaintFeedback:write('confirm'),objectComplaintFeedback:write('object'),updateComplaintVisibility:async(id,body)=>{calls.push(['visibility',id,body]);state={...state,...body,version:state.version+1};return{data:structuredClone(state)}},...overrides}
+  const api={getCampusComplaintPhoto:async()=>new Blob(),getCampusComplaintThumbnail:async()=>new Blob(),getComplaint:async id=>{calls.push(['detail',id]);return{data:structuredClone(state)}},withdrawComplaint:write('withdraw'),confirmComplaintFeedback:write('confirm'),objectComplaintFeedback:write('object'),updateComplaintVisibility:async(id,body)=>{calls.push(['visibility',id,body]);state={...state,...body,version:state.version+1};return{data:structuredClone(state)}},...overrides}
   const page=await script('../src/views/ComplaintDetailView.vue',{vue:{ref,computed,onBeforeUnmount:fn=>cleanup.push(fn),watch:(source,fn)=>{routeChanged=fn;fn()}},'../api/complaint':api,'../composables/complaintForm.js':{ownerComplaintActions},'../composables/complaintVisibility.js':complaintVisibility,'../components/ui/feedback':{confirmDialog:overrides.confirmDialog|| (async()=>{})}},'record,loading,error,description,submitting,unknown,readPending,pending,actionError,writeNotice,actions,busy,load,act,retryUnknown,refresh,editVisibility,saveVisibility,confirmVisibility,visibilityDraft,visibilityPreview,visibilityError',{defineProps:()=>props,crypto:{randomUUID:()=>`00000000-0000-4000-8000-${String(++uuid).padStart(12,'0')}`}})
   await tick();return{...page,calls,cleanup,setState(value){state=value},changeId(value){props.id=value;routeChanged()}}
 }
@@ -27,6 +27,50 @@ test('owner actions use server permission flags without browser date guesses and
   assert.deepEqual(ownerComplaintActions({...awaiting(),allowed_actions:[]}),[])
   assert.deepEqual(ownerComplaintActions({...awaiting(),status:'closed',allowed_actions:['confirm','object']}),[])
   assert.deepEqual(ownerComplaintActions({status:'processing'}),[])
+})
+test('campus photo loads only its thumbnail until opened and discards a closed preview response', async () => {
+  const thumbnails = [], fullImages = [], revoked = [], cleanup = []
+  const photoId = '11111111-1111-4111-8111-111111111111'
+  const thumbnail = new Blob(['thumbnail']), full = new Blob(['full'])
+  const props = {
+    attachment: { id: photoId },
+    loadContent: async id => { thumbnails.push(id); return thumbnail },
+    loadPreview: (id, signal) => new Promise(resolve => fullImages.push({ id, signal, resolve }))
+  }
+  const page = await script('../src/components/ProtectedAttachment.vue', {
+    vue: { ref, watch: vue.watch, onBeforeUnmount: fn => cleanup.push(fn) },
+    '../api/complaint': { getComplaintAttachment: () => assert.fail('Unexpected original attachment request') }
+  }, 'url,previewOpen,previewUrl,previewLoading', {
+    defineProps: () => props,
+    AbortController,
+    URL: {
+      createObjectURL: blob => blob === thumbnail ? 'blob:thumbnail' : 'blob:full',
+      revokeObjectURL: url => revoked.push(url)
+    }
+  })
+  await tick()
+  assert.deepEqual(thumbnails, [photoId])
+  assert.equal(page.url.value, 'blob:thumbnail')
+  assert.equal(fullImages.length, 0)
+
+  page.previewOpen.value = true
+  await vue.nextTick()
+  assert.equal(fullImages[0].id, photoId)
+  assert.equal(page.previewLoading.value, true)
+  page.previewOpen.value = false
+  await vue.nextTick()
+  assert.equal(fullImages[0].signal.aborted, true)
+  fullImages[0].resolve(full)
+  await tick()
+  assert.equal(page.previewUrl.value, '')
+
+  page.previewOpen.value = true
+  await vue.nextTick()
+  fullImages[1].resolve(full)
+  await tick()
+  assert.equal(page.previewUrl.value, 'blob:full')
+  cleanup.forEach(fn => fn())
+  assert.deepEqual(revoked, ['blob:full', 'blob:thumbnail'])
 })
 test('owner publication preserves previewed details and selected photos and clears them when made private', async () => {
   const page = await owner()
@@ -114,11 +158,25 @@ test('actual record SSR keeps current feedback, historical feedback, objection a
   const app=createSSRApp({props:['record','targetProgress'],setup:()=>({complaintTypes,serviceTopics,complaintDisplayType,complaintNumber,impactScopeText,complaintStatuses,verificationOutcomes,reservationStatuses,formatCampusDateTime,eventLabel:event=>({submitted:'本人提交',accepted:'已受理并说明初步安排',verification:'核实',feedback:'正式反馈',auto_closed:'系统结案'}[event.type]||event.type)}),ssrRender:module.namespace.ssrRender},{record});app.component('ProtectedAttachment',{render:()=>null});app.component('ServiceTargetSummary',{render:()=>null});const html=await ssr.renderToString(app)
   assert.match(html,/工程模拟公开结果/);assert.match(html,/第一次反馈/);assert.match(html,/第一次异议/);assert.match(html,/确认期届满，系统自动结案/);assert.match(html,/系统自动结案|系统结案/);assert.doesNotMatch(html,/本人确认反馈并结案|记录人：null/)
 })
-test('feedback notification types use current category filtering and typed complaint links',async()=>{
- const page=await script('../src/views/NotificationsView.vue',{vue:{ref,computed,onMounted(){}},'../components/ui/feedback':{message:{success(){}}},'../api/notification':{listNotifications:async()=>({data:[]}),markRead:async()=>{},markAllRead:async()=>({data:{marked:0}})},'../stores/notification':{useNotificationStore:()=>({refresh(){},decrement(){},clear(){}})}},'list,category,visibleItems,typeMeta,complaintTarget')
- page.list.value=[{id:1,type:'complaint_feedback',complaint_id:88},{id:2,type:'complaint_auto_closed',complaint_id:88}]
+test('feedback notification types use server filters and typed complaint links',async()=>{
+ const notices=['complaint_feedback','complaint_auto_closed'].map((type,index)=>({
+  id:index+1,type,complaint_id:88,is_read:false,title:'工单消息',content:'工单状态已更新'
+ }))
+ const page=await script('../src/views/NotificationsView.vue',{
+  vue:{ref,computed,onMounted(){}},
+  '../api/notification':{
+   listNotifications:async query=>{
+    const types=query.types.split(',')
+    const matching=notices.filter(notice=>types.includes(notice.type))
+    return {data:{...pageFixture(matching,query),counts:{total:2,unread:2,by_type:{complaint_feedback:1,complaint_auto_closed:1}}}}
+   },
+   markRead:async()=>{},markAllRead:async()=>{}
+  },
+  '../stores/notification':{useNotificationStore:()=>({beginUpdate(){},acceptUnread(){}})}
+ },'list,selectCategory,visibleItems,typeMeta,complaintTarget')
  assert.equal(page.typeMeta.complaint_feedback.text,'投诉反馈');assert.equal(page.typeMeta.complaint_auto_closed.text,'投诉结案')
- page.category.value='feedback';assert.equal(page.visibleItems.value.length,2)
+ assert.equal(await page.selectCategory('feedback'),true)
+ assert.equal(page.visibleItems.value.length,2)
  assert.equal(page.complaintTarget(page.list.value[0]),'/complaints/88');assert.equal(page.complaintTarget({type:'complaint_feedback',content:'投诉#222'}),null);assert.equal(page.complaintTarget({type:'complaint_feedback',complaint_id:'222'}),null)
 })
 test('feedback and owner lifecycle adapters preserve version and UUID on exact authorized paths',async()=>{

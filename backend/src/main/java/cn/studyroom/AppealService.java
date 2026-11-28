@@ -15,7 +15,8 @@ import org.springframework.transaction.annotation.*;
 @Service
 public class AppealService {
     private final Store db;private final AttachmentService attachments;private final AuditService audit;private final ObjectMapper json;private final Clock clock;private final AppealReviewProjection reviews;private final RestrictionPolicy qualifications;
-    public AppealService(Store db,AttachmentService attachments,AuditService audit,ObjectMapper json,Clock clock,AppealReviewProjection reviews,RestrictionPolicy qualifications){this.db=db;this.attachments=attachments;this.audit=audit;this.json=json;this.clock=clock;this.reviews=reviews;this.qualifications=qualifications;}
+    private final NotificationService messages;
+    public AppealService(Store db,AttachmentService attachments,AuditService audit,ObjectMapper json,Clock clock,AppealReviewProjection reviews,RestrictionPolicy qualifications,NotificationService messages){this.db=db;this.attachments=attachments;this.audit=audit;this.json=json;this.clock=clock;this.reviews=reviews;this.qualifications=qualifications;this.messages=messages;}
     @Transactional(readOnly=true,isolation=Isolation.REPEATABLE_READ)
     public Map<String,Object> eligibility(long actor,long violation){attachments.requireOrdinary(actor);ownViolation(actor,violation);var now=now();var safe=ViolationService.safeOne(db,violation);var result=envelope(now);result.put("violation",safe);result.put("eligibility",eligibilityInternal(actor,violation,safe,now));return result;}
     @Transactional
@@ -28,6 +29,7 @@ public class AppealService {
         if(!Boolean.TRUE.equals(eligibility.get("can_submit"))){if("pending".equals(eligibility.get("blocked_by")))throw Api.fail(409,"该违规已有待审核申诉，请查看原申诉进度",Map.of("code","appeal_pending","existing_appeal",eligibility.get("existing_appeal")));var details=envelope(now);details.put("code","appeal_not_eligible");details.put("eligibility",eligibility);throw Api.fail(409,blockedMessage(Store.text(eligibility,"blocked_by")),details);}
         long id=db.insert("INSERT INTO appeals(user_id,violation_id,operation_id,request_hash,description,submitted_at,notification_id,notified_at,deadline,violation_snapshot) VALUES(?,?,CAST(? AS UUID),?,?,?,?,?,?,CAST(? AS JSONB))",actor,violation,operation,hash,description,Timestamp.valueOf(now),eligibility.get("notification_id"),Timestamp.valueOf(local(eligibility.get("notified_at"))),Timestamp.valueOf(local(eligibility.get("deadline"))),write(safe));
         db.update("INSERT INTO appeal_events(appeal_id,actor_id,event_type,source,occurred_at) VALUES(?,?,'submitted','user_submit',?)",id,actor,Timestamp.valueOf(now));attachments.bind(actor,AttachmentService.Purpose.APPEAL,id,ids,now);
+        messages.submittedAppeal(id,now);
         audit.record(actor,"appeal.submit","appeal",Long.toString(id),"本人提交申诉，当前待审核，原违规与限制保持",Map.of(),Map.of("violation_id",violation,"notification_id",eligibility.get("notification_id"),"notified_at",eligibility.get("notified_at"),"deadline",eligibility.get("deadline"),"submitted_at",AttachmentService.offset(now),"attachment_count",ids.size(),"status","submitted"));return receipt(id,operation,false,now);
     }
     @Transactional(readOnly=true,isolation=Isolation.REPEATABLE_READ)

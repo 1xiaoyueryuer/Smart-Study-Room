@@ -39,6 +39,9 @@ let seatSequence = 0
 function failureText(failure) {
   return failure.status === 409 ? `${failure.message}。当前输入已保留；若版本过期，请关闭表单、刷新资源后重新核对编辑。` : failure.status === 403 ? `无资源管理权限：${failure.message}` : failure.message
 }
+function changeNotice(cancelledCount) {
+  return cancelledCount > 0 ? `资源变更已保存，已取消 ${cancelledCount} 条受影响的预约。` : '资源变更已保存。'
+}
 async function loadRooms() {
   const sequence = ++loadSequence
   loading.value = true
@@ -85,12 +88,12 @@ async function saveRoom() {
     else {
       const result = await changeConfirm.value.run({change_type:'room.update',target_id:editingRoom.value,payload:body})
       if (!result) return
-      writeNotice.value = `资源变更已确认完成，管理取消${result.cancelled_count}条预约${result.replayed ? '（原操作幂等回执）' : ''}。`
+      writeNotice.value = changeNotice(result.cancelled_count)
     }
     roomDialog.value = false
     message.success('空间已保存')
     const refreshed = await loadRooms()
-    if (!refreshed) writeNotice.value = '操作已确认写入，资源列表读取失败，当前结果待刷新核对；请重试读取，不要重复提交同一变更。'
+    if (!refreshed) writeNotice.value = '空间已保存。列表更新失败，请刷新列表。'
   } catch (failure) { formError.value = failureText(failure) }
   finally { saving.value = false }
 }
@@ -136,12 +139,12 @@ async function saveSeat() {
     else {
       const result = await changeConfirm.value.run({change_type:'seat.update',target_id:editingSeat.value,payload:body})
       if (!result) return
-      writeNotice.value = `资源变更已确认完成，管理取消${result.cancelled_count}条预约${result.replayed ? '（原操作幂等回执）' : ''}。`
+      writeNotice.value = changeNotice(result.cancelled_count)
     }
     seatDialog.value = false
     message.success('座位已保存')
     const refreshed = await Promise.all([loadRooms(), loadSeats()])
-    if (refreshed.some(value => !value)) writeNotice.value = '操作已确认写入，资源或座位列表读取失败，当前结果待刷新核对；请重试读取，不要重复提交同一变更。'
+    if (refreshed.some(value => !value)) writeNotice.value = '座位已保存。列表更新失败，请刷新资源或座位列表。'
   } catch (failure) { formError.value = failureText(failure) }
   finally { saving.value = false }
 }

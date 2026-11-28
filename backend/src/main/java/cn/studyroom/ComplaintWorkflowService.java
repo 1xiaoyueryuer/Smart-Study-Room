@@ -38,7 +38,8 @@ public class ComplaintWorkflowService {
         var intent=new TreeMap<String,Object>();intent.put("version",request.version());intent.put("result",result);intent.put("basis",basis);String hash=hash(actor,id,"feedback",intent);var now=now();var replay=replay(saved,actor,id,"feedback",operation,hash,true,now);if(replay!=null)return replay;
         var before=required(id);version(before,request.version());Api.require("processing".equals(before.get("status")),409,"仅处理中投诉可发送正式反馈，请刷新当前阶段");targets.recordOne(id,now);var deadline=now.plusDays(7);
         long event=db.insert("INSERT INTO complaint_events(complaint_id,actor_id,event_type,source,created_at,operation_id,request_hash,feedback_result,feedback_basis,feedback_deadline,public_note) VALUES(?,?,'feedback','admin_self_report',?,CAST(? AS UUID),?,?,?,?,?)",id,actor,Timestamp.valueOf(now),operation,hash,result,basis,Timestamp.valueOf(deadline),"管理员已发送处理结果及依据，请在确认期内确认或提出异议");
-        db.update("UPDATE complaints SET status='awaiting_confirmation',version=version+1 WHERE id=?",id);notifyOwner(before,event,"complaint_feedback","投诉处理结果已反馈","请查看处理结果及依据，确认截止为"+deadline.atZone(BookingPolicy.CAMPUS_ZONE).toOffsetDateTime()+"；截止前可确认或提出异议。",now);
+        db.update("UPDATE complaints SET status='awaiting_confirmation',version=version+1 WHERE id=?",id);
+        notifyOwner(before,event,"complaint_feedback","投诉处理结果已反馈","请查看处理结果，并在截止前确认或提出异议。\n确认截止："+NotificationService.displayTime(deadline),now);
         audit.record(actor,"complaint.feedback","complaint",Long.toString(id),"管理员正式反馈并开始固定七天确认期",snapshot(before),Map.of("status","awaiting_confirmation","version",request.version()+1,"event_id",event,"feedback_deadline",deadline.toString()));return receipt(id,event,operation,false,true,actor,now);
     }
     @Transactional
@@ -54,7 +55,9 @@ public class ComplaintWorkflowService {
         else {Api.require("awaiting_confirmation".equals(before.get("status")),409,"当前投诉不处于待确认阶段，请刷新记录");var feedback=latest(id);related=Store.id(feedback,"id");status=action.equals("confirm")?"closed":"processing";}
         if(action.equals("withdraw"))targets.recordOne(id,now);
         long event=db.insert("INSERT INTO complaint_events(complaint_id,actor_id,event_type,source,created_at,operation_id,request_hash,related_feedback_id,response_note,public_note) VALUES(?,?,?,'user_submit',?,CAST(? AS UUID),?,?,?,?)",id,actor,type,Timestamp.valueOf(now),operation,hash,related,description,action.equals("withdraw")?"投诉人撤回待受理投诉":action.equals("confirm")?"投诉人已确认本次反馈并结案":"投诉人提出异议，继续核查");
-        db.update("UPDATE complaints SET status=?,version=version+1 WHERE id=?",status,id);audit.record(actor,"complaint."+action,"complaint",Long.toString(id),action.equals("withdraw")?"本人撤回未受理投诉":action.equals("confirm")?"本人在确认期内确认反馈":"本人在确认期内提出异议继续核查",snapshot(before),Map.of("status",status,"version",request.version()+1,"event_id",event));return new ActionResult(200,"ok",receipt(id,event,operation,false,false,actor,now),null);
+        db.update("UPDATE complaints SET status=?,version=version+1 WHERE id=?",status,id);
+        if(action.equals("object")) messages.returnedComplaint(id,event,now);
+        audit.record(actor,"complaint."+action,"complaint",Long.toString(id),action.equals("withdraw")?"本人撤回未受理投诉":action.equals("confirm")?"本人在确认期内确认反馈":"本人在确认期内提出异议继续核查",snapshot(before),Map.of("status",status,"version",request.version()+1,"event_id",event));return new ActionResult(200,"ok",receipt(id,event,operation,false,false,actor,now),null);
     }
     @Transactional
     public int settleExpired() {db.lockBookings();return reconcile("1=1",List.of(),now());}

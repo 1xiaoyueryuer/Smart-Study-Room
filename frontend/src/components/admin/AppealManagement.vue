@@ -2,6 +2,7 @@
 import { formatCampusDateTime } from '../../composables/campusDateTime.js'
 import {onBeforeUnmount,onMounted,ref} from 'vue'
 import {listAdminAppeals,getAdminAppeal} from '../../api/appeal'
+import { complaintNumber } from '../../composables/complaintForm.js'
 import {validAppealDetail,violationLabels,appealStatuses,reviewIntent} from '../../composables/appealForm.js'
 import AppealReviewConfirm from './AppealReviewConfirm.vue'
 import SInput from '../ui/SInput.vue'
@@ -14,13 +15,45 @@ import {recordQuery,validRecordPage,recordFields} from '../../composables/record
 import RecordFilters from '../RecordFilters.vue'
 import RecordPageControls from '../RecordPageControls.vue'
 import SDialog from '../ui/SDialog.vue'
+const emit = defineEmits(['open-reservation', 'open-complaint', 'refreshed', 'reviewed'])
 const filters=ref({status:'submitted'}),appliedFilters=ref(null),snapshot=ref(null),snapshotQuery=ref(null),fields=recordFields('appeal',true)
 const items=ref([]),loaded=ref(false),loading=ref(false),error=ref(''),detail=ref(null),detailLoading=ref(false),detailError=ref(''),selectedId=ref(null);let alive=true,listSequence=0,detailSequence=0
 const blank=()=>({decision:'',reason:'',verification_note:'',facts_confirmed:false})
 const drafts=new Map(),copyDraft=value=>JSON.parse(JSON.stringify(value))
 const reviewForm=ref(blank()),reviewDialog=ref(null),reviewing=ref(false),readPending=ref(false),reviewError=ref(''),receipt=ref(null)
 
-async function loadList(force=true,next){if((reviewing.value||readPending.value)&&force!==true)return false;const ticket=++listSequence;let query;const source=force===false?filters.value:appliedFilters.value||filters.value;try{query=recordQuery(source,force===false?1:next||snapshot.value?.page||1)}catch(e){error.value=e.message;return false}loading.value=true;error.value='';try{const {data}=await listAdminAppeals(query);if(!alive||ticket!==listSequence)return;if(!validRecordPage(data,query))throw new Error('管理申诉分页返回不完整');items.value=data.items;appliedFilters.value={...source};snapshot.value=data;snapshotQuery.value={...query};loaded.value=true}catch(failure){if(alive&&ticket===listSequence)error.value=failure.message}finally{if(alive&&ticket===listSequence)loading.value=false}}
+async function loadList(force = true, next) {
+  if ((reviewing.value || readPending.value) && force !== true) return false
+  const source = { ...(force === false ? filters.value : appliedFilters.value || filters.value) }
+  let query
+  try {
+    query = recordQuery(source, force === false ? 1 : next || snapshot.value?.page || 1)
+  } catch (failure) {
+    error.value = failure.message
+    return false
+  }
+  const ticket = ++listSequence
+  loading.value = true
+  error.value = ''
+  try {
+    const { data } = await listAdminAppeals(query)
+    if (!alive || ticket !== listSequence) return false
+    if (!validRecordPage(data, query)) throw new Error('管理申诉分页返回不完整')
+    items.value = data.items
+    appliedFilters.value = source
+    snapshot.value = data
+    snapshotQuery.value = query
+    loaded.value = true
+    const { page, page_size, status, ...otherFilters } = query
+    emit('refreshed', status === 'submitted' && !Object.keys(otherFilters).length ? data.total : null)
+    return true
+  } catch (failure) {
+    if (alive && ticket === listSequence) error.value = failure.message
+    return false
+  } finally {
+    if (alive && ticket === listSequence) loading.value = false
+  }
+}
 async function openDetail(id,{afterWrite=false,internal=false}={}){if((reviewing.value||readPending.value)&&!afterWrite&&!internal)return false;
   if(selectedId.value!==id){
     if(selectedId.value!==null){if(receipt.value?.appeal.id===selectedId.value)drafts.delete(selectedId.value);else drafts.set(selectedId.value,copyDraft(reviewForm.value))}
@@ -30,13 +63,38 @@ async function openDetail(id,{afterWrite=false,internal=false}={}){if((reviewing
 async function review(){if(reviewing.value||readPending.value||detailLoading.value||detailError.value||detail.value?.status!=='submitted')return
   let intent;try{intent=reviewIntent(reviewForm.value,detail.value.version)}catch(failure){reviewError.value=failure.message;return}
   const id=detail.value.id;reviewing.value=true;reviewError.value='';receipt.value=null
-  try{const value=await reviewDialog.value.run(id,intent);if(!alive||!value)return;receipt.value=value;drafts.delete(id);if(selectedId.value===id)reviewForm.value=blank();readPending.value=true;detail.value=value.appeal;await Promise.all([openDetail(id,{afterWrite:true}),loadList(true)])}
+  try {
+    const value = await reviewDialog.value.run(id, intent)
+    if (!alive || !value) return
+    receipt.value = value
+    drafts.delete(id)
+    if (selectedId.value === id) reviewForm.value = blank()
+    readPending.value = true
+    detail.value = value.appeal
+    const listRefresh = loadList(true).then(refreshed => {
+      if (alive && !refreshed) emit('reviewed')
+    })
+    await Promise.all([openDetail(id, { afterWrite: true }), listRefresh])
+  }
   catch(failure){if(alive)reviewError.value=failure.message}
   finally{if(alive)reviewing.value=false}
 }
 function refreshDetail(){return openDetail(selectedId.value,{afterWrite:readPending.value})}
-function closeDetail(){if(reviewing.value||readPending.value)return;selectedId.value=null;detail.value=null;detailError.value='';reviewError.value='';receipt.value=null}
-onMounted(loadList);onBeforeUnmount(()=>{drafts.clear();alive=false;listSequence++;detailSequence++});defineExpose({loadList})
+function closeDetail(){
+  if(reviewing.value||readPending.value)return
+  if(selectedId.value!==null){
+    if(receipt.value?.appeal.id===selectedId.value)drafts.delete(selectedId.value)
+    else drafts.set(selectedId.value,copyDraft(reviewForm.value))
+  }
+  detailSequence++;selectedId.value=null;detail.value=null;detailError.value='';detailLoading.value=false;reviewError.value='';receipt.value=null
+}
+function openSource(kind,id,eventId){
+  if(reviewing.value||readPending.value)return
+  closeDetail()
+  if(kind==='reservation')emit('open-reservation',id)
+  else emit('open-complaint',id,eventId)
+}
+onMounted(loadList);onBeforeUnmount(()=>{drafts.clear();alive=false;listSequence++;detailSequence++});defineExpose({loadList,openDetail})
 </script>
 <template>
   <section class="appeal-management">
@@ -69,10 +127,12 @@ onMounted(loadList);onBeforeUnmount(()=>{drafts.clear();alive=false;listSequence
             <p>当前违规#{{detail.management_context.violation.id}} · 主体账号#{{detail.management_context.violation.user_id}} · {{violationLabels[detail.management_context.violation.type]||detail.management_context.violation.type}} · {{detail.management_context.violation.source==='manual'?'管理员核实后登记':detail.management_context.violation.source==='automatic'?'系统自动事件':detail.management_context.violation.source}} · 当前{{detail.management_context.violation.status==='active'?'有效':detail.management_context.violation.status==='revoked'?'已撤销':detail.management_context.violation.status}}</p>
             <p>发生：{{ formatCampusDateTime(detail.management_context.violation.occurred_at) }}；登记：{{ formatCampusDateTime(detail.management_context.violation.registered_at) }}</p>
             <p class="source-reason">当前公开事实依据：{{detail.management_context.violation.reason}}</p>
-            <p>原关联预约：<span v-if="detail.management_context.violation.reservation_id">#{{detail.management_context.violation.reservation_id}}</span><span v-else>未关联</span>；源核实事件：<span v-if="detail.management_context.violation.source_event_id">#{{detail.management_context.violation.source_event_id}}</span><span v-else>无已关联源核实事件</span>；登记人账号：<span v-if="detail.management_context.violation.registrant_id">#{{detail.management_context.violation.registrant_id}}</span><span v-else>无已关联登记人账号</span></p>
-            <p v-if="detail.management_context.source_complaint_id">来源投诉#{{detail.management_context.source_complaint_id}}。</p>
-            <p v-else>无已关联来源投诉。</p>
-            <p>管理事实与提交快照分开保留。</p>
+            <div class="row-actions">
+              <SButton v-if="detail.management_context.violation.reservation_id" size="sm" :disabled="reviewing||readPending" @click="openSource('reservation',detail.management_context.violation.reservation_id)">查看预约 #{{detail.management_context.violation.reservation_id}}</SButton>
+              <SButton v-if="detail.management_context.source_complaint_id" size="sm" :disabled="reviewing||readPending" @click="openSource('complaint',detail.management_context.source_complaint_id)">查看工单 {{complaintNumber(detail.management_context.source_complaint_id)}}</SButton>
+              <SButton v-if="detail.management_context.source_complaint_id && detail.management_context.violation.source_event_id" size="sm" :disabled="reviewing||readPending" @click="openSource('complaint',detail.management_context.source_complaint_id,detail.management_context.violation.source_event_id)">查看核实记录</SButton>
+            </div>
+            <p v-if="detail.management_context.violation.registrant_id">登记人账号 #{{detail.management_context.violation.registrant_id}}</p>
           </template>
           <p v-else>管理来源未返回，请刷新。</p>
         </section>

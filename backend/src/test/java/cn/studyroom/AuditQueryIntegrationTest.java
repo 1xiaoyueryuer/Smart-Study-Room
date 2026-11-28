@@ -55,6 +55,22 @@ class AuditQueryIntegrationTest {
         var result=getData("/api/admin/audit-events?date_from="+base+"&date_to="+base,adminToken);page(result,1,1,20,1);assertEquals(inside,result.path("items").get(0).path("id").asLong());OffsetDateTime.parse(result.path("items").get(0).path("occurred_at").asText());
         page(getData("/api/admin/audit-events?date_from=9999-12-31&date_to=9999-12-31",adminToken),0,1,20,0);
     }
+    @Test void actorSearchMatchesCampusAccountLoginAndNameWithoutExposingIdentity()throws Exception{
+        var time=base.atTime(12,0).atOffset(ZoneOffset.ofHours(8));
+        long id=event(admin,"violation.register_manual","violation","42",time,"{}","{}");
+        event(owner,"reservation.create","reservation","43",time,"{}","{}");
+        event(null,"restriction.automatic_create","restriction","44",time,"{}","{}");
+        db.update("UPDATE users SET campus_id='202630001',real_name='Library Operator' WHERE id=?",admin);
+
+        for(String search:List.of("202630001","S28_ADMIN","operator")){
+            var data=getData("/api/admin/audit-events?actor_search="+search,adminToken);
+            page(data,1,1,20,1);
+            assertEquals(List.of(id),ids(data));
+            assertFalse(data.toString().contains("Library Operator"));
+        }
+        var unmatched=getData("/api/admin/audit-events?actor_search=unmatched",adminToken);
+        page(unmatched,0,1,20,0);
+    }
     @Test void detailExposesNecessaryChangesWhileSecretsIdentityAndPrivateEvidenceStayOut()throws Exception{
         // Explicit unsafe historical engineering row bypasses current AuditService write guard;
         // the new read projection must protect history too, without changing the stored row.

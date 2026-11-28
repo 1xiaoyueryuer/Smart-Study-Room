@@ -7,15 +7,42 @@ import SDialog from './ui/SDialog.vue'
 const props = defineProps({
   attachment: {type:Object,required:true},
   loadContent:Function,
+  loadPreview:Function,
   photoNumber:Number,
   staticPreview:Boolean
 })
 const url = ref(''), loading = ref(false), error = ref(''), previewOpen = ref(false)
+const previewUrl = ref(''), previewLoading = ref(false), previewError = ref('')
 let sequence = 0, alive = true
+let previewRequest
 function release() { if (url.value) URL.revokeObjectURL(url.value); url.value = '' }
+function releasePreview() {
+  previewRequest?.abort()
+  previewRequest = undefined
+  if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
+  previewUrl.value = ''
+  previewLoading.value = false
+  previewError.value = ''
+}
+async function loadFullImage() {
+  releasePreview()
+  if (!props.loadPreview) return
+  const controller = new AbortController()
+  previewRequest = controller
+  previewLoading.value = true
+  try {
+    const blob = await props.loadPreview(props.attachment.id, controller.signal)
+    if (previewRequest === controller) previewUrl.value = URL.createObjectURL(blob)
+  } catch {
+    if (previewRequest === controller) previewError.value = '大图暂时无法显示'
+  } finally {
+    if (previewRequest === controller) previewLoading.value = false
+  }
+}
 async function load() {
   const ticket = ++sequence
   loading.value = true; error.value = ''; previewOpen.value = false; release()
+  releasePreview()
   try { const blob = await (props.loadContent || getComplaintAttachment)(props.attachment.id); if (alive && ticket === sequence) url.value = URL.createObjectURL(blob) }
   catch (failure) { if (alive && ticket === sequence) error.value = failure.message }
   finally { if (alive && ticket === sequence) loading.value = false }
@@ -25,8 +52,9 @@ async function download() {
   if (!url.value || !alive) return
   const link = document.createElement('a'); link.href = url.value; link.download = props.attachment.display_name; document.body.append(link); link.click(); link.remove()
 }
-watch(() => [props.attachment.id,props.loadContent], load, {immediate:true})
-onBeforeUnmount(() => { alive = false; sequence++; release() })
+watch(() => [props.attachment.id,props.loadContent,props.loadPreview], load, {immediate:true})
+watch(previewOpen, open => { if (open) loadFullImage(); else releasePreview() })
+onBeforeUnmount(() => { alive = false; sequence++; releasePreview(); release() })
 </script>
 <template>
   <article v-if="photoNumber" class="protected-attachment compact-photo">
@@ -38,7 +66,13 @@ onBeforeUnmount(() => { alive = false; sequence++; release() })
     <p v-if="loading" role="status">正在加载照片…</p>
     <SButton v-else-if="error" size="sm" @click="load">重新加载照片</SButton>
     <SDialog v-model="previewOpen" :title="`照片 ${photoNumber}`" width="720px">
-      <img v-if="url" class="photo-full" :src="url" :alt="`照片 ${photoNumber}`" />
+      <p v-if="previewLoading" role="status">正在加载大图…</p>
+      <template v-else-if="previewError">
+        <p role="status">{{ previewError }}</p>
+        <SButton size="sm" @click="loadFullImage">重新加载大图</SButton>
+      </template>
+      <img v-else-if="loadPreview ? previewUrl : url" class="photo-full" :src="loadPreview ? previewUrl : url"
+        :alt="`照片 ${photoNumber}`" @error="previewError = '大图暂时无法显示'" />
     </SDialog>
   </article>
   <article v-else class="protected-attachment">

@@ -93,6 +93,26 @@ class PermissionIntegrationTest {
         assertEquals(403,assertThrows(Api.Failure.class,()->bookings.create(ids.get("admin"),req)).status);
         assertEquals(0,db.count("SELECT count(*) FROM reservations"));
     }
+    @Test void rateLimitedRequestsReportSecondsUntilRetryWithoutExtendingTheWindow() throws Exception {
+        String loginKey="studyroom-java:rate:login:"+remote;
+        redis.opsForValue().set(loginKey,"10",java.time.Duration.ofSeconds(42));
+        var response=http.perform(from(post("/api/auth/login").contentType("application/json").content("{}")))
+            .andExpect(status().isTooManyRequests()).andReturn().getResponse();
+        int loginWait=Integer.parseInt(response.getHeader("Retry-After"));
+        assertTrue(loginWait>0&&loginWait<=42);
+        assertTrue(json.readTree(response.getContentAsByteArray()).path("message").asText().contains(loginWait+" 秒"));
+        assertTrue(redis.getExpire(loginKey,java.util.concurrent.TimeUnit.MILLISECONDS)<=42000);
+
+        redis.delete(loginKey);
+        String token=token("student");
+        String bookingKey="studyroom-java:rate:reserve:"+ids.get("student");
+        redis.opsForValue().set(bookingKey,"2",java.time.Duration.ofSeconds(1));
+        http.perform(post("/api/reservations").header("Authorization","Bearer "+token).contentType("application/json").content(booking(seat1)))
+            .andExpect(status().isTooManyRequests())
+            .andExpect(header().string("Retry-After","1"))
+            .andExpect(jsonPath("$.code").value(429));
+        assertEquals(0,db.count("SELECT count(*) FROM reservations"));
+    }
     @Test void studentAndStaffShareActualBookingFlow() throws Exception {
         int index=0;
         for(String role:List.of("student","staff")) {

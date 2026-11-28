@@ -28,6 +28,7 @@ class NotificationIntegrationTest {
     @Autowired Store db;@Autowired MockMvc http;@Autowired ObjectMapper json;@Autowired StringRedisTemplate redis;
     @Autowired BookingService bookings;@Autowired OpeningScheduleService opening;@Autowired SeatCodeService codes;
     @Autowired ComplaintService complaints;@Autowired ComplaintManagementService management;@Autowired ComplaintWorkflowService workflow;
+    @Autowired AppealService appeals;
     @Autowired RestrictionWorkflow restrictions;
     @Autowired MinuteBookingIntegrationTest.TestClock clock;
     long owner,other,admin,room,seat;LocalDate base;String remote,ownerToken,otherToken;
@@ -108,9 +109,31 @@ class NotificationIntegrationTest {
         long id=legacy(owner,"reservation_success",true);var before=db.one("SELECT to_jsonb(n)::text AS row FROM notifications n WHERE id=?",id).get("row");var response=getData("/api/notifications",ownerToken);page(response,1,1,20,1);var item=response.path("items").get(0);assertEquals(id,item.path("id").asLong());assertTrue(item.path("business_id").isNull()||item.path("business_id").isMissingNode());assertTrue(item.path("business_type").isNull()||item.path("business_type").isMissingNode());assertTrue(item.path("is_read").asBoolean());assertTrue(item.path("content").asText().contains("#999999"));
         assertEquals(before,db.one("SELECT to_jsonb(n)::text AS row FROM notifications n WHERE id=?",id).get("row"));assertEquals(1,db.count("SELECT count(*) FROM notifications WHERE user_id=?",owner));
     }
+    @Test void categoryFiltersApplyBeforePaginationAndKeepOwnerWideCounts() throws Exception {
+        long first = legacy(owner,"complaint_initial_arrangement",false);
+        long second = legacy(owner,"complaint_service_progress",true);
+        long third = legacy(owner,"complaint_feedback",false);
+        legacy(other,"complaint_feedback",false);
+        for (int i=0;i<10;i++) legacy(owner,"system",false);
+
+        var unfiltered = getData("/api/notifications?page_size=10",ownerToken);
+        page(unfiltered,13,1,10,10);
+        assertTrue(!ids(unfiltered).contains(first) && !ids(unfiltered).contains(second) && !ids(unfiltered).contains(third));
+        String category = "/api/notifications?types=complaint_initial_arrangement,complaint_service_progress,complaint_feedback";
+        var pageOne = getData(category+"&page_size=2",ownerToken);
+        var pageTwo = getData(category+"&page_size=2&page=2",ownerToken);
+        page(pageOne,3,1,2,2);
+        page(pageTwo,3,2,2,1);
+        assertEquals(List.of(third,second),ids(pageOne));
+        assertEquals(List.of(first),ids(pageTwo));
+        var unread = getData(category+"&is_read=false",ownerToken);
+        page(unread,2,1,20,2);
+        assertEquals(List.of(third,first),ids(unread));
+        assertEquals(unfiltered.path("counts"),unread.path("counts"));
+    }
     @Test void filtersRejectScopeExpansionAndSnapshotHasExplicitCampusOffset()throws Exception{
         legacy(owner,"system",false);var response=getData("/api/notifications",ownerToken);assertEquals(base.atTime(9,0).atZone(BookingPolicy.CAMPUS_ZONE).toInstant(),OffsetDateTime.parse(response.path("server_now").asText()).toInstant());
-        for(String query:List.of("page=0","page_size=51","is_read=1","is_read=unknown","type=not_a_type","user_id="+other,"unexpected=value"))http.perform(get("/api/notifications?"+query).header("Authorization","Bearer "+ownerToken)).andExpect(status().isBadRequest());http.perform(get("/api/notifications")).andExpect(status().isUnauthorized());
+        for(String query:List.of("page=0","page_size=51","is_read=1","is_read=unknown","type=not_a_type","types=","types=system,unknown","type=system&types=system","user_id="+other,"unexpected=value"))http.perform(get("/api/notifications?"+query).header("Authorization","Bearer "+ownerToken)).andExpect(status().isBadRequest());http.perform(get("/api/notifications")).andExpect(status().isUnauthorized());
     }
     @Test void authoritativeBookingEventsHaveTypedReservationAndUniqueEventKeys()throws Exception{
         long reservation=Store.id(bookings.create(owner,new Requests.Reservation(seat,base.toString(),"10:00","11:00")),"id");codes.generate(admin,seat,new Requests.SeatCodeChange(0L,"S27 engineering code"));String code=Store.text(db.one("SELECT code_value FROM seat_codes WHERE seat_id=?",seat),"code_value");clock.set(base.atTime(10,0));bookings.checkin(owner,reservation,code);clock.set(base.atTime(10,5));bookings.action(owner,reservation,"checkout");bookings.tick();bookings.tick();
@@ -119,10 +142,64 @@ class NotificationIntegrationTest {
         Object eventKey=rows.get(0).get("event_key");assertThrows(RuntimeException.class,()->db.update("INSERT INTO notifications(user_id,type,title,content,reservation_id,event_key) VALUES(?,'reservation_success','duplicate','duplicate',?,?)",owner,reservation,eventKey));assertThrows(RuntimeException.class,()->db.update("INSERT INTO notifications(user_id,type,title,content,reservation_id,event_key) VALUES(?,'reservation_success','wrong owner','wrong owner',?,?)",other,reservation,"s27-cross-owner"));assertEquals(3,db.count("SELECT count(*) FROM notifications WHERE reservation_id=?",reservation));
     }
     long version(long complaint){return Store.id(db.one("SELECT version FROM complaints WHERE id=?",complaint),"version");}
+    @Test void operatorWorkAlertsAreTypedDeduplicatedAndLimitedToCurrentAdministrators() throws Exception {
+        long secondAdmin=db.insert("""
+            INSERT INTO users(username,password_hash,role,campus_id)
+            SELECT 's27_second_admin',password_hash,'admin','S27-admin-2' FROM users WHERE id=?
+            """,admin);
+        long disabledAdmin=db.insert("""
+            INSERT INTO users(username,password_hash,role,campus_id,status)
+            SELECT 's27_disabled_admin',password_hash,'admin','S27-admin-disabled','disabled' FROM users WHERE id=?
+            """,admin);
+        var urgent=new Requests.Complaint("service",null,room,"PRIVATE urgent evidence",List.of(),key(),
+            "facility_repair",null,"线路问题","minor",true,false);
+        long urgentId=Store.id(complaints.create(owner,urgent),"id");
+        assertEquals(urgentId,Store.id(complaints.create(owner,urgent),"id"));
+
+        var report=new Requests.Complaint("service",null,room,"工程模拟普通工单",List.of(),key(),
+            "other_service","环境卫生",null,null,null,null);
+        long returnedId=Store.id(complaints.create(owner,report),"id");
+        management.accept(admin,returnedId,new Requests.ComplaintAccept(version(returnedId),key(),"核对现场",null,null,null,null));
+        workflow.feedback(admin,returnedId,new Requests.ComplaintFeedback(version(returnedId),key(),"已核查","现场记录"));
+        var objection=new Requests.ComplaintResponse(version(returnedId),key(),"PRIVATE objection");
+        assertEquals(200,workflow.action(owner,returnedId,"object",objection).status());
+        assertEquals(200,workflow.action(owner,returnedId,"object",objection).status());
+
+        bookings.create(owner,new Requests.Reservation(seat,base.toString(),"10:00","11:00"));
+        clock.set(base.atTime(10,15));
+        bookings.tick();
+        long violation=Store.id(db.one("SELECT id FROM violations WHERE user_id=?",owner),"id");
+        var appeal=new Requests.Appeal(key(),"PRIVATE appeal evidence",List.of());
+        var first=appeals.create(owner,violation,appeal);
+        assertEquals(Boolean.TRUE,appeals.create(owner,violation,appeal).get("replayed"));
+        long appealId=((Number)((Map<?,?>)first.get("appeal")).get("id")).longValue();
+
+        String adminToken=login("admin");
+        var page=getData("/api/notifications",adminToken);
+        assertEquals(3,page.path("counts").path("unread").asInt());
+        for(var entry:Map.of("admin_complaint_urgent",urgentId,"admin_complaint_returned",returnedId,
+            "admin_appeal_submitted",appealId).entrySet()) {
+            var notice=getData("/api/notifications?type="+entry.getKey(),adminToken).path("items").get(0);
+            assertEquals(entry.getValue().longValue(),notice.path("business_id").asLong());
+            assertFalse(notice.toString().contains("PRIVATE"));
+        }
+        assertEquals(0,getData("/api/notifications?type=admin_complaint_urgent",ownerToken).path("total").asInt());
+        assertEquals(3,db.count("SELECT count(*) FROM notifications WHERE user_id=?",secondAdmin));
+        assertEquals(0,db.count("SELECT count(*) FROM notifications WHERE user_id=?",disabledAdmin));
+        long secondNotice=Store.id(db.one("SELECT id FROM notifications WHERE user_id=? AND type='admin_complaint_urgent'",secondAdmin),"id");
+        db.update("UPDATE users SET role='staff' WHERE id=?",secondAdmin);
+        String staffToken=login("second_admin");
+        assertEquals(0,getData("/api/notifications",staffToken).path("total").asInt());
+        assertEquals(0,getData("/api/notifications/unread_count",staffToken).path("count").asInt());
+        assertEquals(0,postData("/api/notifications/read_all",staffToken).path("marked").asInt());
+        http.perform(post("/api/notifications/"+secondNotice+"/read").header("Authorization","Bearer "+staffToken))
+            .andExpect(status().isNotFound());
+    }
     @Test void complaintFeedbackRoundsAndAutomaticClosureUseTheirActualEventIdentities()throws Exception{
         long id=Store.id(complaints.create(owner,new Requests.Complaint("service",null,room,"S27 engineering complaint",List.of(),key(),"other_service","环境卫生",null,null,null,null)),"id");management.accept(admin,id,new Requests.ComplaintAccept(version(id),key(),"工程模拟初步安排：先核对环境卫生问题，再说明后续处理。",null,null,null,null));var first=new Requests.ComplaintFeedback(version(id),key(),"First result","First verified public basis");workflow.feedback(admin,id,first);workflow.feedback(admin,id,first);
         assertEquals(200,workflow.action(owner,id,"object",new Requests.ComplaintResponse(version(id),key(),"Engineering objection")).status());workflow.feedback(admin,id,new Requests.ComplaintFeedback(version(id),key(),"Second result","Second public basis"));clock.set(base.plusDays(7).atTime(9,0));workflow.settleExpired();workflow.settleExpired();
-        var rows=db.list("SELECT n.type,n.complaint_event_id,n.event_key,e.event_type,e.complaint_id FROM notifications n JOIN complaint_events e ON e.id=n.complaint_event_id WHERE n.complaint_id=? ORDER BY n.id",id);assertEquals(4,rows.size());assertEquals(2,rows.stream().filter(x->x.get("type").equals("complaint_feedback")).count());assertEquals(1,rows.stream().filter(x->x.get("type").equals("complaint_auto_closed")).count());assertEquals(1,rows.stream().filter(x->x.get("type").equals("complaint_initial_arrangement")).count());assertEquals(4,new HashSet<>(rows.stream().map(x->x.get("complaint_event_id")).toList()).size());assertEquals(4,new HashSet<>(rows.stream().map(x->x.get("event_key")).toList()).size());rows.forEach(x->assertEquals(id,Store.id(x,"complaint_id")));
+        var rows=db.list("SELECT n.type,n.content,n.complaint_event_id,n.event_key,e.event_type,e.complaint_id FROM notifications n JOIN complaint_events e ON e.id=n.complaint_event_id WHERE n.complaint_id=? ORDER BY n.id",id);assertEquals(4,rows.size());assertEquals(2,rows.stream().filter(x->x.get("type").equals("complaint_feedback")).count());assertEquals(1,rows.stream().filter(x->x.get("type").equals("complaint_auto_closed")).count());assertEquals(1,rows.stream().filter(x->x.get("type").equals("complaint_initial_arrangement")).count());assertEquals(4,new HashSet<>(rows.stream().map(x->x.get("complaint_event_id")).toList()).size());assertEquals(4,new HashSet<>(rows.stream().map(x->x.get("event_key")).toList()).size());rows.forEach(x->assertEquals(id,Store.id(x,"complaint_id")));
+        assertEquals(2,rows.stream().filter(x->Store.text(x,"content").contains("确认截止："+base.plusDays(7)+" 09:00:00")).count());
         // Proposed new typed-FK safety: another complaint/event or receiver must not fit.
         long otherComplaint=Store.id(complaints.create(owner,new Requests.Complaint("service",null,room,"Different engineering complaint",List.of(),key(),"other_service","环境卫生",null,null,null,null)),"id");Object event=rows.get(0).get("complaint_event_id");
         assertThrows(RuntimeException.class,()->db.update("INSERT INTO notifications(user_id,type,title,content,complaint_id,complaint_event_id,event_key) VALUES(?,'complaint_feedback','wrong event','wrong event',?,?,?)",owner,otherComplaint,event,"s27-wrong-complaint-event"));

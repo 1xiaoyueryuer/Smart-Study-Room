@@ -256,8 +256,16 @@ class ComplaintIntegrationTest {
         http.perform(feed).andExpect(status().isOk()).andExpect(jsonPath("$.data.items.length()").value(0));
     }
     @Test void campusPhotosRequireExplicitSelectionAndLoseAccessOnRemoval() throws Exception {
-        byte[] original=paddedPng(4096);
-        String selected=fileId(upload(student,original,"selected.png","image/png"));
+        var pixels=new BufferedImage(1920,960,BufferedImage.TYPE_INT_RGB);
+        var random=new Random(128);
+        for(int y=0;y<pixels.getHeight();y++) {
+            for(int x=0;x<pixels.getWidth();x++) pixels.setRGB(x,y,random.nextInt());
+        }
+        var jpeg=new ByteArrayOutputStream();
+        assertTrue(ImageIO.write(pixels,"jpeg",jpeg));
+        pixels.flush();
+        byte[] original=jpegApp(jpeg.toByteArray(),"fixture".getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+        String selected=fileId(upload(student,original,"selected.jpg","image/jpeg"));
         String excluded=fileId(upload(student,image("png",2,2),"excluded.png","image/png"));
         String unbound=fileId(upload(student,image("png",2,2),"unbound.png","image/png"));
         String foreign=fileId(upload(other,image("png",2,2),"foreign.png","image/png"));
@@ -280,8 +288,11 @@ class ComplaintIntegrationTest {
         long id=report.path("id").asLong(),version=report.path("version").asLong();
         String photoPath="/api/complaints/campus/photos/";
         String selectedPath=photoPath+selected+"/content";
+        String thumbnailPath=photoPath+selected+"/thumbnail";
         http.perform(get(selectedPath)).andExpect(status().isUnauthorized());
+        http.perform(get(thumbnailPath)).andExpect(status().isUnauthorized());
         http.perform(auth(get(photoPath+excluded+"/content"),reader)).andExpect(status().isNotFound());
+        http.perform(auth(get(photoPath+excluded+"/thumbnail"),reader)).andExpect(status().isNotFound());
         http.perform(auth(get("/api/complaint-attachments/"+selected+"/content"),reader)).andExpect(status().isForbidden());
         http.perform(auth(get("/api/complaints/campus"),reader)).andExpect(status().isOk())
             .andExpect(jsonPath("$.data.items[0].category").value("facility_repair"))
@@ -292,7 +303,15 @@ class ComplaintIntegrationTest {
             .andExpect(header().string("Cache-Control","no-store")).andExpect(content().contentType("image/png"))
             .andReturn().getResponse().getContentAsByteArray();
         assertFalse(new String(sanitized,java.nio.charset.StandardCharsets.ISO_8859_1).contains("fixture"));
-        assertEquals(2,ImageIO.read(new java.io.ByteArrayInputStream(sanitized)).getWidth());
+        assertEquals(1600,ImageIO.read(new java.io.ByteArrayInputStream(sanitized)).getWidth());
+        byte[] thumbnail=http.perform(auth(get(thumbnailPath),reader)).andExpect(status().isOk())
+            .andExpect(header().string("Cache-Control","no-store")).andExpect(content().contentType("image/jpeg"))
+            .andReturn().getResponse().getContentAsByteArray();
+        assertFalse(new String(thumbnail,java.nio.charset.StandardCharsets.ISO_8859_1).contains("fixture"));
+        var thumbnailImage=ImageIO.read(new java.io.ByteArrayInputStream(thumbnail));
+        assertEquals(320,thumbnailImage.getWidth());
+        assertEquals(160,thumbnailImage.getHeight());
+        assertTrue(thumbnail.length<sanitized.length/10);
         assertArrayEquals(original,attachments.content(student,selected).bytes());
 
         String visibilityPath="/api/complaints/"+id+"/visibility";
@@ -311,6 +330,7 @@ class ComplaintIntegrationTest {
         http.perform(auth(put(visibilityPath),owner).contentType("application/json").content(json.writeValueAsString(update)))
             .andExpect(status().isOk()).andExpect(jsonPath("$.data.version").value(version+1));
         http.perform(auth(get(selectedPath),reader)).andExpect(status().isNotFound());
+        http.perform(auth(get(thumbnailPath),reader)).andExpect(status().isNotFound());
     }
     @Test void associatedComplaintProtectsRoomHistoryEvenWithoutAnyReservation() {
         complaints.create(student,complaint("service",null,room,"工程模拟无预约的空间服务投诉",List.of(),UUID.randomUUID().toString()));var failure=assertThrows(Api.Failure.class,()->resources.deleteRoom(admin,room,new Requests.ResourceDelete(Store.id(resources.room(room),"version"),"投诉关联历史不能删除")));assertEquals(409,failure.status);assertTrue(failure.getMessage().contains("投诉"));assertEquals(2,db.count("SELECT count(*) FROM seats WHERE room_id=?",room));

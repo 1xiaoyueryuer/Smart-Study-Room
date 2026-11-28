@@ -16,9 +16,18 @@ public class AuditQueryService {
     private final Store db;private final AuthService auth;private final Clock clock;private final AuditSafeProjection safe;
     public AuditQueryService(Store db,AuthService auth,Clock clock,ObjectMapper json){this.db=db;this.auth=auth;this.clock=clock;this.safe=new AuditSafeProjection(json);}
     public Map<String,Object> list(long actor,Map<String,String> params){
-        admin(actor);Api.require(Set.of("page","page_size","date_from","date_to","actor_id","object_type","object_id","action").containsAll(params.keySet()),400,"审计查询包含不允许的参数");int page=number(params.getOrDefault("page","1")),size=number(params.getOrDefault("page_size","20"));Api.require(size<=50,400,"每页最多50项");LocalDate from=date(params.get("date_from")),to=date(params.get("date_to"));Api.require(from==null||to==null||!from.isAfter(to),400,"开始日期不得晚于结束日期");var where=new StringBuilder(" WHERE 1=1");var args=new ArrayList<Object>();
+        admin(actor);Api.require(Set.of("page","page_size","date_from","date_to","actor_id","actor_search","object_type","object_id","action").containsAll(params.keySet()),400,"审计查询包含不允许的参数");int page=number(params.getOrDefault("page","1")),size=number(params.getOrDefault("page_size","20"));Api.require(size<=50,400,"每页最多50项");LocalDate from=date(params.get("date_from")),to=date(params.get("date_to"));Api.require(from==null||to==null||!from.isAfter(to),400,"开始日期不得晚于结束日期");var where=new StringBuilder(" WHERE 1=1");var args=new ArrayList<Object>();
         if(from!=null){where.append(" AND a.occurred_at>=(CAST(? AS DATE)::timestamp AT TIME ZONE 'Asia/Shanghai')");args.add(from.toString());}if(to!=null){where.append(" AND a.occurred_at<((CAST(? AS DATE)+INTERVAL '1 day') AT TIME ZONE 'Asia/Shanghai')");args.add(to.toString());}
         if(params.containsKey("actor_id")){where.append(" AND a.actor_id=?");args.add(identifier(params.get("actor_id")));}for(String key:List.of("object_type","action","object_id")){if(!params.containsKey(key))continue;String value=params.get(key);if(key.equals("object_id"))Api.require(value!=null&&!value.isBlank()&&value.length()<=100,400,"对象标识须为1至100字");else Api.require(value!=null&&value.matches("[A-Za-z][A-Za-z0-9_.:-]{0,79}"),400,"动作或对象类型格式无效");where.append(" AND a."+key+"=?");args.add(value);}
+        if(params.containsKey("actor_search")) {
+            String search=params.get("actor_search").strip();
+            Api.require(!search.isEmpty()&&search.length()<=100,400,"操作者请输入 1 至 100 字");
+            where.append("""
+                 AND a.actor_id IN (SELECT id FROM users WHERE strpos(lower(username),lower(?))>0
+                     OR strpos(lower(campus_id),lower(?))>0 OR strpos(lower(real_name),lower(?))>0)
+                """);
+            args.addAll(List.of(search,search,search));
+        }
         long total=db.count("SELECT count(*) FROM audit_events a"+where,args.toArray());args.add(size);args.add((long)(page-1)*size);var items=db.list(METADATA+FROM+where+" ORDER BY a.occurred_at DESC,a.id DESC LIMIT ? OFFSET ?",args.toArray()).stream().map(row->metadata(row,new AuditSafeProjection.Counts())).toList();return Map.of("items",items,"total",total,"page",page,"page_size",size,"server_now",now());
     }
     public Map<String,Object> detail(long actor,long id){admin(actor);var row=db.one(METADATA+",a.before_values,a.after_values"+FROM+" WHERE a.id=?",id);var counts=new AuditSafeProjection.Counts();var result=metadata(row,counts);result.put("before_values",safe.snapshot(row.get("before_values"),counts));result.put("after_values",safe.snapshot(row.get("after_values"),counts));result.put("redaction",counts.view());return result;}

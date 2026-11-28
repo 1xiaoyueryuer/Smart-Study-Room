@@ -1,6 +1,9 @@
 <script setup>
-import { ref,nextTick,onMounted } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import {getOverview} from '../../api/stats'
+import { listAdminAppeals } from '../../api/appeal'
+import { formatCampusDateTime } from '../../composables/campusDateTime.js'
 import {validOverview} from '../../composables/statsForm.js'
 import AdminAudit from '../../components/admin/AdminAudit.vue'
 import AdminRecords from '../../components/admin/AdminRecords.vue'
@@ -17,6 +20,7 @@ const audit=ref(null),auditMounted=ref(false)
 const recordsMounted=ref(false),violationsMounted=ref(false),correction=ref(null)
 const reviews=ref(null),reviewsMounted=ref(false)
 const correctionMounted=ref(false),correctionOpen=ref(false)
+const records = ref(null)
 const activeTab = ref('rooms')
 const resources = ref(null), users = ref(null), complaints = ref(null), complaintsMounted = ref(false), restrictions = ref(null), restrictionsMounted = ref(false), appeals=ref(null), appealsMounted=ref(false)
 const groups=[
@@ -45,19 +49,93 @@ function selectTab(key) {
   if(key==='records') recordsMounted.value=true
   if(key==='violations') violationsMounted.value=true
   if(key==='reviews') reviewsMounted.value=true
-  if(key==='complaints') complaintsMounted.value=true
+  if(key==='complaints') {
+    complaintsMounted.value=true
+    void loadOverview()
+  }
   if(key==='restrictions') restrictionsMounted.value=true
-  if(key==='appeals') appealsMounted.value=true
+  if(key==='appeals') {
+    if (appealsMounted.value) void loadPendingAppeals()
+    appealsMounted.value=true
+  }
 }
 async function openCorrection(id){
   activeTab.value='records';recordsMounted.value=true;correctionMounted.value=true;correctionOpen.value=true
   await nextTick();await correction.value?.openReservation(id)
 }
 function closeCorrection(){correctionOpen.value=false}
+async function openAppealReservation(id) {
+  selectTab('records')
+  await nextTick()
+  if (activeTab.value === 'records') await records.value?.open(id)
+}
+async function openComplaint(id, eventId) {
+  selectTab('complaints')
+  await nextTick()
+  if (activeTab.value === 'complaints') await complaints.value?.openDetail(id, eventId)
+}
+const route = useRoute()
+function requestedId(value) {
+  if (typeof value !== 'string' || !/^[1-9]\d*$/.test(value)) return null
+  const id = Number(value)
+  return Number.isSafeInteger(id) ? id : null
+}
+async function openLinkedRecord() {
+  const complaintId = requestedId(route.query.complaint_id)
+  const appealId = requestedId(route.query.appeal_id)
+  if (complaintId) {
+    await openComplaint(complaintId)
+  } else if (appealId) {
+    selectTab('appeals')
+    await nextTick()
+    if (activeTab.value === 'appeals' && requestedId(route.query.appeal_id) === appealId) await appeals.value?.openDetail(appealId)
+  }
+}
 const roomStats = ref(null), userStats = ref(null)
-const overview=ref(null),overviewError=ref('')
-async function loadOverview(){try{const {data}=await getOverview();if(validOverview(data))overview.value=data;overviewError.value=''}catch(e){overviewError.value=e.message||'统计读取失败'}}
-onMounted(loadOverview)
+const overview = ref(null), overviewError = ref(''), overviewLoading = ref(false)
+const pendingAppeals = ref(null)
+let overviewRequest = 0
+let pendingAppealsRequest = 0
+async function loadOverview() {
+  const request = ++overviewRequest
+  overviewLoading.value = true
+  overviewError.value = ''
+  try {
+    const { data } = await getOverview()
+    if (request !== overviewRequest) return
+    if (!validOverview(data)) throw new Error('概览数据不完整')
+    overview.value = data
+  } catch (failure) {
+    if (request === overviewRequest) overviewError.value = failure.message || '概览读取失败'
+  } finally {
+    if (request === overviewRequest) overviewLoading.value = false
+  }
+}
+async function loadPendingAppeals() {
+  const request = ++pendingAppealsRequest
+  try {
+    const { data } = await listAdminAppeals({ status:'submitted', page:1, page_size:1 })
+    if (request !== pendingAppealsRequest) return
+    pendingAppeals.value = Number.isSafeInteger(data?.total) && data.total >= 0 ? data.total : null
+  } catch {
+    if (request === pendingAppealsRequest) pendingAppeals.value = null
+  }
+}
+function updatePendingAppeals(total) {
+  if (total === null) {
+    void loadPendingAppeals()
+    return
+  }
+  pendingAppealsRequest++
+  pendingAppeals.value = total
+}
+watch(() => [route.query.complaint_id, route.query.appeal_id], openLinkedRecord)
+onMounted(() => {
+  if (!requestedId(route.query.complaint_id)) void loadOverview()
+  if (!requestedId(route.query.appeal_id)) void loadPendingAppeals()
+  void openLinkedRecord()
+})
+onBeforeUnmount(() => { overviewRequest++; pendingAppealsRequest++ })
 </script>
 <template>
   <div v-reveal class="page-view">
@@ -68,7 +146,12 @@ onMounted(loadOverview)
       <div class="admin-kpi"><span>待处理工单</span><b>{{ overview?.current.complaint_todo_count ?? '—' }}</b><small>待确认 {{ overview?.current.complaint_awaiting_count ?? '—' }}</small></div>
       <div class="admin-kpi"><span>自习室总数</span><b>{{ roomStats?.total ?? '—' }}</b><small>实际座位 {{ roomStats?.seats ?? '—' }}</small></div>
     </section>
-    <p v-if="overviewError" class="muted">统计读取失败：{{ overviewError }}；下方管理功能仍可正常使用。</p>
+    <div class="overview-status row-actions">
+      <p class="muted" role="status" v-if="overviewLoading">正在更新概览</p>
+      <p class="muted" role="status" v-else-if="overviewError">概览更新失败，{{ overview ? '显示上次结果' : '请重试' }}。</p>
+      <p class="muted" role="status" v-else-if="overview">更新于 {{ formatCampusDateTime(overview.snapshot_at) }}</p>
+      <SButton size="sm" :loading="overviewLoading" @click="loadOverview">刷新概览</SButton>
+    </div>
     <section class="card admin-stats">
       <div class="card-title-row"><h3>资源与账号</h3></div>
       <div class="kpi-grid"><div class="kpi"><div class="kpi-num">{{ roomStats?.total ?? '—' }}</div><div class="kpi-label">空间数量</div></div><div class="kpi"><div class="kpi-num">{{ roomStats?.seats ?? '—' }}</div><div class="kpi-label">实际座位数量</div></div><div class="kpi"><div class="kpi-num">{{ roomStats?.capacity ?? '—' }}</div><div class="kpi-label">启用空间有效容量</div></div><div class="kpi"><div class="kpi-num">{{ userStats?.total ?? '—' }}</div><div class="kpi-label">校园账号</div></div></div>
@@ -79,28 +162,30 @@ onMounted(loadOverview)
         <nav class="side-nav admin-nav" aria-label="管理功能分组">
           <template v-for="group in groups" :key="group.key">
             <div class="admin-nav-group-title">{{ group.label }}</div>
-            <button v-for="tab in group.items" :key="tab.key" class="side-nav-item" :class="{active:activeTab===tab.key}" @click="selectTab(tab.key)"><span class="side-nav-icon"><AppIcon :name="tab.icon" :size="17" /></span><span class="side-nav-label">{{ tab.label }}</span></button>
+            <button v-for="tab in group.items" :key="tab.key" class="side-nav-item" :class="{active:activeTab===tab.key}" @click="selectTab(tab.key)"><span class="side-nav-icon"><AppIcon :name="tab.icon" :size="17" /></span><span class="side-nav-label">{{ tab.label }}</span><span v-if="tab.key==='appeals' && pendingAppeals>0" class="pending-appeals" :aria-label="`${pendingAppeals} 条待审核`">{{ pendingAppeals }}</span></button>
           </template>
         </nav>
       </aside>
       <div class="admin-content">
         <AdminAudit v-if="auditMounted" v-show="activeTab==='audit'" ref="audit"/>
-        <AdminRecords v-if="recordsMounted" v-show="activeTab==='records' && !correctionOpen" kind="reservation" @correct="openCorrection"/>
+        <AdminRecords v-if="recordsMounted" v-show="activeTab==='records' && !correctionOpen" ref="records" kind="reservation" @correct="openCorrection"/>
         <AdminRecords v-if="violationsMounted" v-show="activeTab==='violations'" kind="violation"/>
         <ReviewManagement v-if="reviewsMounted" v-show="activeTab==='reviews'" ref="reviews"/>
         <div v-if="activeTab==='records' && correctionOpen" class="correction-back"><SButton size="sm" @click="closeCorrection">返回预约与使用记录</SButton></div>
         <CheckinCorrection ref="correction" v-if="correctionMounted" v-show="activeTab==='records' && correctionOpen"/>
         <ResourceManagement ref="resources" v-show="activeTab==='rooms'" @summary="roomStats=$event" />
         <UserManagement ref="users" v-show="activeTab==='users'" @summary="userStats=$event" />
-      <ComplaintManagement v-if="complaintsMounted" v-show="activeTab==='complaints'" ref="complaints" />
+        <ComplaintManagement v-if="complaintsMounted" v-show="activeTab==='complaints'" ref="complaints" @refreshed="loadOverview"/>
         <RestrictionManagement v-if="restrictionsMounted" v-show="activeTab==='restrictions'" ref="restrictions" />
-        <AppealManagement v-if="appealsMounted" v-show="activeTab==='appeals'" ref="appeals" />
+        <AppealManagement v-if="appealsMounted" v-show="activeTab==='appeals'" ref="appeals" @open-reservation="openAppealReservation" @open-complaint="openComplaint" @refreshed="updatePendingAppeals" @reviewed="loadPendingAppeals"/>
       </div>
     </div>
   </div>
 </template>
 <style scoped>
 .admin-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px;margin-bottom:20px}
+.overview-status{justify-content:flex-end;margin-bottom:16px}
+.overview-status p{margin:0}
 .admin-kpi{display:grid;gap:4px;padding:18px 20px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-xl);box-shadow:var(--shadow-1)}
 .admin-kpi span{color:var(--text-3);font-size:var(--fs-caption);letter-spacing:.06em}
 .admin-kpi b{font-family:var(--font-display);font-size:34px;line-height:1.15;color:var(--text-1);font-variant-numeric:tabular-nums}
@@ -113,6 +198,7 @@ onMounted(loadOverview)
 .admin-nav-group-title{padding:12px 12px 5px;font-size:11px;font-weight:600;letter-spacing:.08em;color:var(--text-4)}
 .admin-nav-group-title:first-of-type{padding-top:0}
 .admin-nav .side-nav-item{width:100%}
+.pending-appeals{margin-left:auto;padding:1px 7px;border-radius:999px;background:var(--primary-faint);color:var(--primary-active);font-size:var(--fs-caption)}
 .admin-content{min-width:0;display:flex;flex-direction:column;gap:18px}
 .correction-back{display:flex;justify-content:flex-end}
 @media(max-width:1000px){

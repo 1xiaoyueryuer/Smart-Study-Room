@@ -276,7 +276,9 @@ public class BookingService {
         enforceRestrictions(id(before,"user_id"),snapshot,actor,null);var current=db.one("SELECT * FROM reservations WHERE id=?",reservation);String blocked=correctionBlocked(current,snapshot);
         if(blocked!=null)return new ActionResult(409,blocked,Map.of(),correctionView(reservation,snapshot));
         usage.startCorrection(reservation,business,snapshot,actor,operation,reason,note,request);db.update("UPDATE reservations SET status='checked_in',updated_at=CURRENT_TIMESTAMP WHERE id=?",reservation);
-        messages.reservation(id(before,"user_id"),reservation,null,"reservation_corrected_checkin","管理员已核实补签","预约#"+reservation+"已补签。公开依据："+reason+"。业务签到："+AttachmentService.offset(business)+"；实际操作："+AttachmentService.offset(snapshot)+"。这是管理员核实自报记录。",snapshot);audit.record(actor,"reservation.correct_checkin","reservation",Long.toString(reservation),reason,Map.of("status",before.get("status")),Map.of("status","checked_in","operation_id",operation,"business_checkin_at",AttachmentService.offset(business),"operated_at",AttachmentService.offset(snapshot),"verification_source","admin_self_report"));
+        messages.reservation(id(before,"user_id"),reservation,null,"reservation_corrected_checkin","管理员已核实补签",
+            "你的预约已补签。\n签到时间："+NotificationService.displayTime(business)+"\n补签说明："+reason,snapshot);
+        audit.record(actor,"reservation.correct_checkin","reservation",Long.toString(reservation),reason,Map.of("status",before.get("status")),Map.of("status","checked_in","operation_id",operation,"business_checkin_at",AttachmentService.offset(business),"operated_at",AttachmentService.offset(snapshot),"verification_source","admin_self_report"));
         var result=correctionView(reservation,snapshot);result.put("operation_id",operation);result.put("replayed",false);return new ActionResult(200,"ok",result,null);
     }
     private String correctionText(String raw,int limit){String value=raw==null?"":raw.trim();Api.require(!value.isEmpty()&&value.length()<=limit,400,"公开理由及私有核实依据必填且须在长度限制内");return value;}
