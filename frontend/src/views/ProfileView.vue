@@ -21,6 +21,9 @@ import SBanner from '../components/ui/SBanner.vue'
 import { formatCampusDateTime } from '../composables/campusDateTime.js'
 
 const auth = useAuthStore()
+const campusNumberLabels = { student: '学号', staff: '工号', admin: '工号' }
+const campusNumberLabel = computed(() => campusNumberLabels[auth.user?.role] || '校园编号')
+const campusNumber = computed(() => auth.user?.campus_id || (auth.user?.role === 'student' ? auth.user.student_no : null) || '未登记')
 const route = useRoute()
 const overview = ref(null)
 const creditLoading = ref(false), creditError = ref('')
@@ -262,7 +265,7 @@ watch(() => route.fullPath, () => {
         <div class="profile-combined">
           <div class="profile-info">
             <div class="info-row"><span>姓名</span><span class="info-value">{{ auth.user?.real_name || '未登记' }}</span></div>
-            <div class="info-row"><span>学号</span><span class="info-value">{{ auth.user?.campus_id || auth.user?.student_no || '未登记' }}</span></div>
+            <div class="info-row"><span>{{ campusNumberLabel }}</span><span class="info-value">{{ campusNumber }}</span></div>
             <div class="info-row"><span>角色</span><span class="info-value">{{ auth.roleLabel }}</span></div>
             <div class="info-row"><span>账号状态</span><span class="info-value" :class="{ 'status-off': auth.user?.status !== 'active' }">{{ auth.user?.status === 'active' ? '正常' : '已禁用' }}</span></div>
             <div v-if="auth.isOrdinary" class="info-row credit-row">
