@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { listCampusComplaints, listMyComplaints, getComplaint } from '../api/complaint'
+import { getCampusComplaintPhoto, listCampusComplaints, listMyComplaints, getComplaint } from '../api/complaint'
 import { complaintStatuses, complaintCategory, complaintNumber, isFacilityRepair, parseRepair } from '../composables/complaintForm.js'
 import { formatCampusDateTime } from '../composables/campusDateTime.js'
 import { useServiceTargetClock } from '../composables/useServiceTargetClock.js'
@@ -18,7 +18,11 @@ const route = useRoute()
 const pager = createRecordPager(listMyComplaints, { initial: { type: '' } })
 const campusPager = createRecordPager(listCampusComplaints, {
   validRow: row => !!row && (row.room_name === null || typeof row.room_name === 'string') &&
-    typeof row.public_summary === 'string' && Object.hasOwn(complaintStatuses, row.status)
+    typeof row.public_summary === 'string' && Object.hasOwn(complaintStatuses, row.status) &&
+    (row.category == null || typeof row.category === 'string') &&
+    (row.public_details == null || typeof row.public_details === 'string') &&
+    (row.public_attachment_ids == null || (Array.isArray(row.public_attachment_ids) &&
+      row.public_attachment_ids.every(id => typeof id === 'string')))
 })
 const { items: campusItems, loading: campusLoading, loaded: campusLoaded, error: campusError, snapshot: campusSnapshot } = campusPager
 const audience = ref('mine')
@@ -158,7 +162,9 @@ onBeforeUnmount(() => { alive = false; detailSequence++; pager.dispose(); campus
       </SBanner>
       <p v-if="campusLoading" role="status">正在加载校园公开求助…</p>
       <template v-else-if="!campusError">
-        <ComplaintCampusCard v-for="(item, index) in campusItems" :key="index" :room-name="item.room_name" :summary="item.public_summary" :status="item.status" />
+        <ComplaintCampusCard v-for="(item, index) in campusItems" :key="index" :room-name="item.room_name" :category="item.category"
+          :summary="item.public_summary" :details="item.public_details" :status="item.status"
+          :photo-ids="item.public_attachment_ids" :load-photo="getCampusComplaintPhoto" />
         <SEmpty v-if="campusLoaded && !campusItems.length" :description="campusSnapshot.total ? '这一页暂无公开求助' : '暂无校园公开求助'" />
       </template>
       <RecordPageControls v-if="!campusError && campusSnapshot && (campusSnapshot.page > 1 || campusSnapshot.total > campusSnapshot.page_size)"

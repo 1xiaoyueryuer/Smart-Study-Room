@@ -13,6 +13,7 @@ import ComplaintVisibilityFields from './ComplaintVisibilityFields.vue'
 import SInput from './ui/SInput.vue'
 import SSelect from './ui/SSelect.vue'
 import SButton from './ui/SButton.vue'
+import SCheckbox from './ui/SCheckbox.vue'
 import SBanner from './ui/SBanner.vue'
 import SDialog from './ui/SDialog.vue'
 import { validRecordPage } from '../composables/recordPage.js'
@@ -28,9 +29,12 @@ const rooms=ref([]), choices=ref([]), roomsError=ref(''), choicesError=ref(''), 
 const choosingReservation = ref(false)
 const reservationFromEntry = computed(() => props.initialReservationId != null && props.initialReservationId !== '')
 const useReservation = computed(() => type.value === 'occupation')
-const selectedVisibility = ref(null), publicSummary = ref(''), previewOpen = ref(false)
+const selectedVisibility = ref(null), publicSummary = ref(''), publicDetails = ref(''), previewOpen = ref(false)
+const publicPhotoIds = ref([])
 const visibility = computed(() => selectedVisibility.value ?? (useReservation.value ? 'private' : 'campus'))
 const previewRoom = computed(() => useReservation.value ? context.value?.room_name : rooms.value.find(room => room.id === roomId.value)?.name)
+const previewCategory = computed(() => useReservation.value ? 'occupation' :
+  serviceKind.value === 'facility' ? 'facility_repair' : 'other_service')
 const roomSeats = ref([]), selectedSeat = ref(null), seatDialog = ref(false)
 const seatsLoading = ref(false), seatsError = ref('')
 const seatColumns = computed(() => Math.max(1, ...roomSeats.value.map(seat => seat.col_no)))
@@ -56,6 +60,13 @@ const queue=useEvidenceUploadQueue({uploadFile:uploadComplaintAttachment,isLocke
 const {items,uploading,expiredCount,uploadItem,selectFiles,removeItem}=queue
 const currentPhotos = computed(() => items.value.filter(item => item.phase !== 'expired'))
 const hasUnfinishedPhotos = computed(() => currentPhotos.value.some(item => item.phase !== 'uploaded'))
+const uploadedPhotoIds = computed(() => items.value.filter(item => item.phase === 'uploaded').map(item => item.metadata.id))
+const selectedPublicPhotoIds = computed(() => uploadedPhotoIds.value.filter(id => publicPhotoIds.value.includes(id)))
+watch(uploadedPhotoIds, () => { publicPhotoIds.value = selectedPublicPhotoIds.value })
+
+function togglePublicPhoto(id, selected) {
+  publicPhotoIds.value = selected ? [...publicPhotoIds.value, id] : publicPhotoIds.value.filter(value => value !== id)
+}
 async function loadRooms() {roomsLoading.value=true;try{const response=await getRooms();if(alive){rooms.value=response.data;roomsError.value=''}}catch(failure){if(alive)roomsError.value=failure.message}finally{if(alive)roomsLoading.value=false}}
 function changeRoom(value) {
   roomId.value = value
@@ -148,7 +159,7 @@ async function submit({ confirmed = false } = {}) {
       if(contextLoading.value||contextError.value)throw new Error(contextError.value || '正在加载预约，请稍后提交。')
       const requestType = otherRequestType.value === customType ? customRequestType.value : otherRequestType.value
       const body=complaintPayload({type:type.value,description:description.value,reservationId:useReservation.value?reservationId.value:null,roomId:roomId.value,seatId:selectedSeat.value?.id,items:currentPhotos.value,context:context.value,serviceKind:serviceKind.value,repair:repair.value,unsafeArea:unsafeArea.value,otherRequestType:requestType})
-      Object.assign(body, complaintVisibilityPayload(visibility.value, publicSummary.value))
+      Object.assign(body, complaintVisibilityPayload(visibility.value, publicSummary.value, publicDetails.value, selectedPublicPhotoIds.value))
       if (body.visibility === 'campus' && !confirmed) {
         previewOpen.value = true
         return
@@ -188,7 +199,7 @@ function confirmSubmission() {
   previewOpen.value = false
   return submit({ confirmed: true })
 }
-function reset() {if(submitting.value||uncertain.value)return;scope++;readSequence++;receipt.value=null;record.value=null;readError.value='';description.value='';selectedVisibility.value=null;publicSummary.value='';queue.reset();frozenBody=null;fingerprint='';error.value='';applyInitial()}
+function reset() {if(submitting.value||uncertain.value)return;scope++;readSequence++;receipt.value=null;record.value=null;readError.value='';description.value='';selectedVisibility.value=null;publicSummary.value='';publicDetails.value='';publicPhotoIds.value=[];queue.reset();frozenBody=null;fingerprint='';error.value='';applyInitial()}
 function applyInitial() {
   if(locked.value)return
   scope++
@@ -275,10 +286,18 @@ onBeforeUnmount(()=>{queue.dispose();alive=false;scope++;choicesSequence++;conte
         </template>
         <label>情况说明<SInput v-model="description" type="textarea" :rows="5" required maxlength="2000" :disabled="locked" placeholder="请描述遇到的问题" /></label>
         <p class="muted">{{ description.trim().length }}/2000字</p>
-        <ComplaintVisibilityFields :visibility="visibility" v-model:summary="publicSummary" v-model:preview-open="previewOpen"
-          :room-name="previewRoom" :disabled="locked" confirm-label="确认公开并提交" @update:visibility="selectedVisibility = $event" @confirm="confirmSubmission" />
+        <ComplaintVisibilityFields :visibility="visibility" v-model:summary="publicSummary" v-model:details="publicDetails" v-model:preview-open="previewOpen"
+          :room-name="previewRoom" :category="previewCategory" :selected-photo-ids="selectedPublicPhotoIds"
+          :disabled="locked || uploading" confirm-label="确认公开并提交" @update:visibility="selectedVisibility = $event" @confirm="confirmSubmission" />
         <p v-if="type==='service'&&serviceKind==='other'&&currentPhotos.length" class="muted">移除已选照片后即可提交此类求助。</p>
-        <EvidenceUploadQueue v-if="type==='occupation'||serviceKind==='facility'||items.length" :items="items" :disabled="locked" :upload-disabled="type==='service'&&serviceKind==='other'" :uploading="uploading" complaint-privacy @select="selectFiles" @retry="uploadItem" @remove="removeItem" />
+        <EvidenceUploadQueue v-if="type==='occupation'||serviceKind==='facility'||items.length" :items="items" :disabled="locked" :upload-disabled="type==='service'&&serviceKind==='other'" :uploading="uploading"
+          complaint-privacy :campus-photo-selection="visibility === 'campus'" @select="selectFiles" @retry="uploadItem" @remove="removeItem">
+          <template #photo-visibility="{ item, index }">
+            <SCheckbox v-if="visibility === 'campus' && item.phase === 'uploaded'" class="public-photo-choice"
+              :model-value="selectedPublicPhotoIds.includes(item.metadata.id)" :disabled="locked || uploading"
+              @update:model-value="togglePublicPhoto(item.metadata.id, $event)">公开照片 {{ index + 1 }}</SCheckbox>
+          </template>
+        </EvidenceUploadQueue>
         <div class="submit-actions">
           <p v-if="expiredCount" role="status" class="muted">{{ expiredCount }} 张照片已失效</p>
           <SButton type="submit" variant="primary" :loading="submitting" :disabled="uploading || (!uncertain && hasUnfinishedPhotos)">{{ uncertain ? '确认提交结果' : visibility === 'campus' ? '预览并提交' : '提交求助' }}</SButton>
@@ -313,6 +332,7 @@ onBeforeUnmount(()=>{queue.dispose();alive=false;scope++;choicesSequence++;conte
 </template>
 <style scoped>.complaint-form,.fields{display:grid;gap:14px;min-width:0}.fields label{display:grid;gap:7px;font-size:var(--fs-caption)}.fields input[type=file]{max-width:100%;min-width:0}.context,.file-item{padding:12px;background:var(--surface-2);border-radius:var(--r-md);overflow-wrap:anywhere}.actions{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
 .field-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.fields .public-photo-choice{display:inline-flex}
 .reservation-field,.reservation-choices{display:grid;gap:8px;min-width:0}
 .reservation-heading,.reservation-context{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
 .reservation-heading,.reservation-context p{font-size:var(--fs-caption);color:var(--text-2)}

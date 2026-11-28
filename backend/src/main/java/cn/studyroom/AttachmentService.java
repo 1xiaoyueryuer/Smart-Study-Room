@@ -1,6 +1,7 @@
 package cn.studyroom;
 
 import java.awt.image.BufferedImage;
+import java.awt.RenderingHints;
 import java.io.*;
 import java.security.MessageDigest;
 import java.time.*;
@@ -47,6 +48,41 @@ public class AttachmentService {
         Api.require(owner || adminAccess,403,"无权读取该材料");
         if(!bound(row)) Api.require(now().isBefore(LocalDateTime.parse(row.get("expires_at").toString())),410,"临时材料已过期，请重新上传");
         byte[] bytes=(byte[])db.one("SELECT file_bytes FROM evidence_attachments WHERE id=CAST(? AS UUID)",id).get("file_bytes");return new Content(bytes,Store.text(row,"content_type"),Store.text(row,"display_name"));
+    }
+    @Transactional(readOnly=true,isolation=Isolation.REPEATABLE_READ)
+    public byte[] campusPhoto(long actor,String rawId) {
+        requireActive(actor);
+        String id=uuid(rawId,"公开照片编号");
+        var photo=db.one("""
+            SELECT a.file_bytes FROM evidence_attachments a JOIN complaints c ON c.id=a.complaint_id
+            WHERE a.id=CAST(? AS UUID) AND a.purpose='complaint' AND a.campus_shared
+                AND c.visibility='campus' AND c.status<>'withdrawn'
+            """,id);
+
+        BufferedImage decoded=null;
+        BufferedImage clean=null;
+        try(var input=new ByteArrayInputStream((byte[])photo.get("file_bytes")); var output=new ByteArrayOutputStream()) {
+            decoded=ImageIO.read(input);
+            if(decoded==null) throw new IOException("Invalid stored complaint photo");
+            int maxDimension=Math.max(decoded.getWidth(),decoded.getHeight());
+            double scale=Math.min(1.0,1600.0/maxDimension);
+            int width=Math.max(1,(int)Math.round(decoded.getWidth()*scale));
+            int height=Math.max(1,(int)Math.round(decoded.getHeight()*scale));
+            // Write only raster pixels from a fresh standard image, without carrying original metadata.
+            clean=new BufferedImage(width,height,BufferedImage.TYPE_INT_ARGB);
+            var graphics=clean.createGraphics();
+            try {
+                graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION,RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+                graphics.drawImage(decoded,0,0,width,height,null);
+            } finally { graphics.dispose(); }
+            if(!ImageIO.write(clean,"png",output)) throw new IOException("PNG encoder unavailable");
+            return output.toByteArray();
+        } catch(IOException e) {
+            throw Api.fail(500,"这张公开照片暂时无法查看");
+        } finally {
+            if(decoded!=null) decoded.flush();
+            if(clean!=null) clean.flush();
+        }
     }
     @Transactional(propagation=Propagation.MANDATORY)
     public void bind(long actor,long complaint,List<String> ids,LocalDateTime snapshot) {bind(actor,Purpose.COMPLAINT,complaint,ids,snapshot);}

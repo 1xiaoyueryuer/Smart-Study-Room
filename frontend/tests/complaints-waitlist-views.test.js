@@ -58,6 +58,7 @@ async function complaintsPage(overrides = {}) {
   const mocks = {
     'vue-router': { useRoute: () => route },
     '../api/complaint': {
+      getCampusComplaintPhoto: async () => new Blob(),
       listCampusComplaints: async query => {
         calls.campus.push({ ...query })
         return overrides.campus ? overrides.campus(query) : { data: envelope([], query) }
@@ -112,7 +113,8 @@ test('complaints list reads the first page on load and keeps rows after a later 
 })
 
 test('campus browsing fetches anonymous rows separately without opening an owner detail', async () => {
-  const row = { room_name: '1F-A区', public_summary: '照明需检修', status: 'processing' }
+  const row = { room_name: '1F-A区', category: 'facility_repair', public_summary: '照明需检修',
+    public_details: '靠窗照明不亮。', public_attachment_ids: ['11111111-1111-4111-8111-111111111111'], status: 'processing' }
   const { page, calls } = await complaintsPage({ campus: query => ({ data: envelope([row], query, { total: 12 }) }) })
   assert.equal(page.audience.value, 'mine')
   assert.deepEqual(calls.campus, [])

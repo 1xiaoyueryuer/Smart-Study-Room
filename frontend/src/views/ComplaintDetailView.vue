@@ -1,11 +1,12 @@
 <script setup>
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { getComplaint, withdrawComplaint, confirmComplaintFeedback, objectComplaintFeedback, updateComplaintVisibility } from '../api/complaint'
+import { getCampusComplaintPhoto, getComplaint, withdrawComplaint, confirmComplaintFeedback, objectComplaintFeedback, updateComplaintVisibility } from '../api/complaint'
 import { useServiceTargetClock } from '../composables/useServiceTargetClock.js'
 import { ownerComplaintActions } from '../composables/complaintForm.js'
 import { complaintVisibilityPayload, visibilityLabels } from '../composables/complaintVisibility.js'
 import { confirmDialog } from '../components/ui/feedback'
 import ComplaintRecord from '../components/ComplaintRecord.vue'
+import ComplaintCampusCard from '../components/ComplaintCampusCard.vue'
 import ComplaintVisibilityFields from '../components/ComplaintVisibilityFields.vue'
 import SButton from '../components/ui/SButton.vue'
 import SInput from '../components/ui/SInput.vue'
@@ -15,6 +16,8 @@ const record=ref(null),loading=ref(false),error=ref(''),description=ref(''),subm
 const visibilityDraft = ref(null), visibilityPreview = ref(false), visibilityError = ref('')
 const actions=computed(()=>ownerComplaintActions(record.value)),busy=computed(()=>submitting.value||unknown.value||readPending.value)
 const currentVisibility = computed(() => record.value?.status === 'withdrawn' ? 'private' : record.value?.visibility || 'private')
+const publicationCategory = computed(() => record.value?.type === 'occupation' ? 'occupation' : record.value?.service_kind)
+const publicationRoom = computed(() => record.value?.room_name ?? record.value?.context_snapshot?.room_name)
 const actionLabels={withdraw:'撤回投诉',confirm:'接受回复并结案',object:'提交异议'}
 const actionResults={withdraw:'投诉已撤回。',confirm:'已接受回复，投诉已结案。',object:'异议已提交，将重新处理。'}
 const actionApis={withdraw:withdrawComplaint,confirm:confirmComplaintFeedback,object:objectComplaintFeedback}
@@ -60,7 +63,9 @@ function editVisibility() {
   visibilityDraft.value = {
     version: record.value.version,
     visibility: record.value.visibility || 'private',
-    summary: record.value.public_summary || ''
+    summary: record.value.public_summary || '',
+    details: record.value.public_details || '',
+    photoIds: [...(record.value.public_attachment_ids || [])]
   }
 }
 function cancelVisibility() {
@@ -74,7 +79,7 @@ async function saveVisibility({ confirmed = false } = {}) {
   const draft = visibilityDraft.value
   let fields
   try {
-    fields = complaintVisibilityPayload(draft.visibility, draft.summary)
+    fields = complaintVisibilityPayload(draft.visibility, draft.summary, draft.details, draft.photoIds)
   } catch (failure) {
     visibilityError.value = failure.message
     return
@@ -86,7 +91,13 @@ async function saveVisibility({ confirmed = false } = {}) {
   const id = record.value.id
   const ticket = scope
   const current = () => alive && ticket === scope
-  const matches = value => String(value?.id) === String(id) && value.visibility === fields.visibility && value.public_summary === fields.public_summary
+  const matches = value => {
+    const photoIds = value?.public_attachment_ids ?? []
+    return String(value?.id) === String(id) && value.visibility === fields.visibility &&
+      value.public_summary === fields.public_summary && (value.public_details ?? null) === fields.public_details &&
+      Array.isArray(photoIds) && photoIds.length === fields.public_attachment_ids.length &&
+      fields.public_attachment_ids.every(id => photoIds.includes(id))
+  }
   const saved = () => {
     cancelVisibility()
     writeNotice.value = '可见范围已保存。'
@@ -156,11 +167,14 @@ onBeforeUnmount(()=>{alive=false;sequence++;scope++})
           <div><h3>可见范围</h3><p class="muted">{{ visibilityLabels[currentVisibility] }}</p></div>
           <SButton v-if="!visibilityDraft && record.status !== 'withdrawn'" size="sm" :disabled="busy || !!error" @click="editVisibility">修改可见范围</SButton>
         </div>
-        <p v-if="currentVisibility === 'campus' && record.public_summary" class="published-summary">当前公开摘要：{{ record.public_summary }}</p>
+        <ComplaintCampusCard v-if="!visibilityDraft && currentVisibility === 'campus' && record.public_summary"
+          :key="`published:${record.version}`" :room-name="publicationRoom" :category="publicationCategory" :status="record.status"
+          :summary="record.public_summary" :details="record.public_details" :photo-ids="record.public_attachment_ids" :load-photo="getCampusComplaintPhoto" />
         <form v-if="visibilityDraft && record.status !== 'withdrawn'" class="owner-visibility" @submit.prevent="saveVisibility">
           <SBanner v-if="visibilityError" type="error" :title="visibilityError" />
           <ComplaintVisibilityFields v-model:visibility="visibilityDraft.visibility" v-model:summary="visibilityDraft.summary"
-            v-model:preview-open="visibilityPreview" :room-name="record.room_name ?? record.context_snapshot?.room_name" :status="record.status"
+            v-model:details="visibilityDraft.details" v-model:selected-photo-ids="visibilityDraft.photoIds"
+            v-model:preview-open="visibilityPreview" :room-name="publicationRoom" :category="publicationCategory" :status="record.status" :photos="record.attachments"
             :disabled="busy || !!error" confirm-label="确认公开并保存" @confirm="confirmVisibility" />
           <div class="row-actions">
             <SButton type="submit" variant="primary" :loading="submitting" :disabled="busy || !!error">{{ visibilityDraft.visibility === 'campus' ? '预览并保存' : '保存' }}</SButton>
@@ -190,5 +204,4 @@ onBeforeUnmount(()=>{alive=false;sequence++;scope++})
 .owner-visibility { display: grid; gap: 12px; min-width: 0; width: 100%; }
 .visibility-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
 .visibility-heading p { margin: 4px 0 0; }
-.published-summary { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
 </style>

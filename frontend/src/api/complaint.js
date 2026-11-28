@@ -1,6 +1,7 @@
 import request from './request'
 export const listMyComplaints = params => request.get('/complaints/mine', {params, silent: true })
 export const listCampusComplaints = params => request.get('/complaints/campus', { params, silent: true })
+export const getCampusComplaintPhoto = id => request.get(`/complaints/campus/photos/${encodeURIComponent(id)}/content`, { responseType: 'blob', silent: true, timeout: 60000 })
 export const getComplaint = id => request.get(`/complaints/${id}`, { silent: true })
 export const getComplaintRoomSeats = roomId => request.get(`/complaints/rooms/${roomId}/seats`, { silent: true })
 export const createComplaint = body => request.post('/complaints', body, { silent: true, timeout: 120000 })

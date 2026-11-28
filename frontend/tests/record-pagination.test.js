@@ -137,7 +137,7 @@ test('complaint submission keeps its description and retries with the two availa
     '../composables/complaintVisibility.js': complaintVisibility,
     '../composables/checkinDeadline.js': { checkinDeadlineOf() {} },
     '../composables/useEvidenceUploadQueue.js': { useEvidenceUploadQueue }
-  }, 'applyInitial,changeRoom,changeType,confirmSubmission,description,error,expiredCount,items,previewOpen,publicSummary,receipt,record,repair,selectedVisibility,submit,unsafeArea,visibility', {
+  }, 'applyInitial,changeRoom,changeType,confirmSubmission,description,error,expiredCount,items,previewOpen,publicDetails,publicSummary,receipt,record,repair,selectedVisibility,selectedPublicPhotoIds,submit,togglePublicPhoto,unsafeArea,visibility', {
     defineProps: () => ({ initialType: 'service' }),
     defineEmits: () => (...event) => emitted.push(event)
   })
@@ -159,6 +159,8 @@ test('complaint submission keeps its description and retries with the two availa
   assert.match(page.error.value, /公开摘要/)
   assert.deepEqual(requests, [])
   page.publicSummary.value = '  有座位照明故障  '
+  page.publicDetails.value = '  靠窗座位的台灯检修前无法使用。  '
+  page.togglePublicPhoto(attachmentIds[1], true)
   await page.submit()
   assert.equal(page.previewOpen.value, true)
   assert.deepEqual(requests, [])
@@ -168,9 +170,12 @@ test('complaint submission keeps its description and retries with the two availa
   assert.equal(requests[0].room_id, 12)
   assert.equal(requests[0].visibility, 'campus')
   assert.equal(requests[0].public_summary, '有座位照明故障')
+  assert.equal(requests[0].public_details, '靠窗座位的台灯检修前无法使用。')
+  assert.deepEqual(requests[0].public_attachment_ids, [attachmentIds[1]])
   assert.deepEqual(photoReads, attachmentIds)
   assert.deepEqual(Array.from(page.items.value, item => item.phase), ['uploaded', 'expired', 'uploaded'])
   assert.equal(page.expiredCount.value, 1)
+  assert.deepEqual(Array.from(page.selectedPublicPhotoIds.value), [])
   assert.match(page.error.value, /有照片已失效/)
   assert.equal(page.description.value, '座位旁的灯无法开启，请协助维修。')
   assert.equal(page.receipt.value, null)
@@ -185,6 +190,8 @@ test('complaint submission keeps its description and retries with the two availa
   assert.equal(requests[1].description, requests[0].description)
   assert.equal(requests[1].visibility, 'private')
   assert.equal(requests[1].public_summary, null)
+  assert.equal(requests[1].public_details, null)
+  assert.deepEqual(requests[1].public_attachment_ids, [])
   assert.notEqual(requests[1].operation_id, requests[0].operation_id)
   assert.equal(page.receipt.value.id, 71)
   assert.equal(page.record.value.id, 71)

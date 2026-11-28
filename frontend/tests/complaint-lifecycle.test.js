@@ -18,7 +18,7 @@ async function owner(overrides={}){
   const calls=[],cleanup=[];let state=awaiting(),uuid=0,routeChanged
   const props={id:'88'}
   const write=action=>async(id,body)=>{calls.push([action,id,body]);state={...state,version:state.version+1,status:action==='object'?'processing':action==='withdraw'?'withdrawn':'closed',allowed_actions:[],closure_type:action==='confirm'?'confirmed':null,events:[{id:10,type:action==='object'?'objected':action==='withdraw'?'withdrawn':'confirmed',description:body.description}]};return{data:{operation_id:body.operation_id,event_id:10,replayed:false,complaint:state}}}
-  const api={getComplaint:async id=>{calls.push(['detail',id]);return{data:structuredClone(state)}},withdrawComplaint:write('withdraw'),confirmComplaintFeedback:write('confirm'),objectComplaintFeedback:write('object'),updateComplaintVisibility:async(id,body)=>{calls.push(['visibility',id,body]);state={...state,...body,version:state.version+1};return{data:structuredClone(state)}},...overrides}
+  const api={getCampusComplaintPhoto:async()=>new Blob(),getComplaint:async id=>{calls.push(['detail',id]);return{data:structuredClone(state)}},withdrawComplaint:write('withdraw'),confirmComplaintFeedback:write('confirm'),objectComplaintFeedback:write('object'),updateComplaintVisibility:async(id,body)=>{calls.push(['visibility',id,body]);state={...state,...body,version:state.version+1};return{data:structuredClone(state)}},...overrides}
   const page=await script('../src/views/ComplaintDetailView.vue',{vue:{ref,computed,onBeforeUnmount:fn=>cleanup.push(fn),watch:(source,fn)=>{routeChanged=fn;fn()}},'../api/complaint':api,'../composables/complaintForm.js':{ownerComplaintActions},'../composables/complaintVisibility.js':complaintVisibility,'../components/ui/feedback':{confirmDialog:overrides.confirmDialog|| (async()=>{})}},'record,loading,error,description,submitting,unknown,readPending,pending,actionError,writeNotice,actions,busy,load,act,retryUnknown,refresh,editVisibility,saveVisibility,confirmVisibility,visibilityDraft,visibilityPreview,visibilityError',{defineProps:()=>props,crypto:{randomUUID:()=>`00000000-0000-4000-8000-${String(++uuid).padStart(12,'0')}`}})
   await tick();return{...page,calls,cleanup,setState(value){state=value},changeId(value){props.id=value;routeChanged()}}
 }
@@ -28,23 +28,37 @@ test('owner actions use server permission flags without browser date guesses and
   assert.deepEqual(ownerComplaintActions({...awaiting(),status:'closed',allowed_actions:['confirm','object']}),[])
   assert.deepEqual(ownerComplaintActions({status:'processing'}),[])
 })
-test('owner publication requires preview confirmation and switching to private clears the published summary', async () => {
+test('owner publication preserves previewed details and selected photos and clears them when made private', async () => {
   const page = await owner()
+  const firstPhoto = '11111111-1111-4111-8111-111111111111'
+  const secondPhoto = '22222222-2222-4222-8222-222222222222'
+  page.setState({ ...awaiting(), attachments: [{ id: firstPhoto }, { id: secondPhoto }] })
+  await page.refresh()
   page.editVisibility()
   assert.equal(page.visibilityDraft.value.visibility, 'private')
   page.visibilityDraft.value.visibility = 'campus'
   page.visibilityDraft.value.summary = '  照明需检修  '
+  page.visibilityDraft.value.details = '  B 区靠窗的台灯无法打开。  '
+  page.visibilityDraft.value.photoIds.push(secondPhoto)
   await page.saveVisibility()
   assert.equal(page.visibilityPreview.value, true)
   assert.equal(page.calls.some(call => call[0] === 'visibility'), false)
   await page.confirmVisibility()
-  assert.deepEqual({ ...page.calls.find(call => call[0] === 'visibility')[2] }, { version: 3, visibility: 'campus', public_summary: '照明需检修' })
+  const fields = page.calls.find(call => call[0] === 'visibility')[2]
+  assert.deepEqual({ ...fields, public_attachment_ids: Array.from(fields.public_attachment_ids) }, {
+    version: 3, visibility: 'campus', public_summary: '照明需检修',
+    public_details: 'B 区靠窗的台灯无法打开。', public_attachment_ids: [secondPhoto]
+  })
   assert.equal(page.record.value.public_summary, '照明需检修')
   page.editVisibility()
+  assert.deepEqual(Array.from(page.visibilityDraft.value.photoIds), [secondPhoto])
   page.visibilityDraft.value.visibility = 'private'
   await page.saveVisibility()
   assert.equal(page.record.value.visibility, 'private')
   assert.equal(page.record.value.public_summary, null)
+  assert.equal(page.record.value.public_details, null)
+  assert.deepEqual(page.record.value.public_attachment_ids, [])
+  assert.equal(page.record.value.attachments.length, 2)
 })
 test('uncertain visibility update verifies the saved fields through owner detail', async () => {
   let page

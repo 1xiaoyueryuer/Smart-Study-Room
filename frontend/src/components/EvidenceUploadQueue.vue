@@ -8,7 +8,8 @@ const props = defineProps({
   disabled: Boolean,
   uploading: Boolean,
   uploadDisabled: Boolean,
-  complaintPrivacy: Boolean
+  complaintPrivacy: Boolean,
+  campusPhotoSelection: Boolean
 })
 const emit = defineEmits(['select', 'retry', 'remove'])
 const input = ref(null)
@@ -68,7 +69,7 @@ function replaceOrRetry(item) {
   <section class="evidence-queue">
     <div class="evidence-heading">
       <h3>可选照片（最多 3 张）</h3>
-      <span class="muted">{{ complaintPrivacy ? '仅你和受理管理员可见' : '仅你和管理员可见' }}</span>
+      <span class="muted">{{ campusPhotoSelection ? '所选公开照片对校园用户可见' : complaintPrivacy ? '仅你和受理管理员可见' : '仅你和管理员可见' }}</span>
     </div>
     <input
       ref="input"
@@ -95,6 +96,7 @@ function replaceOrRetry(item) {
           <span class="photo-status" :data-phase="item.phase" role="status">{{ statuses[item.phase] }}</span>
         </div>
         <p v-if="item.error" class="photo-error" role="alert">{{ item.error }}</p>
+        <slot name="photo-visibility" :item="item" :index="index" />
         <div class="photo-actions">
           <SButton
             v-if="item.phase === 'uploaded' || item.phase === 'error' || item.phase === 'expired'"
