@@ -12,7 +12,7 @@ const item=(id=1,extra={})=>({id,type:'reservation_success',is_read:false,title:
 const response=(query,items=[item()],counts={total:350,unread:7,by_type:{reservation_success:300,legacy_unknown:50}})=>({items,total:350,page:query.page,page_size:query.page_size,server_now:'2026-10-30T20:00+08:00',counts})
 async function moduleFor(source,mocks,extra={}){const context=vm.createContext({defineExpose(){},...extra}),module=new vm.SourceTextModule(source,{context});await module.link(specifier=>{const values=mocks[specifier]||(specifier.endsWith('.vue')?{default:{}}:null);assert.ok(values,specifier);return new vm.SyntheticModule(Object.keys(values),function(){for(const[k,v]of Object.entries(values))this.setExport(k,v)},{context})});await module.evaluate();return module.namespace}
 async function badge(api){const auth=scope(),watchers=[];const m=await moduleFor(await readFile(new URL('../src/stores/notification.js',import.meta.url),'utf8'),{pinia:{defineStore:(name,setup)=>setup},vue:{ref:vue.ref,watch:(getter,cb)=>watchers.push(cb)},'../api/notification':{unreadCount:api},'./auth':{useAuthStore:()=>auth}});return {...m.useNotificationStore(),auth,watchers}}
-async function page(overrides={}){const auth=scope(),cleanup=[],mounted=[],calls=[],store={unread:0,hasValue:false,error:'',refresh:async()=>{calls.push(['badgeGET']);return true},beginUpdate:()=>({}),acceptUnread:count=>{store.unread=count;store.hasValue=true;return true}},api={listNotifications:async query=>{calls.push(['page',structuredClone(query)]);return{data:response(query)}},markRead:async id=>{calls.push(['read',id]);return{data:{id,marked:1,unread_count:6}}},markAllRead:async()=>{calls.push(['all']);return{data:{marked:7,unread_count:1}}},...overrides},source=(await readFile(new URL('../src/views/NotificationsView.vue',import.meta.url),'utf8')).split('<script setup>')[1].split('</script>')[0];const m=await moduleFor(source+'\nexport {pager,list,snapshot,error,loading,buckets,markingId,markingAll,actionError,writeNotice,selectCategory,category,onMarkRead,onMarkAll,visibleItems,unreadCount,typeMeta}',{vue:{...vue,watch(){},onMounted:fn=>mounted.push(fn),onBeforeUnmount:fn=>cleanup.push(fn)},'../components/ui/feedback':{message:{success(){}}},'../api/notification':api,'../stores/notification':{useNotificationStore:()=>store},'../stores/auth':{useAuthStore:()=>auth},'../composables/recordPage.js':recordPage,'../composables/reviewManagement.js':{reviewNotificationTarget},'../composables/notificationPage.js':notificationPage,'../composables/campusDateTime.js':campusDateTime});return {...m,auth,store,calls,cleanup,mounted}}
+async function page(overrides={}){const auth=scope(),cleanup=[],mounted=[],calls=[],store={unread:0,hasValue:false,error:'',refresh:async()=>{calls.push(['badgeGET']);return true},beginUpdate:()=>({}),acceptUnread:count=>{store.unread=count;store.hasValue=true;return true}},api={listNotifications:async query=>{calls.push(['page',structuredClone(query)]);return{data:response(query)}},markRead:async id=>{calls.push(['read',id]);return{data:{id,marked:1,unread_count:6}}},markAllRead:async()=>{calls.push(['all']);return{data:{marked:7,unread_count:1}}},...overrides},source=(await readFile(new URL('../src/views/NotificationsView.vue',import.meta.url),'utf8')).split('<script setup>')[1].split('</script>')[0];const m=await moduleFor(source+'\nexport {pager,list,snapshot,error,loading,buckets,markingId,markingAll,actionError,writeNotice,selectCategory,category,onMarkRead,onMarkAll,refreshMessages,visibleItems,unreadCount,typeMeta}',{vue:{...vue,watch(){},onMounted:fn=>mounted.push(fn),onBeforeUnmount:fn=>cleanup.push(fn)},'../api/notification':api,'../stores/notification':{useNotificationStore:()=>store},'../stores/auth':{useAuthStore:()=>auth},'../composables/recordPage.js':recordPage,'../composables/reviewManagement.js':{reviewNotificationTarget},'../composables/notificationPage.js':notificationPage,'../composables/campusDateTime.js':campusDateTime});return {...m,auth,store,calls,cleanup,mounted}}
 test('badge latest request wins and corrupt/network responses preserve the last confirmed count',async()=>{
  const pending=[],b=await badge(()=>new Promise((resolve,reject)=>pending.push({resolve,reject})));const first=b.refresh(),second=b.refresh();pending[1].resolve({data:{count:8}});await second;pending[0].resolve({data:{count:99}});await first;assert.equal(b.unread.value,8)
  const corrupt=b.refresh();pending[2].resolve({data:{count:'0'}});await corrupt;assert.equal(b.unread.value,8);assert.match(b.error.value,/不完整/);const failed=b.refresh();pending[3].reject(new Error('503'));await failed;assert.equal(b.unread.value,8);assert.equal(b.hasValue.value,true);assert.match(b.error.value,/503/)
@@ -26,6 +26,21 @@ test('badge authentication changes invalidate old response and mutation receipt 
 test('message page uses server totals and current category filtering',async()=>{
  const p=await page();await p.pager.refresh();assert.equal(p.snapshot.value.total,350);assert.equal(p.buckets.value.all,350);assert.equal(p.buckets.value.unread,7);assert.equal(p.list.value.length,1);p.selectCategory('reservation');assert.equal(p.visibleItems.value.length,1);assert.equal(p.buckets.value.legacy_unknown,50);assert.equal(p.store.unread,7)
 })
+test('checking read status after an interrupted write fetches the list without writing again', async () => {
+ let writes = 0
+ const p = await page({
+  markRead: async () => { writes++; throw new Error('connection lost') },
+  listNotifications: async query => ({ data: response(query, [item(1, {is_read: writes > 0})]) })
+ })
+ await p.pager.refresh()
+ await p.onMarkRead(p.list.value[0])
+ assert.match(p.actionError.value, /无法确认.*已读状态/)
+ assert.equal(p.list.value[0].is_read, false)
+ await p.refreshMessages()
+ assert.equal(p.actionError.value, '')
+ assert.equal(p.list.value[0].is_read, true)
+ assert.equal(writes, 1)
+})
 test('restriction notice formats persisted ISO deadlines as campus time to seconds and preserves actual effects',async()=>{
  const notice={...item(),type:'restriction_started',content:'系统已按对应的违规规则暂停新预约。\n公开原因：\n15天内累计两条有效违规，暂停新预约15天\n原定截止：2026-12-14T10:45:32.869980+08:00\n当前已取消仍有效待签到预约0条，使用中预约可继续至原定结束。'}
  assert.deepEqual(notificationPage.restrictionNoticeOf(notice),{reason:'15天内累计两条有效违规，暂停新预约15天',deadline:'2026-12-14 10:45:32',cancelledPendingCount:0})
@@ -35,7 +50,7 @@ test('restriction notice formats persisted ISO deadlines as campus time to secon
  assert.equal(notificationPage.notificationContent({...notice,content:'历史限制截止：2026-12-14T10:45:32.869980+08'}),'历史限制截止：2026-12-14 10:45:32')
  assert.equal(notificationPage.notificationContent({...notice,type:'system',content:'系统记录：2026-12-14T10:45:32.869980+08'}),'系统记录：2026-12-14T10:45:32.869980+08')
  const source=await readFile(new URL('../src/views/NotificationsView.vue',import.meta.url),'utf8')
- assert.match(source,/标记已读只会更新消息状态/);assert.match(source,/消息总数和未读数按全部分类统计/);assert.match(source,/没有相关事项入口/)
+ assert.match(source,/需要取消预约或提交申诉时/);assert.match(source,/较早的消息如果没有相关事项入口/);assert.match(source,/@click="refreshMessages\(\)">检查已读状态/)
  assert.match(source,/v-if="selectedRestrictionNotice"/);assert.match(source,/限制截止时间/);assert.doesNotMatch(source,/无可靠关联的历史消息不根据正文猜测目标|数量汇总覆盖本人的全部消息/)
 })
 test('typed business targets cannot be guessed from body or fabricated derived IDs',()=>{

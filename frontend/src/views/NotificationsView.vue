@@ -2,7 +2,6 @@
 import { formatCampusDateTime } from '../composables/campusDateTime.js'
 import PageHelp from '../components/PageHelp.vue'
 import {ref,computed,onMounted,onBeforeUnmount,watch} from 'vue'
-import {message} from '../components/ui/feedback'
 import {listNotifications,markRead,markAllRead} from '../api/notification'
 import {useNotificationStore} from '../stores/notification'
 import {useAuthStore} from '../stores/auth'
@@ -20,8 +19,8 @@ const scope=()=>`${auth.user?.id}:${auth.token}:${auth.user?.role}`
 let alive=true
 const pager=createRecordPager(async query=>{
  const identity=scope(),ticket=notifStore.beginUpdate(),response=await listNotifications(query)
- if(!alive||identity!==scope())throw new Error('账号已变化，请重新读取本人消息')
- if(!validNotificationPage(response.data,query))throw new Error('消息分页或全本人汇总响应不完整')
+ if(!alive||identity!==scope())throw new Error('账号已切换')
+ if(!validNotificationPage(response.data,query))throw new Error('暂时无法加载消息')
  notifStore.acceptUnread(response.data.counts.unread,ticket)
  return response
 },{blocked:()=>markingId.value!==null||markingAll.value})
@@ -79,7 +78,11 @@ const busy=computed(()=>markingId.value!==null||markingAll.value)
 function selectCategory(key){if(busy.value)return;category.value=key}
 function linked(item){return hasNotificationTarget(item,reviewNotificationTarget)}
 
-async function afterRead(){await Promise.all([pager.refresh(true),notifStore.refresh()])}
+async function refreshMessages(force = false) {
+  const identity = scope()
+  const [loaded] = await Promise.all([pager.refresh(force), notifStore.refresh()])
+  if (alive && identity === scope() && loaded) actionError.value = ''
+}
 async function onMarkRead(item){
   if(busy.value||item.is_read||!Number.isSafeInteger(item.id)||item.id<1)return
   const identity=scope(),ticket=notifStore.beginUpdate()
@@ -87,13 +90,11 @@ async function onMarkRead(item){
   try{
     const {data}=await markRead(item.id)
     if(!alive||identity!==scope())return
-    if(!validReadReceipt(data,item.id))throw new Error('已读回执不完整，请主动重读或再次核对')
+    if(!validReadReceipt(data,item.id))throw new Error('已读状态待确认')
     notifStore.acceptUnread(data.unread_count,ticket)
-    writeNotice.value=`本次实际标记${data.marked}条已读；服务端当时未读${data.unread_count}条。`
-    await afterRead()
-    const updated=list.value.find(row=>row.id===item.id)
-    if(updated)selected.value=updated
-  }catch(e){if(alive&&identity===scope())actionError.value=e.message+'；未伪造已读状态，可主动重试核对。'}
+    writeNotice.value='已标记为已读'
+    await refreshMessages(true)
+  }catch{if(alive&&identity===scope())actionError.value='暂时无法确认这条消息的已读状态'}
   finally{if(alive&&identity===scope())markingId.value=null}
 }
 async function onMarkAll(){
@@ -103,12 +104,11 @@ async function onMarkAll(){
   try{
     const {data}=await markAllRead()
     if(!alive||identity!==scope())return
-    if(!validReadReceipt(data,null))throw new Error('全部已读回执不完整，请主动重读或再次核对')
+    if(!validReadReceipt(data,null))throw new Error('已读状态待确认')
     notifStore.acceptUnread(data.unread_count,ticket)
-    writeNotice.value=`本次实际标记${data.marked}条已读；服务端当时仍未读${data.unread_count}条。`
-    message.success(`本次已标记${data.marked}条`)
-    await afterRead()
-  }catch(e){if(alive&&identity===scope())actionError.value=e.message+'；保留上次成功快照，可主动重试核对。'}
+    writeNotice.value=data.marked ? `已标记 ${data.marked} 条消息为已读` : data.unread_count ? '还有未读消息' : '当前消息均已读'
+    await refreshMessages(true)
+  }catch{if(alive&&identity===scope())actionError.value='暂时无法确认是否全部标记为已读'}
   finally{if(alive&&identity===scope())markingAll.value=false}
 }
 function selectItem(item){
@@ -123,7 +123,7 @@ function cancelLink(item){const target=reservationTarget(item);return target?{..
 
 watch(list,(value)=>{
   if(!value.length){selected.value=null;return}
-  if(!selected.value||!value.some(item=>item.id===selected.value.id))selected.value=value[0]
+  selected.value=value.find(item=>item.id===selected.value?.id) || value[0]
 },{immediate:true})
 // 切换分类时按该分类的可见消息校正选中项：分类下没有消息就清空右侧详情，避免显示别的分类的消息
 watch(category,()=>{
@@ -138,15 +138,16 @@ onMounted(pager.refresh);onBeforeUnmount(()=>{alive=false;pager.dispose()})
 <template>
   <div class="page-view notifications-page">
     <header class="view-heading has-page-help with-action" data-page-title>
-      <div class="heading-copy"><h1>消息中心</h1><p class="heading-sub">预约、取消、限制、申诉和反馈的消息都会显示在这里。</p></div>
+      <div class="heading-copy"><h1>消息中心</h1></div>
       <div class="head-actions">
         <SButton :disabled="busy||!list.length" :loading="markingAll" @click="onMarkAll">全部标记已读</SButton>
       </div>
-      <PageHelp title="消息说明"><ul class="tips"><li>标记已读只会更新消息状态，不会替你取消预约或提交申诉，也不会延长申诉截止时间。</li><li>消息总数和未读数按全部分类统计，切换分类后统计口径不变。</li><li>部分较早的消息可能没有相关事项入口，可到个人中心查看预约、违规或限制记录。</li></ul></PageHelp>
+      <PageHelp title="消息说明"><ul class="tips"><li>需要取消预约或提交申诉时，请打开消息里的对应入口。</li><li>较早的消息如果没有相关事项入口，可以前往相应页面查看记录。</li></ul></PageHelp>
     </header>
 
-    <SBanner v-if="notifStore.error" type="error" :title="notifStore.error"/>
-    <SBanner v-if="actionError" type="error" :title="actionError"/>
+    <SBanner v-if="actionError || notifStore.error" type="error" :title="actionError || '暂时无法更新未读消息数'">
+      <SButton size="sm" :disabled="busy" :loading="loading" @click="refreshMessages()">检查已读状态</SButton>
+    </SBanner>
     <p v-if="writeNotice" class="write-notice" role="status">{{ writeNotice }}</p>
 
     <div class="notif-workbench">
@@ -157,21 +158,21 @@ onMounted(pager.refresh);onBeforeUnmount(()=>{alive=false;pager.dispose()})
           </button>
         </nav>
         <p class="list-note">当前页 {{ visibleItems.length }} 条 · 未读 {{ unreadCount }} 条</p>
-        <p v-if="loading" role="status">正在读取消息…</p>
+        <p v-if="loading" role="status">正在加载消息…</p>
         <ul v-else class="msg-list">
           <li v-for="item in visibleItems" :key="item.id">
             <button type="button" class="msg-entry" :class="{active: selected?.id===item.id, unread: !item.is_read}" @click="selectItem(item)">
               <span class="msg-icon" :style="{background:typeMeta[item.type]?.bg||'var(--surface-3)',color:typeMeta[item.type]?.color||'var(--text-2)'}"><AppIcon name="notification-empty" :size="18"/></span>
               <span class="msg-copy">
                 <b>{{ item.title }}</b>
-                <small>{{ item.content }}</small>
+                <small>{{ restrictionNoticeOf(item)?.reason || notificationContent(item) }}</small>
               </span>
               <span class="msg-side"><time>{{ formatCampusDateTime(item.created_at) }}</time><i v-if="!item.is_read" class="dot" aria-label="未读"/></span>
             </button>
           </li>
         </ul>
         <SEmpty v-if="!loading && !visibleItems.length && !error" icon="inbox" description="该分类暂无消息"/>
-        <SBanner v-if="error" type="error" :title="error"><SButton size="sm" @click="pager.refresh">重试</SButton></SBanner>
+        <SBanner v-if="error" type="error" title="暂时无法加载消息"><SButton size="sm" :disabled="busy" @click="refreshMessages()">重新加载消息</SButton></SBanner>
         <RecordPageControls :snapshot="snapshot" :query="snapshotQuery" :fields="[]" :disabled="busy||loading" @page="pager.turn"/>
       </section>
 
@@ -197,7 +198,7 @@ onMounted(pager.refresh);onBeforeUnmount(()=>{alive=false;pager.dispose()})
                 <dt>现有预约</dt>
                 <dd class="restriction-notice__appointments">
                   <p v-if="selectedRestrictionNotice.cancelledPendingCount">已取消 {{ selectedRestrictionNotice.cancelledPendingCount }} 条尚未签到的预约。</p>
-                  <p v-else>没有尚未签到的预约因此次限制而取消。</p>
+                  <p v-else>此次限制未取消任何预约。</p>
                   <p>已签到的预约可继续使用至原定结束时间。</p>
                 </dd>
               </div>
@@ -206,29 +207,28 @@ onMounted(pager.refresh);onBeforeUnmount(()=>{alive=false;pager.dispose()})
           <p v-else class="detail-content">{{ notificationContent(selected) }}</p>
 
           <section v-if="selected.type==='management_cancelled'" class="cancel-card">
-            <h4>资源管理取消</h4>
+            <h4>预约已取消</h4>
             <p>原因：{{ selected.cancel_reason || selected.content || '未提供' }}</p>
             <p v-if="selected.expected_reopen_at">预计恢复：{{ formatCampusDateTime(selected.expected_reopen_at) }}</p>
-            <p v-else>预计恢复时间：待定，请以系统可预约状态为准。</p>
-            <p>本次管理取消不记本人违规；无需专程到场确认，已到场或需要帮助可点“需要协助”。</p>
+            <p v-else>恢复开放时间待定。</p>
+            <p>这次取消不会计入你的违规记录。</p>
             <div class="row-actions">
-                              <RouterLink :to="{name:'complaints',query:{type:'service'}}" class="action-link">需要协助（发起求助）</RouterLink>
-                <span class="muted">确认收到回执需服务端接口；当前消息可作为取消依据。</span>
+              <RouterLink :to="{name:'complaints',query:{type:'service'}}" class="action-link">需要协助</RouterLink>
             </div>
           </section>
 
           <section class="detail-actions">
             <RouterLink v-if="reservationTarget(selected)" :to="reservationTarget(selected)" class="action-link">查看我的预约</RouterLink>
             <RouterLink v-if="cancelLink(selected)" :to="cancelLink(selected)" class="action-link">查看并取消预约</RouterLink>
-            <RouterLink v-if="reviewNotificationTarget(selected)" :to="reviewNotificationTarget(selected)" class="action-link">查看本人评价与管理结果</RouterLink>
-            <RouterLink v-if="appealTarget(selected)" :to="appealTarget(selected)" class="action-link">查看本人申诉审核结果</RouterLink>
-            <RouterLink v-if="restrictionTarget(selected)" :to="restrictionTarget(selected)" class="action-link">查看本人限制与资格</RouterLink>
-            <RouterLink v-if="violationTarget(selected)" :to="violationTarget(selected)" class="action-link">查看本人违规</RouterLink>
+            <RouterLink v-if="reviewNotificationTarget(selected)" :to="reviewNotificationTarget(selected)" class="action-link">查看评价</RouterLink>
+            <RouterLink v-if="appealTarget(selected)" :to="appealTarget(selected)" class="action-link">查看申诉结果</RouterLink>
+            <RouterLink v-if="restrictionTarget(selected)" :to="restrictionTarget(selected)" class="action-link">查看预约限制</RouterLink>
+            <RouterLink v-if="violationTarget(selected)" :to="violationTarget(selected)" class="action-link">查看违规记录</RouterLink>
             <RouterLink v-if="complaintTarget(selected)" :to="complaintTarget(selected)" class="action-link">查看投诉进度</RouterLink>
-            <p v-if="!linked(selected)" class="muted">该历史消息未保存可定位关联，不根据正文猜测业务目标。</p>
+            <p v-if="!linked(selected) && selected.type !== 'system'" class="muted">这条消息没有详情入口。</p>
           </section>
         </template>
-        <SEmpty v-else icon="inbox" description="从左侧选择一条消息查看详情"/>
+        <SEmpty v-else icon="inbox" description="选择一条消息查看详情"/>
       </section>
     </div>
   </div>
