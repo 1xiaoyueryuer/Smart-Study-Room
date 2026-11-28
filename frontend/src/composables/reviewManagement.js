@@ -9,3 +9,10 @@ const publicKeys=['id','rating','content','updated_at','admin_reply','replied_at
 export function validPublicReview(value){return value&&Object.keys(value).length===publicKeys.length&&Object.keys(value).every(key=>publicKeys.includes(key))&&Number.isSafeInteger(value.id)&&value.id>0&&Number.isInteger(value.rating)&&value.rating>=1&&value.rating<=5&&typeof value.content==='string'&&offsetInstant(value.updated_at)!==null&&(value.admin_reply===null&&value.replied_at===null||typeof value.admin_reply==='string'&&!!value.admin_reply&&offsetInstant(value.replied_at)!==null)}
 export function reviewNotificationTarget(n){return ['review_replied','review_hidden'].includes(n?.type)&&Number.isSafeInteger(n.review_reservation_id)&&n.review_reservation_id>0?{path:'/mine',query:{review_reservation_id:String(n.review_reservation_id)}}:null}
 export function reviewReservationParam(value){return typeof value==='string'&&/^[1-9]\d*$/.test(value)&&Number.isSafeInteger(Number(value))?Number(value):null}
+
+export function hasCompletedReviewUsage(reservation) {
+  const usage = reservation.usage_record
+  const ended = reservation.status === 'completed' ||
+    (reservation.status === 'cancelled' && reservation.termination_reason === 'admin_resource_change')
+  return ended && Boolean(usage?.checkin_at && usage.ended_at && usage.settled_at)
+}

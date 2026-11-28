@@ -6,12 +6,30 @@ import SDialog from './ui/SDialog.vue'
 import SButton from './ui/SButton.vue'
 import SInput from './ui/SInput.vue'
 import SBanner from './ui/SBanner.vue'
+const emit = defineEmits(['saved'])
 const visible=ref(false),target=ref(null),detail=ref(null),loading=ref(false),submitting=ref(false),error=ref(''),receipt=ref(null),pending=ref(null),readPending=ref(false),editing=ref(false),stale=ref(false)
+const usageLabel = ref('')
 const form=ref({rating:null,content:''}),base=ref(null),drafts=new Map();let alive=true,sequence=0
 onBeforeUnmount(()=>{alive=false;sequence++;drafts.clear()})
 function remember(){if(target.value&&editing.value)drafts.set(target.value,{form:JSON.parse(JSON.stringify(form.value)),base:base.value&&JSON.parse(JSON.stringify(base.value))})}
 function initialize(value){base.value=value.review?{id:value.review.id,version:value.review.version}:null;form.value=value.review?{rating:value.review.rating,content:value.review.content}:{rating:null,content:''}}
-async function open(id){if(submitting.value||pending.value||readPending.value)return false;if(!Number.isSafeInteger(id)||id<1)return false;remember();target.value=id;detail.value=null;error.value='';receipt.value=null;stale.value=false;const saved=drafts.get(id);form.value=saved?JSON.parse(JSON.stringify(saved.form)):{rating:null,content:''};base.value=saved?.base||null;editing.value=!!saved;visible.value=true;await load();return true}
+async function open(id, label = '') {
+ if (submitting.value || pending.value || readPending.value || !Number.isSafeInteger(id) || id < 1) return false
+ remember()
+ target.value = id
+ usageLabel.value = label
+ detail.value = null
+ error.value = ''
+ receipt.value = null
+ stale.value = false
+ const saved = drafts.get(id)
+ form.value = saved ? JSON.parse(JSON.stringify(saved.form)) : { rating: null, content: '' }
+ base.value = saved?.base || null
+ editing.value = Boolean(saved)
+ visible.value = true
+ await load()
+ return true
+}
 async function load(){if(submitting.value||pending.value)return;const ticket=++sequence,id=target.value;loading.value=true;error.value=''
  try{const {data}=await getMyReview(id);if(!alive||ticket!==sequence)return;if(!validReviewDetail(data,id)||readPending.value&&(!data.review||data.review.id!==receipt.value.review.id||data.review.version<receipt.value.review.version))throw new Error('本人评价详情不完整，请重试读取');detail.value=data;const saved=drafts.get(id);if(readPending.value){readPending.value=false;initialize(data);editing.value=false}else if(saved){form.value=JSON.parse(JSON.stringify(saved.form));base.value=saved.base;editing.value=true;stale.value=(saved.base?.version??null)!==(data.review?.version??null)}else{initialize(data);editing.value=data.review===null}}
  catch(e){if(alive&&ticket===sequence)error.value=(readPending.value?'评价已保存，当前详情读取失败；请只重试读取：':'')+e.message}finally{if(alive&&ticket===sequence)loading.value=false}}
@@ -20,14 +38,24 @@ function adoptVersion(){if(!detail.value||pending.value||readPending.value)retur
 function close(){if(submitting.value||pending.value||readPending.value)return;remember();visible.value=false;sequence++}
 async function save(){if(loading.value||submitting.value||readPending.value||stale.value)return;if(!pending.value){if(!editing.value||!detail.value?.eligibility.can_review)return;try{const body={...reviewIntent(form.value),operation_id:crypto.randomUUID()};if(base.value)body.version=base.value.version;pending.value={id:target.value,action:base.value?'update':'create',reviewId:base.value?.id,body}}catch(e){error.value=e.message;return}}
  const frozen=pending.value,ticket=sequence;submitting.value=true;error.value=''
- try{const {data}=await (frozen.action==='create'?createMyReview:updateMyReview)(frozen.id,frozen.body);if(!alive||ticket!==sequence)return;if(!validReviewReceipt(data,frozen))throw new Error('评价回执不完整，请保留原请求核对');receipt.value=data;pending.value=null;drafts.delete(frozen.id);editing.value=false;readPending.value=true}
+ try {
+  const {data} = await (frozen.action === 'create' ? createMyReview : updateMyReview)(frozen.id, frozen.body)
+  if (!alive || ticket !== sequence) return
+  if (!validReviewReceipt(data, frozen)) throw new Error('评价回执不完整，请保留原请求核对')
+  receipt.value = data
+  pending.value = null
+  drafts.delete(frozen.id)
+  editing.value = false
+  readPending.value = true
+  emit('saved')
+ }
  catch(e){if(!alive||ticket!==sequence)return;error.value=e.message;if(e.status>=400&&e.status<500){pending.value=null;remember();detail.value=null;stale.value=true}}
  finally{if(alive&&ticket===sequence)submitting.value=false}
  if(alive&&ticket===sequence&&readPending.value)await load()
 }
 defineExpose({open})
 </script>
-<template><SDialog :model-value="visible" @update:model-value="close" title="本人使用评价" width="560px" :show-close="!submitting&&!pending&&!readPending" :close-on-click-modal="!submitting&&!pending&&!readPending" :close-on-escape="!submitting&&!pending&&!readPending"><section class="review-editor"><h4>预约#{{target}}</h4><SBanner v-if="error" type="error" :title="error"/><p v-if="loading" role="status">正在读取本人资格和当前评价…</p>
+<template><SDialog :model-value="visible" @update:model-value="close" title="本人使用评价" width="560px" :show-close="!submitting&&!pending&&!readPending" :close-on-click-modal="!submitting&&!pending&&!readPending" :close-on-escape="!submitting&&!pending&&!readPending"><section class="review-editor"><h4>{{ usageLabel || `预约 #${target}` }}</h4><SBanner v-if="error" type="error" :title="error"/><p v-if="loading" role="status">正在加载评价…</p><p v-else-if="receipt && !readPending && !editing" role="status">评价已保存</p>
 <template v-if="detail&&!loading"><section v-if="detail.review"><h4>当前本人评价 · {{detail.review.rating}}星</h4><p class="content">{{detail.review.content}}</p><section v-if="detail.review.admin_reply"><h4>管理回复</h4><p class="content">{{detail.review.admin_reply}}</p></section><section v-if="detail.review.hidden"><h4>该评价已隐藏</h4><p class="content">隐藏理由：{{detail.review.hidden_reason}}</p><p>本人仍可修改自己的评分和文字，修改不会自动恢复公开。</p></section><SButton v-if="!editing&&detail.eligibility.can_review" class="modify-btn" :disabled="submitting||!!pending||readPending" @click="edit">修改本人评价</SButton></section><p v-else-if="!detail.eligibility.can_review">{{reviewBlockedText(detail.eligibility.blocked_by)}}</p></template>
 <form v-if="editing&&detail?.eligibility.can_review" @submit.prevent="save"><fieldset :disabled="loading||submitting||!!pending||readPending"><legend>评分（1至5星）</legend><div class="stars"><label v-for="star in 5" :key="star"><input v-model="form.rating" type="radio" :value="star" :name="'review-rating-'+target"/>{{star}}星</label></div></fieldset><label>评价文字<SInput v-model="form.content" type="textarea" maxlength="100" :disabled="loading||submitting||!!pending||readPending"/></label><p v-if="stale">当前版本或条件需重新核对；草稿保留，请先刷新核对当前记录后继续。</p><SButton v-if="stale&&detail&&!loading" type="button" :disabled="!!pending||readPending" @click="adoptVersion">核对当前版本并保留草稿继续编辑</SButton><SButton type="submit" variant="primary" :disabled="loading||submitting||readPending||stale||!!pending">{{base?'保存本人修改':'创建本人评价'}}</SButton></form><section v-if="pending"><p>提交结果尚需核对；保留原目标、评分、文字和操作标识，仅主动按原请求核对。</p><SButton variant="primary" :disabled="submitting" @click="save">按原请求核对评价</SButton></section><SButton v-if="readPending||stale" :disabled="loading||submitting" @click="load">{{readPending?'重试读取已保存评价':'刷新当前评价和资格'}}</SButton></section></SDialog></template>
 <style scoped>.review-editor,.review-editor form,.review-editor form>label{display:grid;gap:12px;min-width:0;overflow-wrap:anywhere}.review-editor fieldset{display:grid;gap:12px;border:none;padding:0;margin:0;min-width:0}.review-editor fieldset legend{padding:0}.review-editor .stars{display:flex;flex-wrap:wrap;gap:15px}.review-editor .modify-btn{margin-top:8px}.content{white-space:pre-wrap}</style>

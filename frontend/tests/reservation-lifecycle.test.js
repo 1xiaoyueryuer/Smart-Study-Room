@@ -28,7 +28,7 @@ async function mine(overrides={}) {
     '../components/ui/feedback':{message:{success(){}},confirmDialog:overrides.confirmDialog|| (async text=>{confirmations.push(text)})},
     '../api/reservation':api,
     '../composables/checkinDeadline.js':{checkinDeadlineOf:()=>null,deadlineLabel:()=>''}
-  },'list,loading,error,actionError,busyId,actionsOf,doAction,refreshAll,terminationLabels,snapshot,requestOccupationHelp')
+  },'list,loading,error,actionError,busyId,actionsOf,doAction,refreshAll,terminationLabels,snapshot,requestOccupationHelp,showReviewEntry')
   return{...page,calls,confirmations}
 }
 test('reservation buttons use only server allowed_actions, never infer cancel or abandon from pending',async()=>{
@@ -37,6 +37,15 @@ test('reservation buttons use only server allowed_actions, never infer cancel or
   assert.deepEqual(Array.from(page.actionsOf(waiting(['checkin','abandon'])),item=>item.key),['checkin','abandon'])
   assert.equal(page.actionsOf({status:'pending'}).length,0)
   assert.equal(page.actionsOf(waiting(['not_implemented'])).length,0)
+})
+test('the review entry appears after actual use ends, including automatic completion', async () => {
+  const page = await mine()
+  const usage = { checkin_at: '09:00', ended_at: '09:30', settled_at: '09:30' }
+  assert.equal(page.showReviewEntry({ status: 'completed', termination_reason: 'auto_end', usage_record: usage }), true)
+  assert.equal(page.showReviewEntry({ status: 'cancelled', termination_reason: 'admin_resource_change', usage_record: usage }), true)
+  assert.equal(page.showReviewEntry({ status: 'checked_in', usage_record: { checkin_at: '09:00' } }), false)
+  assert.equal(page.showReviewEntry({ status: 'unused_ended', usage_record: null }), false)
+  assert.equal(page.showReviewEntry({ status: 'completed', usage_record: { ...usage, settled_at: null } }), false)
 })
 test('before-start cancellation and after-start abandonment have distinct truthful confirmations and refresh both sources',async()=>{
   const cancellation=await mine()

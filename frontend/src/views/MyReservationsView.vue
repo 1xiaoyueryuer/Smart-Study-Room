@@ -6,7 +6,7 @@ import RecordPageControls from '../components/RecordPageControls.vue'
 
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import {reviewReservationParam} from '../composables/reviewManagement.js'
+import {hasCompletedReviewUsage as showReviewEntry, reviewReservationParam} from '../composables/reviewManagement.js'
 import {checkinDeadlineOf, deadlineLabel} from '../composables/checkinDeadline.js'
 import { formatCampusDateTime } from '../composables/campusDateTime.js'
 import { message, confirmDialog } from '../components/ui/feedback'
@@ -184,12 +184,15 @@ onMounted(async()=>{await refreshAll();const target=reviewReservationParam(route
                     <div v-if="row.ended_at" class="termination-detail">结束：{{ formatCampusDateTime(row.ended_at) }}</div>
                     <div v-if="row.legacy_status" class="termination-detail">历史原状态：{{ row.legacy_status === 'temp_leave' ? '暂离（已退出该流程）' : row.legacy_status }}</div>
                   </td>
-                  <td class="usage-cell"><UsageRecordSummary :record="row.usage_record" /><div v-if="row.legacy_status === 'temp_leave' && row.leave_at" class="termination-detail">历史暂离登记：{{ formatCampusDateTime(row.leave_at) }}；不延长原结束。</div></td>
+                  <td class="usage-cell">
+                    <UsageRecordSummary :record="row.usage_record" />
+                    <div v-if="row.legacy_status === 'temp_leave' && row.leave_at" class="termination-detail">历史暂离登记：{{ formatCampusDateTime(row.leave_at) }}；不延长原结束。</div>
+                    <SButton v-if="showReviewEntry(row)" class="usage-review-button" size="sm" variant="soft" :disabled="loading || !!error || busyId !== null" @click="reviewEditor?.open(row.id)">评价这次使用</SButton>
+                  </td>
                   <td class="actions-cell">
                     <span class="row-actions">
                       <SButton v-for="a in actionsOf(row)" :key="a.key" size="sm" :variant="actionVariant[a.type]" :disabled="loading || !!error || busyId !== null" :loading="busyId === row.id" @click="doAction(row, a.key)">{{ a.label }}</SButton>
                       <SButton size="sm" variant="soft" :disabled="loading || !!error || busyId !== null" @click="requestOccupationHelp(row)">座位被占求助</SButton>
-                      <SButton size="sm" variant="soft" :disabled="loading || !!error || busyId !== null" @click="reviewEditor?.open(row.id)">评价/查看本人评价</SButton>
                     </span>
                   </td>
                 </tr>
@@ -201,7 +204,7 @@ onMounted(async()=>{await refreshAll();const target=reviewReservationParam(route
         <RecordPageControls :snapshot="snapshot" :query="snapshotQuery" :fields="fields" :disabled="loading||busyId!==null" @page="pager.turn"/>
       </section>
 
-      <section v-if="route.query.reservation_id" class="card"><div class="card-title-row"><h3>消息关联预约（独立读取）</h3><div class="row-actions"><SButton :disabled="linkedLoading||busyId!==null" @click="readLinkedReservation">刷新关联预约</SButton><SButton size="sm" @click="closeLinkedReservation">关闭</SButton></div></div><p v-if="linkedLoading" role="status">正在核对本人关联预约及真实使用记录…</p><SBanner v-if="linkedError" type="error" :title="linkedError"/><template v-if="linkedReservation"><h4>预约#{{linkedReservation.id}} · {{statusMeta[linkedReservation.status]?.text||linkedReservation.status}}</h4><p>{{linkedReservation.room_name}} / {{linkedReservation.seat_no}} · {{linkedReservation.res_date}} {{linkedReservation.start_time}}—{{linkedReservation.end_time}}</p><p v-if="deadlineOf(linkedReservation)" class="linked-deadline">签到截止 <b>{{ deadlineOf(linkedReservation).text }}</b><span v-if="deadlineOf(linkedReservation).extended">（已延期，原 {{ deadlineOf(linkedReservation).baseText }}）</span></p><p>{{terminationLabels[linkedReservation.termination_reason]||linkedReservation.termination_reason||'尚未终止'}}</p><UsageRecordSummary :record="linkedReservation.usage_record"/><p>这是一条独立的本人记录，不计入当前筛选页总数。</p><div class="row-actions"><SButton v-for="action in actionsOf(linkedReservation)" :key="action.key" :disabled="busyId!==null" @click="doAction(linkedReservation,action.key)">{{action.label}}</SButton><SButton :disabled="busyId!==null" @click="reviewEditor?.open(linkedReservation.id)">查看本人评价</SButton></div></template></section>
+      <section v-if="route.query.reservation_id" class="card"><div class="card-title-row"><h3>消息关联预约（独立读取）</h3><div class="row-actions"><SButton :disabled="linkedLoading||busyId!==null" @click="readLinkedReservation">刷新关联预约</SButton><SButton size="sm" @click="closeLinkedReservation">关闭</SButton></div></div><p v-if="linkedLoading" role="status">正在核对本人关联预约及真实使用记录…</p><SBanner v-if="linkedError" type="error" :title="linkedError"/><template v-if="linkedReservation"><h4>预约#{{linkedReservation.id}} · {{statusMeta[linkedReservation.status]?.text||linkedReservation.status}}</h4><p>{{linkedReservation.room_name}} / {{linkedReservation.seat_no}} · {{linkedReservation.res_date}} {{linkedReservation.start_time}}—{{linkedReservation.end_time}}</p><p v-if="deadlineOf(linkedReservation)" class="linked-deadline">签到截止 <b>{{ deadlineOf(linkedReservation).text }}</b><span v-if="deadlineOf(linkedReservation).extended">（已延期，原 {{ deadlineOf(linkedReservation).baseText }}）</span></p><p>{{terminationLabels[linkedReservation.termination_reason]||linkedReservation.termination_reason||'尚未终止'}}</p><UsageRecordSummary :record="linkedReservation.usage_record"/><p>这是一条独立的本人记录，不计入当前筛选页总数。</p><div class="row-actions"><SButton v-for="action in actionsOf(linkedReservation)" :key="action.key" :disabled="busyId!==null" @click="doAction(linkedReservation,action.key)">{{action.label}}</SButton><SButton v-if="showReviewEntry(linkedReservation)" variant="soft" :disabled="busyId !== null" @click="reviewEditor?.open(linkedReservation.id)">评价这次使用</SButton></div></template></section>
 
       <ReviewEditor ref="reviewEditor"/>
     </div>
@@ -225,6 +228,7 @@ onMounted(async()=>{await refreshAll();const target=reviewReservationParam(route
 .room-name { color: var(--text-1); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .seat-line { color: var(--text-3); font-size: 12px; margin-top: 3px; }
 .status-cell, .usage-cell { min-width: 0; }
+.usage-review-button { margin-top: 8px; }
 .status-cell .termination-detail { max-width: none; }
 .actions-cell .row-actions { display: flex; flex-wrap: wrap; gap: 6px; white-space: normal; }
 .actions-cell :deep(.s-btn) { font-size: 11px; }

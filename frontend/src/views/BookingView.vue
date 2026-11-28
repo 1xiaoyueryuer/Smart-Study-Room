@@ -16,6 +16,8 @@ import { MISSING_LOCATION, locationValue, locationOptions, bookingZone, findRoom
 import { bookingRestrictionDetails, activeBookingRestrictions, isBookingRestricted } from '../composables/restrictionForm.js'
 import RestrictionRecord from '../components/RestrictionRecord.vue'
 import SButton from '../components/ui/SButton.vue'
+import SDialog from '../components/ui/SDialog.vue'
+import RoomReviewsView from './RoomReviewsView.vue'
 import SSelect from '../components/ui/SSelect.vue'
 import STag from '../components/ui/STag.vue'
 import SInput from '../components/ui/SInput.vue'
@@ -83,6 +85,7 @@ function pickFloor(value) {
 }
 const roomId = ref(null)
 const selectedRoom = computed(() => zoneRooms.value.find(item => item.id === roomId.value))
+const showRoomReviews = ref(false)
 const strategy = ref('duration'), durationInput = ref(''), searchStart = ref(''), queryDirty = ref(true)
 const hasSearchInputs = computed(() => Boolean(searchStart.value.trim() && durationInput.value.trim()))
 const strategyLabel = '满足学习时长'
@@ -153,6 +156,7 @@ function setRoom(id) {
   if (roomId.value === id) return
   roomId.value = id
   show3D.value = false
+  showRoomReviews.value = false
   room.value = null
   seats.value = []
   invalidateQuery()
@@ -735,7 +739,10 @@ onMounted(async () => {
         <div class="card-title-row">
           <div class="seat-heading">
             <div class="seat-space">
-              <h3>{{ selectedRoom?.name || '选择座位' }}</h3>
+              <div class="seat-room-heading">
+                <h3>{{ selectedRoom?.name || '选择座位' }}</h3>
+                <SButton v-if="selectedRoom" size="sm" variant="soft" aria-haspopup="dialog" @click="showRoomReviews = true">查看评价</SButton>
+              </div>
               <span v-if="room" class="room-brief">开放 {{ showWindows(room.opening_windows) }}</span>
             </div>
             <div class="row-actions">
@@ -836,6 +843,9 @@ onMounted(async () => {
     </div>
   </div>
 
+  <SDialog v-model="showRoomReviews" :title="selectedRoom ? `${selectedRoom.name} · 空间评价` : '空间评价'" width="560px">
+    <RoomReviewsView v-if="selectedRoom" :key="selectedRoom.id" :room-id="selectedRoom.id" />
+  </SDialog>
   <SeatExplorer v-if="show3D" ref="explorer" :origin="seatCard" :room="room" :seats="seats" :preferences="preferences" :selected-id="selected?.id" :selected-window="selectedWindow" :date="date" :start="start" :end="end" :requested-start="searchStart" :loading="loading" :submitting="submitting" :browsing-only="readOnlyBrowse" :submit-error="bookingError || policyError" :restriction-failure="restrictionFailure" :policy-ready="!!policy && !policyLoading && !queryDirty" :strategy-label="strategyLabel" :required-minutes="availability?.learning_minutes" :shortfall="shortfall" @select="onSeatClick" @submit="confirmBooking" @closed="show3D = false" />
 
   <!-- 座位悬浮提示 -->
@@ -997,6 +1007,7 @@ onMounted(async () => {
 .resource-summary { font-size:var(--fs-caption); color:var(--text-3); line-height:1.7; overflow-wrap:anywhere; margin-bottom:12px; }
 .seat-card .seat-heading { width: 100%; display: flex; align-items: center; gap: 10px 16px; flex-wrap: wrap; }
 .seat-space { display: grid; gap: 3px; min-width: 0; overflow-wrap: anywhere; }
+.seat-room-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; }
 /* 自习室选择器 + 示意卡片：与标题相邻、整体靠左 */
 .seat-head-tools {
   display: flex;

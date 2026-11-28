@@ -6,12 +6,13 @@ import * as vue from 'vue'
 import * as ssr from 'vue/server-renderer'
 import {parse,compileTemplate} from '@vue/compiler-sfc'
 import {formatCampusDateTime} from '../src/composables/campusDateTime.js'
+import { recordTestImport } from './record-fixtures.js'
 import * as helpers from '../src/composables/reviewManagement.js'
 const tick=()=>new Promise(resolve=>setImmediate(resolve))
 const review=(id=8,extra={})=>({id,reservation_id:id+62,rating:4,content:'原评价',version:1,created_at:'2026-10-30T10:00+08:00',updated_at:'2026-10-30T10:00+08:00',admin_reply:null,replied_at:null,hidden:false,hidden_reason:null,hidden_at:null,room_id:1,room_name:'工程空间',subject:{id:2,username:'PRIVATE_USER',real_name:'PRIVATE_NAME',campus_id:'PRIVATE_CAMPUS'},...extra})
 const list=(items=[])=>({items,total:items.length,page:1,page_size:10,server_now:'2026-10-30T11:00+08:00'})
 function receipt(body,action,id=8){return{operation_id:body.operation_id,replayed:false,review:review(id,{version:body.version+1,...(action==='reply'?{admin_reply:body.reply,replied_at:'2026-10-30T11:00+08:00'}:{hidden:true,hidden_reason:body.reason,hidden_at:'2026-10-30T11:00+08:00'})})}}
-async function script(file,mocks,exports){const source=(await readFile(new URL(file,import.meta.url),'utf8')).split('<script setup>')[1].split('</script>')[0],cleanup=[],mounted=[],context=vm.createContext({defineExpose(){},crypto}),module=new vm.SourceTextModule(source+`\nexport {${exports}}`,{context});await module.link(specifier=>{const values=mocks[specifier]||(specifier==='vue'?{...vue,onBeforeUnmount:fn=>cleanup.push(fn),onMounted:fn=>mounted.push(fn)}:specifier.endsWith('/reviewManagement.js')?helpers:specifier.endsWith('/campusDateTime.js')?{formatCampusDateTime:value=>value==null?'':String(value)}:specifier.endsWith('/api/room')?{getRooms:async()=>({data:[]})}:specifier.endsWith('.vue')?{default:{}}:null);assert.ok(values,specifier);return new vm.SyntheticModule(Object.keys(values),function(){for(const[k,v]of Object.entries(values))this.setExport(k,v)},{context})});await module.evaluate();return{...module.namespace,cleanup,mounted}}
+async function script(file,mocks,exports,props={}){const source=(await readFile(new URL(file,import.meta.url),'utf8')).split('<script setup>')[1].split('</script>')[0],cleanup=[],mounted=[],context=vm.createContext({defineExpose(){},defineProps:()=>({roomId:null,...props}),crypto}),module=new vm.SourceTextModule(source+`\nexport {${exports}}`,{context});await module.link(specifier=>{const values=recordTestImport(specifier,mocks[specifier]||(specifier==='../api/reservation'?{listMyReservations:async()=>({data:[]})}:null))||(specifier==='vue'?{...vue,onBeforeUnmount:fn=>cleanup.push(fn),onMounted:fn=>mounted.push(fn)}:specifier.endsWith('/reviewManagement.js')?helpers:specifier.endsWith('/campusDateTime.js')?{formatCampusDateTime:value=>value==null?'':String(value)}:specifier.endsWith('/api/room')?{getRooms:async()=>({data:[]})}:specifier.endsWith('.vue')?{default:{}}:null);assert.ok(values,specifier);return new vm.SyntheticModule(Object.keys(values),function(){for(const[k,v]of Object.entries(values))this.setExport(k,v)},{context})});await module.evaluate();return{...module.namespace,cleanup,mounted}}
 async function admin(overrides={}){let current=review();const posts=[],api={listAdminReviews:async()=>({data:list([current])}),getAdminReview:async id=>({data:review(id)}),replyReview:async(id,body)=>{posts.push({id,action:'reply',body:JSON.parse(JSON.stringify(body))});return{data:receipt(body,'reply',id)}},hideReview:async(id,body)=>{posts.push({id,action:'hide',body:JSON.parse(JSON.stringify(body))});return{data:receipt(body,'hide',id)}},...overrides};return{...await script('../src/components/admin/ReviewManagement.vue',{'../../api/review':api},'selected,detail,draft,dialog,action,pending,readPending,receipt,error,stale,items,listError,open,prepare,close,confirm,loadList'),posts}}
 test('management reply/hide intent cannot contain rating/content fields; required reasons and strict snapshot integrity',()=>{assert.deepEqual(helpers.moderationIntent('reply',' reply ',2),{version:2,reply:'reply'});assert.deepEqual(helpers.moderationIntent('hide',' reason ',2),{version:2,reason:'reason'});assert.throws(()=>helpers.moderationIntent('hide','',2));const frozen={action:'reply',original:review(),body:{version:1,reply:'reply',operation_id:'uuid'}};assert.equal(helpers.validModerationReceipt(receipt(frozen.body,'reply'),frozen),true);for(const patch of [v=>v.review.rating=5,v=>v.review.content='modified',v=>v.review.id=9,v=>v.review.version=3,v=>v.review.admin_reply='other',v=>v.review.hidden=true,v=>v.operation_id='other']){const r=receipt(frozen.body,'reply');patch(r);assert.equal(helpers.validModerationReceipt(r,frozen),false)}})
 test('unknown moderation freezes target/action/version/content and same UUID across explicit retries',async()=>{const posts=[];const p=await admin({replyReview:async(id,body)=>{posts.push({id,body:JSON.parse(JSON.stringify(body))});if(posts.length===1)throw{status:null,message:'unknown'};return{data:receipt(body,'reply',id)}}});await p.open(8);p.draft.value.reply='reply original';p.prepare('reply');await p.confirm();assert.ok(p.pending.value);p.close();await p.open(9);assert.equal(p.selected.value,8);assert.equal(p.dialog.value,true);p.draft.value.reply='later';p.action.value='hide';await p.confirm();assert.deepEqual(posts[0],posts[1]);assert.equal(p.pending.value,null);assert.ok(p.receipt.value)})
@@ -37,13 +38,50 @@ test('public failed refresh retains last successful page and late room response 
  fail=true;await p.load(1);assert.equal(p.snapshot.value,previous);assert.equal(p.snapshotKey.value,'all');assert.match(p.error.value,/503/)
  fail=false;p.room.value=2;const old=p.load(1);p.room.value=1;await p.load(1);release();await old;assert.equal(p.snapshotKey.value,1);assert.equal(p.snapshot.value.items[0].id,1)
 })
+test('opening reviews from booking loads the selected room without loading all rooms or reviews', async () => {
+ const requestedRooms = []
+ const page = await script('../src/views/RoomReviewsView.vue', {
+  '../api/room': { getRooms: () => assert.fail('room picker should not load') },
+  '../api/review': {
+   listAllRoomReviews: () => assert.fail('all reviews should not load'),
+   listRoomReviews: async id => { requestedRooms.push(id); return { data: list() } }
+  }
+ }, 'snapshot,error', { roomId: 3 })
+ await page.mounted[0]()
+ assert.deepEqual(requestedRooms, [3])
+ assert.equal(page.error.value, '')
+ assert.equal(page.snapshot.value.total, 0)
+})
+test('the public review page opens the editor only for the selected completed usage', async () => {
+ const requests = [], opened = []
+ const usage = { checkin_at: '09:00', ended_at: '09:30', settled_at: '09:30' }
+ const completed = { id: 3, status: 'completed', room_name: '1F-C区', seat_no: '01-02', usage_record: usage }
+ const running = { id: 4, status: 'checked_in', usage_record: { checkin_at: '10:00' } }
+ const noShow = { id: 5, status: 'unused_ended', usage_record: null }
+ const page = await script('../src/views/RoomReviewsView.vue', {
+  '../api/reservation': { listMyReservations: async query => {
+   requests.push(query)
+   return { data: [running, noShow, completed] }
+  } },
+  '../api/review': { listAllRoomReviews: async () => ({ data: list() }), listRoomReviews: async () => ({ data: list() }) }
+ }, 'showUsagePicker,reviewableUsage,toggleUsagePicker,openUsageReview,reviewEditor')
+ page.reviewEditor.value = { open: (...args) => opened.push(args) }
+ assert.equal(requests.length, 0)
+ await page.toggleUsagePicker()
+ assert.equal(page.showUsagePicker.value, true)
+ assert.deepEqual(requests, [{ page: 1, page_size: 10, record_type: 'usage' }])
+ assert.deepEqual(Array.from(page.reviewableUsage.value, row => row.id), [3])
+ page.openUsageReview(running)
+ page.openUsageReview(page.reviewableUsage.value[0])
+ assert.deepEqual(opened, [[3, '1F-C区 · 01-02']])
+})
 test('actual owner template renders hidden reason/reply without offering restoration or management identity fields',async()=>{const source=await readFile(new URL('../src/components/ReviewEditor.vue',import.meta.url),'utf8');assert.match(source,/修改不会自动恢复公开/);assert.match(source,/detail.review.hidden_reason/);assert.match(source,/detail.review.admin_reply/);assert.doesNotMatch(source,/subject.username|campus_id|hidden=false|unhide/);const publicSource=await readFile(new URL('../src/views/RoomReviewsView.vue',import.meta.url),'utf8');assert.match(publicSource,/匿名评价/);assert.doesNotMatch(publicSource,/item.username|item.reservation_id|item.hidden_reason/);const notifications=await readFile(new URL('../src/views/NotificationsView.vue',import.meta.url),'utf8');assert.match(notifications,/review_replied/);assert.match(notifications,/review_hidden/);const mine=await readFile(new URL('../src/views/MyReservationsView.vue',import.meta.url),'utf8');assert.match(mine,/reviewReservationParam\(route.query.review_reservation_id\)/)})
 test('public SFC renders anonymous text and reply and never renders extra injected account or reservation fields',async()=>{
  const source=await readFile(new URL('../src/views/RoomReviewsView.vue',import.meta.url),'utf8'),{descriptor}=parse(source),compiled=compileTemplate({source:descriptor.template.content,filename:'RoomReviewsView.vue',id:'s25-public',ssr:true,ssrCssVars:[]});assert.equal(compiled.errors.length,0)
  const context=vm.createContext({}),module=new vm.SourceTextModule(compiled.code,{context});await module.link(specifier=>{const values=specifier==='vue'?vue:ssr;return new vm.SyntheticModule(Object.keys(values),function(){for(const[k,v]of Object.entries(values))this.setExport(k,v)},{context})});await module.evaluate()
  const snapshot=list([{id:8,rating:4,content:'公开评价原文',updated_at:'2026-10-30T11:00+08:00',admin_reply:'公开管理回复',replied_at:'2026-10-30T11:00+08:00',username:'PRIVATE_USERNAME',reservation_id:99999,hidden_reason:'PRIVATE_REASON'}])
- const app=vue.createSSRApp({setup:()=>({rooms:[{id:1,name:'A'}],room:1,snapshot,snapshotKey:1,loading:false,roomLoading:false,error:'',roomError:'',roomOptions:[{value:1,label:'A'}],currentKey:()=>1,refreshAll(){},load(){},loadRooms(){},formatCampusDateTime}),ssrRender:module.namespace.ssrRender})
- for(const name of ['SButton','SSelect','SBanner','SEmpty'])app.component(name,{render(){return vue.h('div',this.$slots.default?.())}})
+ const app=vue.createSSRApp({setup:()=>({rooms:[{id:1,name:'A'}],room:1,singleRoom:false,auth:{isOrdinary:false},snapshot,snapshotKey:1,loading:false,roomLoading:false,error:'',roomError:'',roomOptions:[{value:1,label:'A'}],currentKey:()=>1,refreshAll(){},load(){},loadRooms(){},formatCampusDateTime}),ssrRender:module.namespace.ssrRender})
+ for(const name of ['SButton','SSelect','SBanner','SEmpty','ReviewEditor'])app.component(name,{render(){return vue.h('div',this.$slots.default?.())}})
  const html=await ssr.renderToString(app);assert.match(html,/匿名评价 · 4星/);assert.match(html,/公开评价原文/);assert.match(html,/公开管理回复/);assert.doesNotMatch(html,/PRIVATE_USERNAME|PRIVATE_REASON|99999/)
 })
 test('successful moderation refreshes current list page after current detail, preserving selection and other drafts',async()=>{
