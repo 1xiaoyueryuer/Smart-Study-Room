@@ -96,3 +96,78 @@ test('complaint reservation picker requests the first five reservations and keep
   assert.equal(center.context.value, null)
   for (const cleanup of [...linked.cleanup, ...center.cleanup]) cleanup()
 })
+
+test('complaint submission keeps its description and retries with the two available photos after one expires', async t => {
+  const requests = [], photoReads = [], detailReads = [], emitted = []
+  const attachmentIds = [
+    '00000000-0000-4000-8000-000000000001',
+    '00000000-0000-4000-8000-000000000002',
+    '00000000-0000-4000-8000-000000000003'
+  ]
+  let savedComplaint
+  const page = await component('../src/components/ComplaintForm.vue', {
+    '../api/complaint': {
+      async createComplaint(body) {
+        requests.push(structuredClone(body))
+        if (requests.length === 1) throw { status: 409 }
+        const attachments = body.attachment_ids.map(id => ({ id }))
+        savedComplaint = {
+          id: 71, status: 'submitted', operation_id: body.operation_id,
+          attachments, attachment_count: attachments.length, events: []
+        }
+        return { data: savedComplaint }
+      },
+      async getComplaint(id) {
+        detailReads.push(id)
+        return { data: savedComplaint }
+      },
+      async getComplaintAttachment(id) {
+        photoReads.push(id)
+        if (id === attachmentIds[1]) throw { status: 404 }
+        return new Blob()
+      },
+      getComplaintRoomSeats() {},
+      uploadComplaintAttachment() {}
+    },
+    '../api/room': { getRooms() {} },
+    '../api/reservation': { getReservation() {}, listMyReservations() {} },
+    '../composables/complaintForm.js': complaintForm,
+    '../composables/checkinDeadline.js': { checkinDeadlineOf() {} },
+    '../composables/useEvidenceUploadQueue.js': { useEvidenceUploadQueue }
+  }, 'applyInitial,changeRoom,description,error,expiredCount,items,receipt,record,repair,submit,unsafeArea', {
+    defineProps: () => ({ initialType: 'service' }),
+    defineEmits: () => (...event) => emitted.push(event)
+  })
+  t.after(() => page.cleanup.forEach(dispose => dispose()))
+
+  page.applyInitial()
+  page.changeRoom(12)
+  page.repair.value = { faultType: '照明/电气', impactScope: 'one_seat', safetyRisk: 'none' }
+  page.unsafeArea.value = 'no'
+  page.description.value = '座位旁的灯无法开启，请协助维修。'
+  page.items.value = attachmentIds.map(id => ({ key: id, phase: 'uploaded', metadata: { id } }))
+
+  await page.submit()
+  assert.deepEqual(requests[0].attachment_ids, attachmentIds)
+  assert.equal(requests[0].service_kind, 'facility_repair')
+  assert.equal(requests[0].room_id, 12)
+  assert.deepEqual(photoReads, attachmentIds)
+  assert.deepEqual(Array.from(page.items.value, item => item.phase), ['uploaded', 'expired', 'uploaded'])
+  assert.equal(page.expiredCount.value, 1)
+  assert.match(page.error.value, /有照片已失效/)
+  assert.equal(page.description.value, '座位旁的灯无法开启，请协助维修。')
+  assert.equal(page.receipt.value, null)
+  assert.deepEqual(detailReads, [])
+  assert.deepEqual(emitted, [])
+
+  await page.submit()
+  assert.equal(requests.length, 2)
+  assert.deepEqual(requests[1].attachment_ids, [attachmentIds[0], attachmentIds[2]])
+  assert.equal(requests[1].room_id, requests[0].room_id)
+  assert.equal(requests[1].description, requests[0].description)
+  assert.notEqual(requests[1].operation_id, requests[0].operation_id)
+  assert.equal(page.receipt.value.id, 71)
+  assert.equal(page.record.value.id, 71)
+  assert.deepEqual(detailReads, [71])
+  assert.deepEqual(emitted, [['created', 71]])
+})
