@@ -6,6 +6,7 @@ import * as vue from 'vue'
 import * as records from '../src/composables/recordPage.js'
 import * as campusDateTime from '../src/composables/campusDateTime.js'
 import * as complaintForm from '../src/composables/complaintForm.js'
+import * as complaintVisibility from '../src/composables/complaintVisibility.js'
 import { useEvidenceUploadQueue } from '../src/composables/useEvidenceUploadQueue.js'
 import {validEligibility,eligibilityText,restrictionStatuses,restrictionPayload,offsetInstant} from '../src/composables/restrictionForm.js'
 const rows=(start,count)=>Array.from({length:count},(_,n)=>({id:start+n,status:'active',type:'no_show',source:'automatic',reason:'工程记录'+(start+n)}))
@@ -68,6 +69,7 @@ test('complaint reservation picker requests the first five reservations and keep
       }
     },
     '../composables/complaintForm.js': complaintForm,
+    '../composables/complaintVisibility.js': complaintVisibility,
     '../composables/checkinDeadline.js': { checkinDeadlineOf() {} },
     '../composables/useEvidenceUploadQueue.js': { useEvidenceUploadQueue }
   }
@@ -132,15 +134,21 @@ test('complaint submission keeps its description and retries with the two availa
     '../api/room': { getRooms() {} },
     '../api/reservation': { getReservation() {}, listMyReservations() {} },
     '../composables/complaintForm.js': complaintForm,
+    '../composables/complaintVisibility.js': complaintVisibility,
     '../composables/checkinDeadline.js': { checkinDeadlineOf() {} },
     '../composables/useEvidenceUploadQueue.js': { useEvidenceUploadQueue }
-  }, 'applyInitial,changeRoom,description,error,expiredCount,items,receipt,record,repair,submit,unsafeArea', {
+  }, 'applyInitial,changeRoom,changeType,confirmSubmission,description,error,expiredCount,items,previewOpen,publicDetails,publicSummary,receipt,record,repair,selectedVisibility,selectedPublicPhotoIds,submit,togglePublicPhoto,unsafeArea,visibility', {
     defineProps: () => ({ initialType: 'service' }),
     defineEmits: () => (...event) => emitted.push(event)
   })
   t.after(() => page.cleanup.forEach(dispose => dispose()))
 
   page.applyInitial()
+  assert.equal(page.visibility.value, 'campus')
+  page.changeType('occupation')
+  assert.equal(page.visibility.value, 'private')
+  page.changeType('service')
+  assert.equal(page.visibility.value, 'campus')
   page.changeRoom(12)
   page.repair.value = { faultType: '照明/电气', impactScope: 'one_seat', safetyRisk: 'none' }
   page.unsafeArea.value = 'no'
@@ -148,23 +156,42 @@ test('complaint submission keeps its description and retries with the two availa
   page.items.value = attachmentIds.map(id => ({ key: id, phase: 'uploaded', metadata: { id } }))
 
   await page.submit()
+  assert.match(page.error.value, /公开摘要/)
+  assert.deepEqual(requests, [])
+  page.publicSummary.value = '  有座位照明故障  '
+  page.publicDetails.value = '  靠窗座位的台灯检修前无法使用。  '
+  page.togglePublicPhoto(attachmentIds[1], true)
+  await page.submit()
+  assert.equal(page.previewOpen.value, true)
+  assert.deepEqual(requests, [])
+  await page.confirmSubmission()
   assert.deepEqual(requests[0].attachment_ids, attachmentIds)
   assert.equal(requests[0].service_kind, 'facility_repair')
   assert.equal(requests[0].room_id, 12)
+  assert.equal(requests[0].visibility, 'campus')
+  assert.equal(requests[0].public_summary, '有座位照明故障')
+  assert.equal(requests[0].public_details, '靠窗座位的台灯检修前无法使用。')
+  assert.deepEqual(requests[0].public_attachment_ids, [attachmentIds[1]])
   assert.deepEqual(photoReads, attachmentIds)
   assert.deepEqual(Array.from(page.items.value, item => item.phase), ['uploaded', 'expired', 'uploaded'])
   assert.equal(page.expiredCount.value, 1)
+  assert.deepEqual(Array.from(page.selectedPublicPhotoIds.value), [])
   assert.match(page.error.value, /有照片已失效/)
   assert.equal(page.description.value, '座位旁的灯无法开启，请协助维修。')
   assert.equal(page.receipt.value, null)
   assert.deepEqual(detailReads, [])
   assert.deepEqual(emitted, [])
 
+  page.selectedVisibility.value = 'private'
   await page.submit()
   assert.equal(requests.length, 2)
   assert.deepEqual(requests[1].attachment_ids, [attachmentIds[0], attachmentIds[2]])
   assert.equal(requests[1].room_id, requests[0].room_id)
   assert.equal(requests[1].description, requests[0].description)
+  assert.equal(requests[1].visibility, 'private')
+  assert.equal(requests[1].public_summary, null)
+  assert.equal(requests[1].public_details, null)
+  assert.deepEqual(requests[1].public_attachment_ids, [])
   assert.notEqual(requests[1].operation_id, requests[0].operation_id)
   assert.equal(page.receipt.value.id, 71)
   assert.equal(page.record.value.id, 71)

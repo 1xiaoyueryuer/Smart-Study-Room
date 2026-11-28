@@ -1,11 +1,12 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { listMyComplaints, getComplaint } from '../api/complaint'
+import { getCampusComplaintPhoto, listCampusComplaints, listMyComplaints, getComplaint } from '../api/complaint'
 import { complaintStatuses, complaintCategory, complaintNumber, isFacilityRepair, parseRepair } from '../composables/complaintForm.js'
 import { formatCampusDateTime } from '../composables/campusDateTime.js'
 import { useServiceTargetClock } from '../composables/useServiceTargetClock.js'
 import ComplaintForm from '../components/ComplaintForm.vue'
+import ComplaintCampusCard from '../components/ComplaintCampusCard.vue'
 import ComplaintRecord from '../components/ComplaintRecord.vue'
 import SButton from '../components/ui/SButton.vue'
 import SBanner from '../components/ui/SBanner.vue'
@@ -15,6 +16,16 @@ import RecordPageControls from '../components/RecordPageControls.vue'
 
 const route = useRoute()
 const pager = createRecordPager(listMyComplaints, { initial: { type: '' } })
+const campusPager = createRecordPager(listCampusComplaints, {
+  validRow: row => !!row && (row.room_name === null || typeof row.room_name === 'string') &&
+    typeof row.public_summary === 'string' && Object.hasOwn(complaintStatuses, row.status) &&
+    (row.category == null || typeof row.category === 'string') &&
+    (row.public_details == null || typeof row.public_details === 'string') &&
+    (row.public_attachment_ids == null || (Array.isArray(row.public_attachment_ids) &&
+      row.public_attachment_ids.every(id => typeof id === 'string')))
+})
+const { items: campusItems, loading: campusLoading, loaded: campusLoaded, error: campusError, snapshot: campusSnapshot } = campusPager
+const audience = ref('mine')
 const fields = recordFields('complaint')
 const {items, loading, loaded, error, filters, snapshot, snapshotQuery} = pager
 const formComponent = ref(null)
@@ -92,6 +103,7 @@ function closeDetail() {
 
 function created(id) {
   formOpen.value = false
+  audience.value = 'mine'
   return load().then(() => {
     const target = items.value.find(item => item.id === id)
     if (target) selectItem(target)
@@ -99,7 +111,14 @@ function created(id) {
 }
 
 function toggleForm() {
+  if (!formOpen.value) audience.value = 'mine'
   formOpen.value = !formOpen.value
+}
+
+function showAudience(value) {
+  if (audience.value === value) return
+  audience.value = value
+  if (value === 'campus') void campusPager.refresh()
 }
 
 // 选中项跟随当前分类的可见记录：分类下没有记录时清空右侧详情，而不是保留别的分类的记录
@@ -109,11 +128,14 @@ watch(visibleItems, (value) => {
 }, {immediate: true})
 
 watch(() => route.query, (query) => {
-  if (query.reservation_id || query.type) formOpen.value = true
+  if (query.reservation_id || query.type) {
+    audience.value = 'mine'
+    formOpen.value = true
+  }
 }, {immediate: true})
 
 onMounted(load)
-onBeforeUnmount(() => { alive = false; detailSequence++; pager.dispose() })
+onBeforeUnmount(() => { alive = false; detailSequence++; pager.dispose(); campusPager.dispose() })
 </script>
 
 <template>
@@ -129,7 +151,27 @@ onBeforeUnmount(() => { alive = false; detailSequence++; pager.dispose() })
       <ComplaintForm ref="formComponent" :initial-type="String(route.query.type || 'service')" :initial-reservation-id="route.query.reservation_id || null" @created="created" />
     </section>
 
-    <div class="complaint-workbench">
+    <nav class="complaint-audiences" aria-label="求助可见范围">
+      <SButton :variant="audience === 'mine' ? 'primary' : 'secondary'" :aria-pressed="audience === 'mine'" @click="showAudience('mine')">我的求助</SButton>
+      <SButton :variant="audience === 'campus' ? 'primary' : 'secondary'" :aria-pressed="audience === 'campus'" @click="showAudience('campus')">校园公开</SButton>
+    </nav>
+
+    <section v-if="audience === 'campus'" class="card campus-list" aria-label="校园公开求助">
+      <SBanner v-if="campusError" type="error" title="暂时无法加载校园公开求助">
+        <SButton size="sm" @click="campusPager.refresh()">重新加载</SButton>
+      </SBanner>
+      <p v-if="campusLoading" role="status">正在加载校园公开求助…</p>
+      <template v-else-if="!campusError">
+        <ComplaintCampusCard v-for="(item, index) in campusItems" :key="index" :room-name="item.room_name" :category="item.category"
+          :summary="item.public_summary" :details="item.public_details" :status="item.status"
+          :photo-ids="item.public_attachment_ids" :load-photo="getCampusComplaintPhoto" />
+        <SEmpty v-if="campusLoaded && !campusItems.length" :description="campusSnapshot.total ? '这一页暂无公开求助' : '暂无校园公开求助'" />
+      </template>
+      <RecordPageControls v-if="!campusError && campusSnapshot && (campusSnapshot.page > 1 || campusSnapshot.total > campusSnapshot.page_size)"
+        :snapshot="campusSnapshot" :disabled="campusLoading" @page="campusPager.turn" />
+    </section>
+
+    <div v-else class="complaint-workbench">
       <section class="card list-panel">
         <nav class="complaint-tabs" aria-label="求助类型">
           <button v-for="tab in categories" :key="tab.key" type="button" :class="{active: category === tab.key}" :disabled="loading" @click="selectCategory(tab.key)">{{ tab.label }}</button>
@@ -157,7 +199,7 @@ onBeforeUnmount(() => { alive = false; detailSequence++; pager.dispose() })
         <div class="detail-head">
           <h3>详情</h3>
           <div class="row-actions">
-            <RouterLink v-if="selectedId" :to="`/complaints/${selectedId}`" class="text-link">查看处理进度</RouterLink>
+            <RouterLink v-if="selectedId" :to="`/complaints/${selectedId}`" class="text-link">处理进度与可见范围</RouterLink>
             <SButton v-if="selectedId" size="sm" @click="closeDetail">关闭</SButton>
           </div>
         </div>
@@ -174,6 +216,8 @@ onBeforeUnmount(() => { alive = false; detailSequence++; pager.dispose() })
 .complaints-page { max-width: 1480px; }
 .view-heading.with-action { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; }
 .form-panel { margin-bottom: 20px; }
+.complaint-audiences { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+.campus-list { display: grid; gap: 10px; }
 .complaints-page>.card,.complaint-workbench>.card{border:1px solid var(--border-strong);box-shadow:0 3px 14px rgba(50,45,34,.055)}
 /* 两栏等高：由较高的一侧撑开行高，另一侧拉伸到同一底线 */
 .complaint-workbench { display: grid; grid-template-columns: minmax(300px, 380px) minmax(0, 1fr); gap: 20px; align-items: stretch; }

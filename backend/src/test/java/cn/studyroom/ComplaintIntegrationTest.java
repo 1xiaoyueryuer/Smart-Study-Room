@@ -210,6 +210,108 @@ class ComplaintIntegrationTest {
         var own=complaints.create(student,request);long id=Store.id(own,"id");complaints.create(other,complaint("service",null,null,"他人私密说明",List.of(),UUID.randomUUID().toString()));http.perform(auth(get("/api/complaints/"+id),foreign)).andExpect(status().isForbidden());http.perform(auth(get("/api/complaints/9223372036854775807"),owner)).andExpect(status().isNotFound());http.perform(auth(get("/api/complaints/mine").param("user_id",Long.toString(other)),owner)).andExpect(status().isBadRequest());var mine=http.perform(auth(get("/api/complaints/mine"),owner)).andExpect(status().isOk()).andExpect(jsonPath("$.data.items.length()").value(1)).andReturn().getResponse().getContentAsString();assertFalse(mine.contains("他人私密说明"));
         byte[] png=image("png",2,2);http.perform(multipart("/api/complaint-attachments").file(new MockMultipartFile("file","a.png","image/png",png)).header("Authorization","Bearer "+adminToken)).andExpect(status().isForbidden());http.perform(multipart("/api/complaint-attachments").header("Authorization","Bearer "+owner)).andExpect(status().isBadRequest());http.perform(multipart("/api/complaint-attachments").file(new MockMultipartFile("file","a.png","image/png",png)).file(new MockMultipartFile("file","b.png","image/png",png)).header("Authorization","Bearer "+owner)).andExpect(status().isBadRequest());for(String key:List.of("path","owner_id")) http.perform(multipart("/api/complaint-attachments").file(new MockMultipartFile("file","a.png","image/png",png)).param(key,"ignored").header("Authorization","Bearer "+owner)).andExpect(status().isBadRequest());
     }
+    @Test void campusPublicationCannotBeAccidentallyRestoredByAStaleWrite() throws Exception {
+        String owner=token("student"),reader=token("staff");
+        var legacy=complaints.create(student,service(List.of(),UUID.randomUUID().toString()));
+        assertEquals("private",legacy.get("visibility"));
+        var request=json.convertValue(service(List.of(),UUID.randomUUID().toString()),
+            new com.fasterxml.jackson.core.type.TypeReference<LinkedHashMap<String,Object>>() {});
+        request.put("visibility","campus");
+        request.put("public_summary","  空间灯具需要检修  ");
+        var postReport=auth(post("/api/complaints"),owner).contentType("application/json")
+            .content(json.writeValueAsString(request));
+        byte[] created=http.perform(postReport).andExpect(status().isOk()).andReturn().getResponse().getContentAsByteArray();
+        var report=json.readTree(created).path("data");
+        long id=report.path("id").asLong(),version=report.path("version").asLong();
+        http.perform(postReport).andExpect(status().isOk()).andExpect(jsonPath("$.data.replayed").value(true))
+            .andExpect(jsonPath("$.data.id").value(id));
+
+        db.update("UPDATE complaints SET context_snapshot=NULL WHERE id=?",id);
+        http.perform(auth(get("/api/complaints/"+id),owner)).andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.room_name").value("S14模拟空间"));
+        http.perform(get("/api/complaints/campus")).andExpect(status().isUnauthorized());
+        var feed=auth(get("/api/complaints/campus"),reader);
+        byte[] listed=http.perform(feed).andExpect(status().isOk()).andExpect(header().string("Cache-Control","no-store"))
+            .andExpect(jsonPath("$.data.items.length()").value(1)).andReturn().getResponse().getContentAsByteArray();
+        var card=json.readTree(listed).path("data").path("items").get(0);
+        var publishedFields=new HashSet<String>();
+        card.fieldNames().forEachRemaining(publishedFields::add);
+        assertEquals(Set.of("room_name","category","public_summary","public_details","public_attachment_ids","status"),publishedFields);
+        assertEquals("S14模拟空间",card.path("room_name").asText());
+        assertEquals("空间灯具需要检修",card.path("public_summary").asText());
+        assertEquals("other_service",card.path("category").asText());
+        assertEquals("submitted",card.path("status").asText());
+        assertTrue(card.path("public_details").isNull());
+        assertEquals(json.createArrayNode(),card.path("public_attachment_ids"));
+
+        String visibilityPath="/api/complaints/"+id+"/visibility";
+        String optOut=json.writeValueAsString(Map.of("version",version,"visibility","private"));
+        http.perform(auth(put(visibilityPath),reader).contentType("application/json").content(optOut))
+            .andExpect(status().isForbidden());
+        http.perform(auth(put(visibilityPath),owner).contentType("application/json").content(optOut))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.data.version").value(version+1));
+        http.perform(auth(put(visibilityPath),owner).contentType("application/json")
+            .content(json.writeValueAsString(Map.of("version",version,"visibility","campus","public_summary","旧的可见范围草稿"))))
+            .andExpect(status().isConflict());
+        http.perform(feed).andExpect(status().isOk()).andExpect(jsonPath("$.data.items.length()").value(0));
+    }
+    @Test void campusPhotosRequireExplicitSelectionAndLoseAccessOnRemoval() throws Exception {
+        byte[] original=paddedPng(4096);
+        String selected=fileId(upload(student,original,"selected.png","image/png"));
+        String excluded=fileId(upload(student,image("png",2,2),"excluded.png","image/png"));
+        String unbound=fileId(upload(student,image("png",2,2),"unbound.png","image/png"));
+        String foreign=fileId(upload(other,image("png",2,2),"foreign.png","image/png"));
+        String owner=token("student"),reader=token("staff");
+        var request=json.convertValue(service(List.of(selected,excluded),UUID.randomUUID().toString()),
+            new com.fasterxml.jackson.core.type.TypeReference<LinkedHashMap<String,Object>>() {});
+        request.put("visibility","campus");
+        request.put("public_summary","空间灯具需要检修");
+        request.put("public_details","  靠墙灯具无法点亮  ");
+        request.put("public_attachment_ids",List.of(selected,unbound));
+        http.perform(auth(post("/api/complaints"),owner).contentType("application/json")
+            .content(json.writeValueAsString(request))).andExpect(status().isBadRequest());
+        request.put("public_attachment_ids",List.of(selected));
+        byte[] created=http.perform(auth(post("/api/complaints"),owner).contentType("application/json")
+            .content(json.writeValueAsString(request))).andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.public_details").value("靠墙灯具无法点亮"))
+            .andExpect(jsonPath("$.data.public_attachment_ids[0]").value(selected))
+            .andReturn().getResponse().getContentAsByteArray();
+        var report=json.readTree(created).path("data");
+        long id=report.path("id").asLong(),version=report.path("version").asLong();
+        String photoPath="/api/complaints/campus/photos/";
+        String selectedPath=photoPath+selected+"/content";
+        http.perform(get(selectedPath)).andExpect(status().isUnauthorized());
+        http.perform(auth(get(photoPath+excluded+"/content"),reader)).andExpect(status().isNotFound());
+        http.perform(auth(get("/api/complaint-attachments/"+selected+"/content"),reader)).andExpect(status().isForbidden());
+        http.perform(auth(get("/api/complaints/campus"),reader)).andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.items[0].category").value("facility_repair"))
+            .andExpect(jsonPath("$.data.items[0].public_details").value("靠墙灯具无法点亮"))
+            .andExpect(jsonPath("$.data.items[0].public_attachment_ids.length()").value(1))
+            .andExpect(jsonPath("$.data.items[0].public_attachment_ids[0]").value(selected));
+        byte[] sanitized=http.perform(auth(get(selectedPath),reader)).andExpect(status().isOk())
+            .andExpect(header().string("Cache-Control","no-store")).andExpect(content().contentType("image/png"))
+            .andReturn().getResponse().getContentAsByteArray();
+        assertFalse(new String(sanitized,java.nio.charset.StandardCharsets.ISO_8859_1).contains("fixture"));
+        assertEquals(2,ImageIO.read(new java.io.ByteArrayInputStream(sanitized)).getWidth());
+        assertArrayEquals(original,attachments.content(student,selected).bytes());
+
+        String visibilityPath="/api/complaints/"+id+"/visibility";
+        var legacyUpdate=Map.of("version",version,"visibility","campus","public_summary","空间灯具需要检修");
+        http.perform(auth(put(visibilityPath),owner).contentType("application/json").content(json.writeValueAsString(legacyUpdate)))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.data.version").value(version))
+            .andExpect(jsonPath("$.data.public_details").value("靠墙灯具无法点亮"))
+            .andExpect(jsonPath("$.data.public_attachment_ids[0]").value(selected));
+
+        var update=new LinkedHashMap<String,Object>(Map.of("version",version,"visibility","campus",
+            "public_summary","空间灯具需要检修","public_attachment_ids",List.of(foreign)));
+        http.perform(auth(put(visibilityPath),owner).contentType("application/json").content(json.writeValueAsString(update)))
+            .andExpect(status().isBadRequest());
+        http.perform(auth(get(selectedPath),reader)).andExpect(status().isOk());
+        update.put("public_attachment_ids",List.of());
+        http.perform(auth(put(visibilityPath),owner).contentType("application/json").content(json.writeValueAsString(update)))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.data.version").value(version+1));
+        http.perform(auth(get(selectedPath),reader)).andExpect(status().isNotFound());
+    }
     @Test void associatedComplaintProtectsRoomHistoryEvenWithoutAnyReservation() {
         complaints.create(student,complaint("service",null,room,"工程模拟无预约的空间服务投诉",List.of(),UUID.randomUUID().toString()));var failure=assertThrows(Api.Failure.class,()->resources.deleteRoom(admin,room,new Requests.ResourceDelete(Store.id(resources.room(room),"version"),"投诉关联历史不能删除")));assertEquals(409,failure.status);assertTrue(failure.getMessage().contains("投诉"));assertEquals(2,db.count("SELECT count(*) FROM seats WHERE room_id=?",room));
     }

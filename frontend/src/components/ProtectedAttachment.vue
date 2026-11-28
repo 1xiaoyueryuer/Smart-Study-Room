@@ -7,7 +7,8 @@ import SDialog from './ui/SDialog.vue'
 const props = defineProps({
   attachment: {type:Object,required:true},
   loadContent:Function,
-  photoNumber:Number
+  photoNumber:Number,
+  staticPreview:Boolean
 })
 const url = ref(''), loading = ref(false), error = ref(''), previewOpen = ref(false)
 let sequence = 0, alive = true
@@ -29,14 +30,15 @@ onBeforeUnmount(() => { alive = false; sequence++; release() })
 </script>
 <template>
   <article v-if="photoNumber" class="protected-attachment compact-photo">
-    <SButton v-if="url && !error" class="photo-preview" variant="ghost" :aria-label="`预览照片 ${photoNumber}`" @click="previewOpen = true">
+    <img v-if="staticPreview && url && !error" class="photo-thumbnail" :src="url" :alt="`照片 ${photoNumber}`" @error="error = '照片暂时无法显示'" />
+    <SButton v-else-if="url && !error" class="photo-preview" variant="ghost" :aria-label="`预览照片 ${photoNumber}`" @click="previewOpen = true">
       <img :src="url" alt="" @error="error = '照片暂时无法显示'" />
     </SButton>
     <strong>照片 {{ photoNumber }}</strong>
     <p v-if="loading" role="status">正在加载照片…</p>
     <SButton v-else-if="error" size="sm" @click="load">重新加载照片</SButton>
     <SDialog v-model="previewOpen" :title="`照片 ${photoNumber}`" width="720px">
-      <img v-if="url" :src="url" :alt="`照片 ${photoNumber}`" />
+      <img v-if="url" class="photo-full" :src="url" :alt="`照片 ${photoNumber}`" />
     </SDialog>
   </article>
   <article v-else class="protected-attachment">
@@ -66,5 +68,6 @@ onBeforeUnmount(() => { alive = false; sequence++; release() })
 .attachment-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .photo-preview { height: auto; width: 100%; padding: 0; }
 .photo-preview :deep(.s-btn__content) { width: 100%; }
-.photo-preview img { height: 112px; object-fit: cover; display: block; border-radius: var(--r-sm); }
+.photo-preview img, .protected-attachment img.photo-thumbnail { height: 112px; object-fit: cover; display: block; border-radius: var(--r-sm); }
+.photo-full { width: 100%; max-height: 68vh; object-fit: contain; display: block; }
 </style>
