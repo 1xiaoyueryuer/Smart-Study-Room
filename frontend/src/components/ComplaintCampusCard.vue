@@ -12,6 +12,7 @@ const props = defineProps({
   details: String,
   photoIds: { type: Array, default: () => [] },
   loadPhoto: { type: Function, required: true },
+  loadThumbnail: Function,
   preview: Boolean
 })
 const card = ref(null)
@@ -19,7 +20,7 @@ const photosVisible = ref(props.preview)
 let observer
 
 onMounted(() => {
-  if (props.preview || !props.photoIds.length) return
+  if (props.preview) return
   if (typeof IntersectionObserver !== 'function') {
     photosVisible.value = true
     return
@@ -50,7 +51,8 @@ onBeforeUnmount(() => observer?.disconnect())
     </details>
     <div v-if="photosVisible && photoIds.length" class="campus-photo-grid" aria-label="公开照片">
       <ProtectedAttachment v-for="(id, index) in photoIds" :key="id" :attachment="{ id }"
-        :photo-number="index + 1" :load-content="loadPhoto" :static-preview="preview" />
+        :photo-number="index + 1" :load-content="loadThumbnail || loadPhoto"
+        :load-preview="loadThumbnail ? loadPhoto : undefined" :static-preview="preview" />
     </div>
   </article>
 </template>

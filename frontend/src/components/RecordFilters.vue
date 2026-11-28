@@ -24,6 +24,13 @@ function change(key, value) {
 function apply() {
   if (!props.disabled && !hasInvalidDate.value) emit('apply')
 }
+
+function applyOnEnter(event) {
+  if (event.isComposing || event.target.tagName !== 'INPUT') return
+  event.preventDefault()
+  event.stopPropagation()
+  apply()
+}
 </script>
 
 <template>
@@ -31,7 +38,7 @@ function apply() {
     class="record-filters"
     :class="{ 'record-filters--invalid-date': hasInvalidDate }"
     role="group"
-    @keydown.enter.stop.prevent="apply"
+    @keydown.enter="applyOnEnter"
   >
     <template v-for="field in fields" :key="field.key">
       <RecordDateFilter
@@ -49,7 +56,8 @@ function apply() {
           v-if="field.options"
           :model-value="modelValue[field.key] ?? ''"
           :options="field.options"
-          :disabled="disabled"
+          :disabled="disabled || field.disabled"
+          :searchable="field.searchable"
           @update:model-value="change(field.key, $event)"
         />
         <SInput

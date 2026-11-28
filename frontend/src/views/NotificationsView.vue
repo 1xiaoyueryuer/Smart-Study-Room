@@ -7,7 +7,7 @@ import {useNotificationStore} from '../stores/notification'
 import {useAuthStore} from '../stores/auth'
 import {createRecordPager} from '../composables/recordPage.js'
 import {reviewNotificationTarget} from '../composables/reviewManagement.js'
-import {validNotificationPage,validReadReceipt,reservationTarget,appealTarget,restrictionTarget,violationTarget,complaintTarget,hasNotificationTarget,restrictionNoticeOf,notificationContent} from '../composables/notificationPage.js'
+import {validNotificationPage,validReadReceipt,reservationTarget,appealTarget,restrictionTarget,violationTarget,complaintTarget,adminWorkTarget,hasNotificationTarget,restrictionNoticeOf,notificationContent} from '../composables/notificationPage.js'
 import RecordPageControls from '../components/RecordPageControls.vue'
 import AppIcon from '../components/AppIcon.vue'
 import SButton from '../components/ui/SButton.vue'
@@ -26,7 +26,6 @@ const pager=createRecordPager(async query=>{
 },{blocked:()=>markingId.value!==null||markingAll.value})
 const {items:list,loading,error,snapshot,snapshotQuery}=pager
 const buckets=computed(()=>({all:snapshot.value?.counts?.total??0,unread:snapshot.value?.counts?.unread??0,...(snapshot.value?.counts?.by_type||{})}))
-const typeNav=computed(()=>Object.entries(typeMeta).map(([key,meta])=>({key,label:meta.text})))
 const category=ref('all'),selected=ref(null)
 
 const selectedRestrictionNotice = computed(() => restrictionNoticeOf(selected.value))
@@ -50,6 +49,12 @@ const typeMeta = {
   waitlist_promoted:{text:'历史候补',color:'var(--violet-strong)',bg:'var(--violet-weak)'},
   complaint_feedback:{text:'投诉反馈',color:'var(--primary-active)',bg:'var(--primary-weak)'},
   complaint_auto_closed:{text:'投诉结案',color:'var(--text-2)',bg:'var(--surface-3)'},
+  complaint_initial_arrangement:{text:'工单受理',color:'var(--primary-active)',bg:'var(--primary-weak)'},
+  complaint_priority_assessed:{text:'报修优先级',color:'var(--primary-active)',bg:'var(--primary-weak)'},
+  complaint_service_progress:{text:'维修进度',color:'var(--primary-active)',bg:'var(--primary-weak)'},
+  admin_complaint_urgent:{text:'紧急报修',color:'var(--red-strong)',bg:'var(--red-weak)'},
+  admin_complaint_returned:{text:'退回核查',color:'var(--amber-strong)',bg:'var(--amber-weak)'},
+  admin_appeal_submitted:{text:'待审申诉',color:'var(--primary-active)',bg:'var(--primary-weak)'},
   system:{text:'系统通知',color:'var(--text-2)',bg:'var(--surface-3)'}
 }
 
@@ -58,30 +63,55 @@ const groups = {
   unread: null,
   reservation: ['reservation_success','reservation_cancelled','reservation_checkin','reservation_completed','reservation_corrected_checkin','management_cancelled','restriction_cancelled','checkin_reminder'],
   system: ['system','violation','restriction_started','restriction_released','credit_change','waitlist_promoted','appeal_reviewed'],
-  feedback: ['complaint_feedback','complaint_auto_closed','review_replied','review_hidden']
+  feedback: ['complaint_feedback','complaint_auto_closed','complaint_initial_arrangement','complaint_priority_assessed','complaint_service_progress','review_replied','review_hidden'],
+  tasks: ['admin_complaint_urgent','admin_complaint_returned','admin_appeal_submitted']
 }
-const categories = [
+const categories = computed(() => [
   {key:'all',label:'全部'},
   {key:'unread',label:'未读'},
-  {key:'reservation',label:'预约',title:'预约提醒'},
-  {key:'system',label:'系统',title:'系统通知'},
-  {key:'feedback',label:'反馈',title:'投诉与评价'}
-]
-const visibleItems = computed(() => {
-  if (category.value === 'unread') return list.value.filter(item => !item.is_read)
-  const allowed = groups[category.value]
-  return allowed ? list.value.filter(item => allowed.includes(item.type)) : list.value
+  ...(auth.isAdmin ? [{key:'tasks',label:'待办提醒'}] : [
+    {key:'reservation',label:'预约',title:'预约提醒'},
+    {key:'system',label:'系统',title:'系统通知'},
+    {key:'feedback',label:'反馈',title:'工单与评价'}
+  ])
+])
+const categoryQuery = computed(() => {
+  if (category.value === 'unread') return {is_read:'false'}
+  const types = groups[category.value]
+  return types ? {types:types.join(',')} : {}
 })
-const unreadCount = computed(() => list.value.filter(item => !item.is_read).length)
+const currentCategoryLoaded = computed(() =>
+  snapshotQuery.value && snapshotQuery.value.is_read === categoryQuery.value.is_read &&
+  snapshotQuery.value.types === categoryQuery.value.types
+)
+const visibleItems = computed(() => currentCategoryLoaded.value ? list.value : [])
+const unreadCount = computed(() => buckets.value.unread)
 const busy=computed(()=>markingId.value!==null||markingAll.value)
 
-function selectCategory(key){if(busy.value)return;category.value=key}
+function selectCategory(key) {
+  if (busy.value || category.value===key) return
+  category.value=key
+  selected.value=null
+  pager.filters.value=categoryQuery.value
+  return pager.apply()
+}
+function turnPage(page) {
+  selected.value=null
+  return pager.turn(page)
+}
 function linked(item){return hasNotificationTarget(item,reviewNotificationTarget)}
 
 async function refreshMessages(force = false) {
   const identity = scope()
-  const [loaded] = await Promise.all([pager.refresh(force), notifStore.refresh()])
-  if (alive && identity === scope() && loaded) actionError.value = ''
+  const [loaded] = await Promise.all([
+    currentCategoryLoaded.value ? pager.refresh(force) : pager.load(1,{apply:true,force}),
+    notifStore.refresh()
+  ])
+  if (!alive || identity !== scope() || !loaded || !currentCategoryLoaded.value) return
+  const { page, page_size, total } = snapshot.value
+  const lastPage = Math.max(1, Math.ceil(total / page_size))
+  if (page > lastPage) await pager.load(lastPage, { force })
+  if (alive && identity === scope()) actionError.value = ''
 }
 async function onMarkRead(item){
   if(busy.value||item.is_read||!Number.isSafeInteger(item.id)||item.id<1)return
@@ -92,6 +122,7 @@ async function onMarkRead(item){
     if(!alive||identity!==scope())return
     if(!validReadReceipt(data,item.id))throw new Error('已读状态待确认')
     notifStore.acceptUnread(data.unread_count,ticket)
+    if(selected.value?.id===item.id) selected.value={...selected.value,is_read:true}
     writeNotice.value='已标记为已读'
     await refreshMessages(true)
   }catch{if(alive&&identity===scope())actionError.value='暂时无法确认这条消息的已读状态'}
@@ -122,16 +153,11 @@ function closeDetail(){selected.value=null;actionError.value='';writeNotice.valu
 function cancelLink(item){const target=reservationTarget(item);return target?{...target,query:{...target.query,action:'cancel'}}:null}
 
 watch(list,(value)=>{
-  if(!value.length){selected.value=null;return}
-  selected.value=value.find(item=>item.id===selected.value?.id) || value[0]
+  const updated=value.find(item=>item.id===selected.value?.id)
+  if (updated) selected.value=updated
+  else if (category.value!=='unread' || !selected.value?.is_read) selected.value=value[0]||null
 },{immediate:true})
-// 切换分类时按该分类的可见消息校正选中项：分类下没有消息就清空右侧详情，避免显示别的分类的消息
-watch(category,()=>{
-  const value=visibleItems.value
-  if(!value.length){selected.value=null;return}
-  if(!selected.value||!value.some(item=>item.id===selected.value.id))selected.value=value[0]
-})
-watch(scope,()=>{category.value='all';selected.value=null;pager.items.value=[];pager.snapshot.value=null;pager.snapshotQuery.value=null;pager.loaded.value=false;actionError.value='';writeNotice.value='';markingId.value=null;markingAll.value=false})
+watch(scope,()=>{category.value='all';selected.value=null;pager.filters.value={};pager.applied.value={};pager.items.value=[];pager.snapshot.value=null;pager.snapshotQuery.value=null;pager.loaded.value=false;actionError.value='';writeNotice.value='';markingId.value=null;markingAll.value=false;void pager.load()})
 onMounted(pager.refresh);onBeforeUnmount(()=>{alive=false;pager.dispose()})
 </script>
 
@@ -140,7 +166,7 @@ onMounted(pager.refresh);onBeforeUnmount(()=>{alive=false;pager.dispose()})
     <header class="view-heading has-page-help with-action" data-page-title>
       <div class="heading-copy"><h1>消息中心</h1></div>
       <div class="head-actions">
-        <SButton :disabled="busy||!list.length" :loading="markingAll" @click="onMarkAll">全部标记已读</SButton>
+        <SButton :disabled="busy||!unreadCount" :loading="markingAll" @click="onMarkAll">全部标记已读</SButton>
       </div>
       <PageHelp title="消息说明"><ul class="tips"><li>需要取消预约或提交申诉时，请打开消息里的对应入口。</li><li>较早的消息如果没有相关事项入口，可以前往相应页面查看记录。</li></ul></PageHelp>
     </header>
@@ -157,7 +183,6 @@ onMounted(pager.refresh);onBeforeUnmount(()=>{alive=false;pager.dispose()})
             {{ tab.label }}<span v-if="tab.key==='unread'&&unreadCount" class="tab-count">{{ unreadCount }}</span>
           </button>
         </nav>
-        <p class="list-note">当前页 {{ visibleItems.length }} 条 · 未读 {{ unreadCount }} 条</p>
         <p v-if="loading" role="status">正在加载消息…</p>
         <ul v-else class="msg-list">
           <li v-for="item in visibleItems" :key="item.id">
@@ -173,14 +198,14 @@ onMounted(pager.refresh);onBeforeUnmount(()=>{alive=false;pager.dispose()})
         </ul>
         <SEmpty v-if="!loading && !visibleItems.length && !error" icon="inbox" description="该分类暂无消息"/>
         <SBanner v-if="error" type="error" title="暂时无法加载消息"><SButton size="sm" :disabled="busy" @click="refreshMessages()">重新加载消息</SButton></SBanner>
-        <RecordPageControls :snapshot="snapshot" :query="snapshotQuery" :fields="[]" :disabled="busy||loading" @page="pager.turn"/>
+        <RecordPageControls v-if="currentCategoryLoaded" :snapshot="snapshot" :query="snapshotQuery" :fields="[]" :disabled="busy||loading" @page="turnPage"/>
       </section>
 
       <section class="card notif-detail-panel">
         <template v-if="selected">
           <header class="detail-head">
             <span class="pill" :style="{color:typeMeta[selected.type]?.color,background:typeMeta[selected.type]?.bg}">{{ typeMeta[selected.type]?.text || '历史消息' }}</span>
-            <time>{{ formatCampusDateTime(selected.created_at) }}</time>
+            <span class="detail-sent">发送时间 <time>{{ formatCampusDateTime(selected.created_at) }}</time></span>
             <SButton size="sm" @click="closeDetail">关闭</SButton>
           </header>
           <h3>{{ selected.title }}</h3>
@@ -224,7 +249,8 @@ onMounted(pager.refresh);onBeforeUnmount(()=>{alive=false;pager.dispose()})
             <RouterLink v-if="appealTarget(selected)" :to="appealTarget(selected)" class="action-link">查看申诉结果</RouterLink>
             <RouterLink v-if="restrictionTarget(selected)" :to="restrictionTarget(selected)" class="action-link">查看预约限制</RouterLink>
             <RouterLink v-if="violationTarget(selected)" :to="violationTarget(selected)" class="action-link">查看违规记录</RouterLink>
-            <RouterLink v-if="complaintTarget(selected)" :to="complaintTarget(selected)" class="action-link">查看投诉进度</RouterLink>
+            <RouterLink v-if="complaintTarget(selected)" :to="complaintTarget(selected)" class="action-link">查看工单进度</RouterLink>
+            <RouterLink v-if="adminWorkTarget(selected)" :to="adminWorkTarget(selected)" class="action-link">{{ selected.type === 'admin_appeal_submitted' ? '查看申诉' : '查看工单' }}</RouterLink>
             <p v-if="!linked(selected) && selected.type !== 'system'" class="muted">这条消息没有详情入口。</p>
           </section>
         </template>
@@ -260,7 +286,6 @@ onMounted(pager.refresh);onBeforeUnmount(()=>{alive=false;pager.dispose()})
 .notif-tabs button:hover { background: var(--surface-2); color: var(--text-1); }
 .notif-tabs button.active { background: var(--primary-weak); color: var(--primary-active); font-weight: 600; }
 .tab-count { min-width: 17px; height: 17px; padding: 0 5px; border-radius: var(--r-full); background: var(--red); color: #fff; font-size: 10px; display: inline-grid; place-items: center; }
-.list-note { color: var(--text-4); font-size: 11px; margin-bottom: 10px; }
 .msg-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; overflow-y: auto; min-height: 0; flex: 1 1 auto; }
 .msg-entry {
   all: unset;
@@ -290,7 +315,7 @@ onMounted(pager.refresh);onBeforeUnmount(()=>{alive=false;pager.dispose()})
 /* 未选中消息时，空态在详情卡片内上下居中 */
 .notif-detail-panel :deep(.empty-state) { flex: 1 1 auto; }
 .detail-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--hairline); margin-bottom: 14px; }
-.detail-head time { color: var(--text-4); font-size: var(--fs-caption); }
+.detail-sent { color: var(--text-4); font-size: var(--fs-caption); }
 .notif-detail-panel h3 { font-size: 26px; color: var(--text-1); margin-bottom: 12px; }
 .detail-content { white-space: pre-wrap; color: var(--text-2); line-height: 1.75; }
 .restriction-notice { margin: 2px 0 12px; padding: 14px 0 16px; border-bottom: 1px solid var(--hairline); }

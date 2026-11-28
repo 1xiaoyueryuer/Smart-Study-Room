@@ -59,6 +59,7 @@ async function complaintsPage(overrides = {}) {
     'vue-router': { useRoute: () => route },
     '../api/complaint': {
       getCampusComplaintPhoto: async () => new Blob(),
+      getCampusComplaintThumbnail: async () => new Blob(),
       listCampusComplaints: async query => {
         calls.campus.push({ ...query })
         return overrides.campus ? overrides.campus(query) : { data: envelope([], query) }

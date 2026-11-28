@@ -11,7 +11,7 @@ import { complaintTypes,serviceTopics,complaintDisplayType,complaintNumber,compl
 const tick=()=>new Promise(resolve=>setImmediate(resolve))
 const base=()=>({id:88,type:'occupation',status:'submitted',version:1,operation_id:'create-id',reporter:{id:9,real_name:'模拟投诉人',username:'reporter',campus_id:'DEMO9'},handler:null,accepted_at:null,description:'工程模拟：被占情况',submitted_at:'2026-10-30T08:00+08:00',reservation_id:5,room_id:1,context_snapshot:{room_name:'模拟提交空间',seat_no:'A1',reservation_id:5,date:'2026-10-29',start_time:'08:00',end_time:'10:00',status_at_submission:'completed'},current_context:{observed_at:'2026-10-30T09:00+08:00',reservation:null,room:null},attachment_count:0,attachments:[],events:[],admin_events:[]})
 const verification=(overrides={})=>({outcome:'cooperated',occurred_at:'2026-10-29T08:30',public_note:'工程模拟：已记录配合情况',private_note:'工程模拟：核实事实，不代表真人现场检查',subject_user_id:null,identity_confirmed:false,identity_basis:'',facts_confirmed:true,valid_reservation_confirmed:true,...overrides})
-async function script(file,mocks,exports,extra={}){const source=(await readFile(new URL(file,import.meta.url),'utf8')).split('<script setup>')[1].split('</script>')[0],context=vm.createContext({defineExpose(){},...extra}),module=new vm.SourceTextModule(source+`\nexport {${exports}}`,{context});await module.link(specifier=>{const values=recordTestImport(specifier,mocks[specifier])||(specifier.endsWith('useServiceTargetClock.js')?{useServiceTargetClock:()=>({progress:()=>null})}:specifier.endsWith('.vue')?{default:{}}:null);assert.ok(values,specifier);return new vm.SyntheticModule(Object.keys(values),function(){for(const[key,value]of Object.entries(values))this.setExport(key,value)},{context})});await module.evaluate();return module.namespace}
+async function script(file,mocks,exports,extra={}){const source=(await readFile(new URL(file,import.meta.url),'utf8')).split('<script setup>')[1].split('</script>')[0],context=vm.createContext({defineExpose(){},defineEmits:()=>()=>{},...extra}),module=new vm.SourceTextModule(source+`\nexport {${exports}}`,{context});await module.link(specifier=>{const values=recordTestImport(specifier,mocks[specifier])||(specifier.endsWith('useServiceTargetClock.js')?{useServiceTargetClock:()=>({progress:()=>null})}:specifier.endsWith('.vue')?{default:{}}:null);assert.ok(values,specifier);return new vm.SyntheticModule(Object.keys(values),function(){for(const[key,value]of Object.entries(values))this.setExport(key,value)},{context})});await module.evaluate();return module.namespace}
 async function management(overrides={}){
   const calls=[],cleanup=[];let state=base(),uuid=0
   const api={listAdminComplaints:async query=>{calls.push(['list',query]);return{data:{items:[state],total:1,page:query.page,page_size:query.page_size,server_now:'2026-10-30T09:00+08:00'}}},getAdminComplaint:async id=>{calls.push(['detail',id]);return{data:structuredClone(state)}},acceptComplaint:async(id,body)=>{calls.push(['accept',id,body]);state={...state,status:'processing',version:2,handler:{id:1,display_name:'模拟首受理人'},accepted_at:'2026-10-30T09:00+08:00',initial_arrangement:body.initial_arrangement||null,admin_events:[...state.admin_events,{id:10,type:'accepted',initial_arrangement:body.initial_arrangement||null,public_note:'工程模拟已受理'}]};return{data:{operation_id:body.operation_id,event_id:10,replayed:false,complaint:structuredClone(state)}}},recordComplaintVerification:async(id,body)=>{calls.push(['verification',id,body]);state={...state,version:state.version+1,admin_events:[...state.admin_events,{id:11,type:'verification',actor_display_name:'模拟追加管理员',outcome:body.outcome,private_note:body.private_note}]};return{data:{operation_id:body.operation_id,event_id:11,replayed:false,complaint:structuredClone(state)}}},feedbackComplaint:async()=>({}),recordComplaintServiceProgress:async(id,body)=>{calls.push(['service_progress',id,body]);state={...state,version:state.version+1,admin_events:[...state.admin_events,{id:12,type:'service_progress',service_progress_stage:body.stage,maintenance_channel:body.maintenance_channel,handoff_at:body.handed_off_at,public_note:body.public_note}]};return{data:{operation_id:body.operation_id,event_id:12,replayed:false,complaint:structuredClone(state)}}},...overrides}
@@ -91,14 +91,79 @@ test('actual public record SSR shows processing and public timeline without mana
  assert.match(html,/处理中/);assert.match(html,/已受理并说明初步安排/);assert.match(html,/身份待核/);assert.match(html,/正在核实相关情况/);assert.doesNotMatch(html,/PRIVATE_SECRET|IDENTITY_SECRET|SUBJECT_SECRET/)
 })
 test('admin complaint tab is lazy on first use and retains state after leaving the tab; grouped nav keeps the entry',async()=>{
-  const page=await script('../src/views/admin/AdminView.vue',{vue:{ref,nextTick:async()=>{},onMounted(){}},'../../api/stats':{getOverview:async()=>({data:{}})},'../../composables/statsForm.js':{validOverview:()=>false}},'activeTab,complaintsMounted,selectTab')
+  const page=await adminShell()
   assert.equal(page.complaintsMounted.value,false);page.selectTab('users');assert.equal(page.complaintsMounted.value,false);page.selectTab('complaints');assert.equal(page.complaintsMounted.value,true);page.selectTab('rooms');assert.equal(page.complaintsMounted.value,true)
   const source=await readFile(new URL('../src/views/admin/AdminView.vue',import.meta.url),'utf8');assert.match(source,/v-if="complaintsMounted"/);assert.match(source,/key:'complaints'/);assert.doesNotMatch(source,/有有效预约的影响性变更会拒绝/)
 })
 test('admin keeps complaint and repair under one service entry without a separate priority mapping page',async()=>{
-  const page=await script('../src/views/admin/AdminView.vue',{vue:{ref,nextTick:async()=>{},onMounted(){}},'../../api/stats':{getOverview:async()=>({data:{}})},'../../composables/statsForm.js':{validOverview:()=>false}},'activeTab,complaintsMounted,selectTab')
+  const page=await adminShell()
   assert.equal(page.complaintsMounted.value,false);page.selectTab('complaints');assert.equal(page.complaintsMounted.value,true)
   const source=await readFile(new URL('../src/views/admin/AdminView.vue',import.meta.url),'utf8');assert.match(source,/投诉与报修/);assert.doesNotMatch(source,/报修分级设置|ComplaintPriorityManagement|complaintMode/)
+})
+function adminShell({query={},getOverview=async()=>({data:{}}),listAdminAppeals=async()=>({data:{total:2}})}={}) {
+  return script('../src/views/admin/AdminView.vue',{
+    vue:{ref,onMounted(){}},'vue-router':{useRoute:()=>({query})},
+    '../../api/stats':{getOverview},'../../api/appeal':{listAdminAppeals},
+    '../../composables/statsForm.js':{validOverview:value=>Boolean(value.current)}
+  },'activeTab,complaintsMounted,selectTab,loadOverview,overview,overviewLoading,overviewError,openLinkedRecord,complaints,appeals,correctionOpen,openCorrection,openAppealReservation,records,loadPendingAppeals,pendingAppeals,updatePendingAppeals')
+}
+test('admin overview keeps the latest complaint counts and reports a failed refresh',async()=>{
+  const requests=[]
+  const page=await adminShell({getOverview:()=>new Promise((resolve,reject)=>requests.push({resolve,reject}))})
+  const original=page.loadOverview()
+  page.selectTab('complaints')
+  assert.equal(page.overviewLoading.value,true)
+  requests[1].resolve({data:{current:{complaint_todo_count:11}}})
+  await tick()
+  requests[0].resolve({data:{current:{complaint_todo_count:9}}})
+  await original
+  assert.equal(page.overview.value.current.complaint_todo_count,11)
+  const refresh=page.loadOverview()
+  requests[2].reject(new Error('概览不可用'))
+  await refresh
+  assert.equal(page.overview.value.current.complaint_todo_count,11)
+  assert.equal(page.overviewError.value,'概览不可用')
+})
+test('admin notification query opens only the named complaint or appeal detail',async()=>{
+  const query={complaint_id:'20'}
+  const opened=[]
+  const page=await adminShell({query})
+  page.complaints.value={openDetail:(...args)=>opened.push(['complaint',args[0]])}
+  page.appeals.value={openDetail:id=>opened.push(['appeal',id])}
+  await page.openLinkedRecord()
+  assert.equal(page.activeTab.value,'complaints')
+  query.complaint_id=['20']
+  query.appeal_id='3'
+  await page.openLinkedRecord()
+  assert.equal(page.activeTab.value,'appeals')
+  assert.deepEqual(opened,[['complaint',20],['appeal',3]])
+})
+test('a linked appeal reservation opens the record even if the correction panel was open', async () => {
+  const page = await adminShell()
+  const opened = []
+  page.records.value = { open: id => opened.push(id) }
+  await page.openCorrection(20)
+  assert.equal(page.correctionOpen.value, true)
+  page.selectTab('appeals')
+  await page.openAppealReservation(21)
+  assert.equal(page.activeTab.value, 'records')
+  assert.equal(page.correctionOpen.value, false)
+  assert.deepEqual(opened, [21])
+})
+test('admin appeal badge uses the latest successful worklist count and separately checks a filtered list', async () => {
+  const replies = []
+  const page = await adminShell({
+    listAdminAppeals: () => new Promise(resolve => replies.push(resolve))
+  })
+  const previous = page.loadPendingAppeals()
+  page.updatePendingAppeals(0)
+  replies[0]({ data: { total: 8 } })
+  await previous
+  assert.equal(page.pendingAppeals.value, 0)
+  page.updatePendingAppeals(null)
+  replies[1]({ data: { total: 3 } })
+  await tick()
+  assert.equal(page.pendingAppeals.value, 3)
 })
 test('management API adapters keep real filter, version and operation UUID contracts and reminders use a separate owner endpoint',async()=>{
   const calls=[],context=vm.createContext({FormData}),module=new vm.SourceTextModule(await readFile(new URL('../src/api/complaint.js',import.meta.url),'utf8'),{context})

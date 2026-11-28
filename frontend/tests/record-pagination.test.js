@@ -43,9 +43,65 @@ test('admin restriction private evidence is read from single detail, never assum
 })
 
 
-test('shared filters do not create nested forms or native submit buttons',async()=>{
+test('Enter applies filters from an input while buttons keep their own keyboard actions',async()=>{
  const source=await readFile(new URL('../src/components/RecordFilters.vue',import.meta.url),'utf8')
- assert.doesNotMatch(source,/<form|type="submit"/);assert.match(source,/type="button"/);assert.match(source,/@keydown.enter.stop.prevent/)
+ assert.doesNotMatch(source,/<form|type="submit"/);assert.match(source,/type="button"/)
+ const events=[]
+ const page=await component('../src/components/RecordFilters.vue',{},'applyOnEnter',{
+   defineProps:()=>({fields:[],modelValue:{}}),
+   defineEmits:()=>event=>events.push(event)
+ })
+ const submit=tagName=>({target:{tagName},preventDefault(){},stopPropagation(){}})
+ page.applyOnEnter(submit('BUTTON'))
+ page.applyOnEnter({...submit('INPUT'),isComposing:true})
+ assert.deepEqual(events,[])
+ page.applyOnEnter(submit('INPUT'))
+ assert.deepEqual(events,['apply'])
+})
+
+test('administrator reservation filters use named options and a completed reservation cannot open correction',async()=>{
+  const requests=[],events=[]
+  let canCorrect=false
+  const panel=await component('../src/components/admin/AdminRecords.vue',{
+    vue:{...vue,onMounted(){},onBeforeUnmount(){}},
+    '../../api/admin':{
+      listUsers:async()=>({data:[{id:4201,real_name:'筛选测试账号',username:'209900001'}]}),
+      listRoomSeats:async roomId=>({data:{seats:[{seat_no:roomId===1301?'测试座位':'新房间座位'}]}})
+    },
+    '../../api/room':{getRooms:async()=>({data:[{id:1301,name:'测试自习室'},{id:1302,name:'新自习室'}]})},
+    '../../api/reservation':{
+      listAdminReservations:async query=>{requests.push({...query});return{data:envelope([],query,0)}},
+      getAdminReservation:async id=>({data:{reservation:{id},can_correct:canCorrect}})
+    },
+    '../../api/violation':{listAdminViolations:async()=>{}},
+    '../../composables/complaintForm.js':complaintForm,
+    '../../composables/appealForm.js':{violationLabels:{}}
+  },'loadFilterOptions,fields,filters,pager,open,startCorrection',{
+    defineProps:()=>({kind:'reservation'}),
+    defineEmits:()=> (...args)=>events.push(args)
+  })
+  await panel.loadFilterOptions()
+  const field=key=>panel.fields.value.find(item=>item.key===key)
+  assert.equal(field('room_id').options[1].label,'测试自习室')
+  assert.equal(field('user_id').options[1].label,'筛选测试账号 · 209900001')
+  assert.equal(field('seat_no').disabled,true)
+  panel.filters.value={...panel.filters.value,room_id:1301,user_id:4201}
+  await new Promise(resolve=>setImmediate(resolve))
+  assert.equal(field('seat_no').options[1].value,'测试座位')
+  panel.filters.value={...panel.filters.value,seat_no:'测试座位'}
+  await panel.pager.apply()
+  assert.deepEqual(requests[0],{page:1,page_size:10,record_type:'reservation',room_id:1301,user_id:4201,seat_no:'测试座位'})
+  panel.filters.value={...panel.filters.value,room_id:1302}
+  await new Promise(resolve=>setImmediate(resolve))
+  assert.equal(panel.filters.value.seat_no,'')
+  assert.equal(field('seat_no').options[1].value,'新房间座位')
+  await panel.open(5301)
+  panel.startCorrection()
+  assert.deepEqual(events,[])
+  canCorrect=true
+  await panel.open(5302)
+  panel.startCorrection()
+  assert.deepEqual(events,[['correct',5302]])
 })
 
 test('complaint reservation picker requests the first five reservations and keeps entry context read-only', async () => {

@@ -16,6 +16,8 @@ import org.springframework.web.multipart.MultipartFile;
 @Service
 public class AttachmentService {
     static final int MAX_BYTES=5*1024*1024;
+    private static final int CAMPUS_PREVIEW_EDGE = 1600;
+    private static final int CAMPUS_THUMBNAIL_EDGE = 320;
     private static final String METADATA="id,owner_id,purpose,complaint_id,appeal_id,position,display_name,content_type,size_bytes,width,height,sha256,created_at,expires_at";
     public enum Purpose {
         COMPLAINT("complaint","complaints","complaint_id","投诉"),APPEAL("appeal","appeals","appeal_id","申诉");
@@ -50,7 +52,7 @@ public class AttachmentService {
         byte[] bytes=(byte[])db.one("SELECT file_bytes FROM evidence_attachments WHERE id=CAST(? AS UUID)",id).get("file_bytes");return new Content(bytes,Store.text(row,"content_type"),Store.text(row,"display_name"));
     }
     @Transactional(readOnly=true,isolation=Isolation.REPEATABLE_READ)
-    public byte[] campusPhoto(long actor,String rawId) {
+    public byte[] campusPhoto(long actor,String rawId,boolean thumbnail) {
         requireActive(actor);
         String id=uuid(rawId,"公开照片编号");
         var photo=db.one("""
@@ -65,17 +67,22 @@ public class AttachmentService {
             decoded=ImageIO.read(input);
             if(decoded==null) throw new IOException("Invalid stored complaint photo");
             int maxDimension=Math.max(decoded.getWidth(),decoded.getHeight());
-            double scale=Math.min(1.0,1600.0/maxDimension);
+            int edge=thumbnail ? CAMPUS_THUMBNAIL_EDGE : CAMPUS_PREVIEW_EDGE;
+            double scale=Math.min(1.0,(double)edge/maxDimension);
             int width=Math.max(1,(int)Math.round(decoded.getWidth()*scale));
             int height=Math.max(1,(int)Math.round(decoded.getHeight()*scale));
             // Write only raster pixels from a fresh standard image, without carrying original metadata.
-            clean=new BufferedImage(width,height,BufferedImage.TYPE_INT_ARGB);
+            clean=new BufferedImage(width,height,thumbnail ? BufferedImage.TYPE_INT_RGB : BufferedImage.TYPE_INT_ARGB);
             var graphics=clean.createGraphics();
             try {
                 graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION,RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+                if(thumbnail) {
+                    graphics.setColor(java.awt.Color.WHITE);
+                    graphics.fillRect(0,0,width,height);
+                }
                 graphics.drawImage(decoded,0,0,width,height,null);
             } finally { graphics.dispose(); }
-            if(!ImageIO.write(clean,"png",output)) throw new IOException("PNG encoder unavailable");
+            if(!ImageIO.write(clean,thumbnail ? "jpeg" : "png",output)) throw new IOException("Image encoder unavailable");
             return output.toByteArray();
         } catch(IOException e) {
             throw Api.fail(500,"这张公开照片暂时无法查看");

@@ -42,7 +42,8 @@ const menus = computed(() => auth.isAdmin
       { index: '/', title: '首页', icon: 'home' },
       { index: '/analytics', title: '热力图统计', icon: 'analytics' },
       { index: '/admin', title: '管理端', icon: 'admin' },
-      { index: '/lan', title: '局域网', icon: 'lan' }
+      { index: '/lan', title: '局域网', icon: 'lan' },
+      { index: '/notifications', title: '消息', icon: 'notification-empty' }
     ]
   : [
       { index: '/', title: '首页', icon: 'home' },
@@ -191,7 +192,7 @@ onMounted(() => {
   narrowMediaQuery.addEventListener('change', onNarrowChange)
   window.addEventListener('keydown', onKeydown)
   document.addEventListener('click', onDocumentClick)
-  if (auth.isOrdinary) {
+  if (auth.isOrdinary || auth.isAdmin) {
     refreshUnread()
     timer = setInterval(refreshUnread, 60000)
   }

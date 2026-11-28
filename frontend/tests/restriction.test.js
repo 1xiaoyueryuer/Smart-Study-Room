@@ -28,13 +28,21 @@ test('manual payload separates public/private facts, uses explicit campus offset
 })
 test('administrator explicitly selects a disabled ordinary account and confirms a frozen minimal body without invented impact counts',async()=>{
   let release;const page=await admin({confirmDialog:text=>{page.dialogs.push(text);return new Promise(done=>{release=done})}});assert.equal(page.form.value.user_id,null);assert.equal(page.userOptions.value.some(row=>row.value===1),false);page.form.value=form();const request=page.act('create');page.form.value.reason='后改不得污染';release();await request
-  const body=page.calls.find(call=>call[0]==='create')[1];assert.equal(body.reason,'工程模拟公开限制。');assert.equal(body.ends_at,'2026-11-02T10:00+08:00');assert.equal('starts_at'in body,false);assert.match(page.dialogs[0],/模拟教职工/);assert.match(page.dialogs[0],/使用中的预约继续/);assert.doesNotMatch(page.dialogs[0],/预计取消\d|。。/);assert.equal(page.receipt.value.effects.continued_checked_in_count,1)
+  const body=page.calls.find(call=>call[0]==='create')[1];assert.equal(body.reason,'工程模拟公开限制。');assert.equal(body.ends_at,'2026-11-02T10:00+08:00');assert.equal('starts_at'in body,false)
+  const summary=page.dialogs[0].children
+  const visibleText=summary.filter(node=>node.type==='p').map(node=>node.children).join('\n')
+  assert.match(visibleText,/模拟教职工/)
+  assert.match(visibleText,/使用中的预约继续/)
+  assert.match(visibleText,/2026-11-02 10:00:00/)
+  assert.doesNotMatch(visibleText,/预计取消\d|。。|工程模拟私有依据/)
+  assert.match(summary.find(node=>node.type==='details').children.map(node=>node.children).join('\n'),/工程模拟私有依据/)
+  assert.equal(page.receipt.value.effects.continued_checked_in_count,1)
 })
 test('releasing one record uses its real version and preserves other active restrictions and nonzero actual effects',async()=>{
   const page=await admin();await page.loadList();await page.choose(page.items.value[0]);page.releaseForm.value=form();await page.act('release');const request=page.calls.find(call=>call[0]==='release');assert.equal(request[1],90);assert.equal(request[2].version,1);assert.equal('user_id'in request[2],false);assert.equal(page.receipt.value.eligibility.can_book,false);assert.equal(page.receipt.value.eligibility.active_restrictions[0].id,91);assert.equal(page.receipt.value.effects.settled_unused_count,1);assert.match(eligibilityText(page.receipt.value.eligibility),/仍有有效/)
 })
 test('expired release 409 refreshes real state without a release receipt or losing the original inputs',async()=>{
-  let page;page=await admin({releaseRestriction:async()=>{page.setRows([record({status:'expired'})]);throw{status:409,message:'已到期，不可人工解除'}}});await page.loadList();await page.choose(page.items.value[0]);page.releaseForm.value=form();await page.act('release');assert.equal(page.selected.value.status,'expired');assert.equal(page.receipt.value,null);assert.equal(page.releaseForm.value.reason,' 工程模拟公开限制。 ');assert.match(page.actionError.value,/未确认成功/)
+  let page;page=await admin({releaseRestriction:async()=>{page.setRows([record({status:'expired'})]);throw{status:409,message:'已到期，不可人工解除'}}});await page.loadList();await page.choose(page.items.value[0]);page.releaseForm.value=form();await page.act('release');assert.equal(page.selected.value.status,'expired');assert.equal(page.receipt.value,null);assert.equal(page.releaseForm.value.reason,' 工程模拟公开限制。 ');assert.match(page.actionError.value,/已到期，不可人工解除。请核对更新后的记录/)
 })
 test('unknown restriction result freezes endpoint and body, and explicit retry alone reuses its UUID',async()=>{
   const attempts=[];let page
@@ -147,5 +155,5 @@ test('later reads keep a historical evaluation window unchanged and show source 
 })
 test('releasing the last old restriction can return a distinct automatic batch and still block booking',async()=>{
   let posts=0;const next=automatic(),page=await admin({releaseRestriction:async(id,body)=>{posts++;const released=record({status:'released',version:2,released_at:'2026-11-01T09:01+08:00',release_reason:body.reason,release_notification_id:901,release_notified_at:'2026-11-01T09:01+08:00'});page.setRows([released,next]);return{data:{operation_id:body.operation_id,restriction:released,effects:effects(),eligibility:eligibility([next])}}}})
-  await page.loadList();await page.choose(page.items.value[0]);page.releaseForm.value=form();await page.act('release');assert.equal(posts,1);assert.equal(page.receipt.value.restriction.status,'released');assert.equal(page.receipt.value.eligibility.can_book,false);assert.equal(page.receipt.value.eligibility.active_restrictions[0].id,92);assert.match(eligibilityText(page.receipt.value.eligibility),/仍有有效/);assert.match(page.dialogs[0],/可能立即.*新的累计限制/);const html=await renderRestriction(page.receipt.value.eligibility.active_restrictions[0]);assert.match(html,/违规 #303/)
+  await page.loadList();await page.choose(page.items.value[0]);page.releaseForm.value=form();await page.act('release');assert.equal(posts,1);assert.equal(page.receipt.value.restriction.status,'released');assert.equal(page.receipt.value.eligibility.can_book,false);assert.equal(page.receipt.value.eligibility.active_restrictions[0].id,92);assert.match(eligibilityText(page.receipt.value.eligibility),/仍有有效/);assert.match(page.dialogs[0].children.find(node=>node.type==='details').children.map(node=>node.children).join(' '),/可能立即开始新的预约限制/);const html=await renderRestriction(page.receipt.value.eligibility.active_restrictions[0]);assert.match(html,/违规 #303/)
 })

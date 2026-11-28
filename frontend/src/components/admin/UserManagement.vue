@@ -17,7 +17,14 @@ import { usePagination } from '../../composables/usePagination'
 const emit = defineEmits(['summary'])
 const auth = useAuthStore()
 const users = ref([])
-const { page: userPage, pages: userPages, pageItems: userPageItems } = usePagination(users, null, 10)
+const userSearch = ref('')
+const matchingUsers = computed(() => {
+  const term = userSearch.value.trim().toLowerCase()
+  if (!term) return users.value
+  return users.value.filter(user => [user.real_name, user.campus_id, user.username]
+    .some(value => String(value ?? '').toLowerCase().includes(term)))
+})
+const { page: userPage, pages: userPages, pageItems: userPageItems } = usePagination(matchingUsers, userSearch, 10)
 let loadSequence = 0
 const loading = ref(false)
 const error = ref('')
@@ -110,18 +117,22 @@ defineExpose({ loadUsers, openCreate })
 <template>
   <section class="card">
     <div class="card-title-row"><h3>用户管理</h3><div class="row-actions"><SButton size="sm" :loading="loading" @click="loadUsers">刷新用户</SButton><SButton size="sm" variant="primary" @click="openCreate">创建账号</SButton></div></div>
+    <div class="account-search row-actions">
+      <SInput v-model="userSearch" type="search" aria-label="搜索姓名或校园账号" placeholder="搜索姓名或校园账号" />
+      <SButton v-if="userSearch" size="sm" @click="userSearch = ''">清空搜索</SButton>
+    </div>
     <p v-if="loading" role="status" class="muted">正在加载校园账号…</p>
     <SBanner v-if="error" type="error" :title="error"><SButton size="sm" :disabled="loading" @click="loadUsers">重试</SButton></SBanner>
     <div v-if="!loading && !error" class="table-wrap"><div class="table-scroll" tabindex="0" aria-label="校园用户列表，可左右滑动"><table class="table account-table">
-      <thead><tr><th>学号</th><th>姓名</th><th>角色</th><th>联系方式</th><th>状态</th><th>操作</th></tr></thead>
+      <thead><tr><th>校园账号</th><th>姓名</th><th>角色</th><th>联系方式</th><th>状态</th><th>操作</th></tr></thead>
       <tbody><tr v-for="user in userPageItems" :key="user.id">
-        <td><b>{{ user.campus_id || '未登记' }}</b></td><td>{{ user.real_name }}</td>
+        <td><b>{{ user.campus_id || user.username || '未登记' }}</b></td><td>{{ user.real_name }}</td>
         <td><STag :type="user.role === 'admin' ? 'danger' : 'primary'">{{ ROLE_LABELS[user.role] || '未知角色' }}</STag></td>
         <td><div>{{ user.phone || '—' }}</div><div>{{ user.email || '—' }}</div></td>
         <td><STag :type="user.status === 'active' ? 'success' : 'neutral'">{{ user.status === 'active' ? '正常' : '禁用' }}</STag></td>
         <td><div class="row-actions"><SButton size="sm" @click="openEdit(user)">编辑账号</SButton><SButton v-if="String(user.id) !== String(auth.user?.id)" size="sm" :loading="statusBusy === user.id" :disabled="statusBusy !== null" @click="toggleStatus(user)">{{ user.status === 'active' ? '禁用账号' : '启用账号' }}</SButton><span v-else class="muted">当前账号</span></div></td>
       </tr></tbody>
-    </table><SEmpty v-if="!users.length" description="暂无校园账号，可创建学生或教职工账号" /></div></div><div class="list-footer"><span>共 {{ users.length }} 条</span><span class="page-info">第 {{ userPage }} / {{ userPages }} 页</span><div class="page-actions"><SButton size="sm" :disabled="userPage<=1" @click="userPage--">上一页</SButton><SButton size="sm" :disabled="userPage>=userPages" @click="userPage++">下一页</SButton></div></div>
+    </table><SEmpty v-if="!matchingUsers.length" :description="userSearch.trim() ? '没有匹配的校园账号' : '暂无校园账号，可创建学生或教职工账号'" /></div></div><div class="list-footer"><span>共 {{ matchingUsers.length }} 条</span><span class="page-info">第 {{ userPage }} / {{ userPages }} 页</span><div class="page-actions"><SButton size="sm" :disabled="userPage<=1" @click="userPage--">上一页</SButton><SButton size="sm" :disabled="userPage>=userPages" @click="userPage++">下一页</SButton></div></div>
     <UserImport @imported="loadUsers" @refresh="loadUsers" />
     <SDialog v-model="dialog" :title="editing === null ? '创建校园账号' : '编辑校园账号'" width="660px" :close-on-click-modal="!saving" :show-close="!saving">
       <form id="account-form" class="account-form" @submit.prevent="saveUser">
@@ -146,6 +157,8 @@ defineExpose({ loadUsers, openCreate })
 <style scoped>.list-footer{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:12px;margin-top:12px;color:var(--text-3);font-size:var(--fs-caption)}.page-info{text-align:center;white-space:nowrap}.page-actions{display:flex;gap:10px;justify-content:flex-end}
 
 .account-table { min-width: 900px; }
+.account-search { margin-bottom: 14px; }
+.account-search :deep(.s-input) { width: min(100%, 320px); }
 .account-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .account-form label { display: grid; gap: 7px; font-size: var(--fs-caption); color: var(--text-2); }
 .full-width, .form-error { grid-column: 1 / -1; }

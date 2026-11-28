@@ -83,7 +83,7 @@ const routes = [
         path: '/notifications',
         name: 'notifications',
         component: () => import('../views/NotificationsView.vue'),
-        meta: { title: '消息中心', requiresAuth: true, allowedRoles: ['student', 'staff'] }
+        meta: { title: '消息中心', requiresAuth: true, allowedRoles: ['student', 'staff', 'admin'] }
       },
       {
         path: '/profile',

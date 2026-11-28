@@ -1,4 +1,4 @@
-import {recordTestImport} from './record-fixtures.js'
+import {pageFixture,recordTestImport} from './record-fixtures.js'
 import * as reviewManagement from '../src/composables/reviewManagement.js'
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -99,16 +99,27 @@ test('actual typed summary renders room changes, full-day closure and original b
   page.preview.value=preview({change_type:'opening.save',target_id:1,payload:{date:'2026-11-01',windows:[]}}).data
   assert.match(await renderSummary(page),/整日闭馆（空窗口）/)
   page.preview.value={...preview({change_type:'block.cancel',target_id:9,payload:{reason:'恢复'}}).data,target_label:'工程模拟空间 / A1 / 2026-11-01T08:00—12:00'}
-  const cancelHtml=await renderSummary(page);assert.match(cancelHtml,/A1 \/ 2026-11-01T08:00—12:00/);assert.match(cancelHtml,/其他重叠停用记录/)
+  const cancelHtml=await renderSummary(page);assert.match(cancelHtml,/撤销所选临时停用安排/);assert.match(cancelHtml,/其他停用安排继续生效/)
 })
 
 test('management cancellation and user cancellation keep current notification categories',async()=>{
+ const notices=['management_cancelled','reservation_cancelled'].map((type,index)=>({
+  id:index+1,type,is_read:false,title:'预约已取消',content:'请查看预约记录'
+ }))
  const page=await component('../src/views/NotificationsView.vue',{
-  vue:{ref,computed,onMounted(){}},'../components/ui/feedback':{message:{success(){}}},'../api/notification':{listNotifications:async()=>({data:[]}),markRead:async()=>{},markAllRead:async()=>({data:{marked:0}})},'../stores/notification':{useNotificationStore:()=>({refresh(){},beginUpdate(){},acceptUnread(){}})}
- },'list,category,visibleItems,typeMeta,snapshot')
- page.list.value=[{id:1,type:'management_cancelled',is_read:false}]
- page.category.value='reservation'
+  vue:{ref,computed,onMounted(){}},
+  '../api/notification':{
+   listNotifications:async query=>{
+    const types=query.types.split(',')
+    const matching=notices.filter(notice=>types.includes(notice.type))
+    return {data:{...pageFixture(matching,query),counts:{total:2,unread:2,by_type:{management_cancelled:1,reservation_cancelled:1}}}}
+   },
+   markRead:async()=>{},markAllRead:async()=>{}
+  },
+  '../stores/notification':{useNotificationStore:()=>({beginUpdate(){},acceptUnread(){}})}
+ },'selectCategory,visibleItems,typeMeta')
+ assert.equal(await page.selectCategory('reservation'),true)
  assert.equal(page.typeMeta.management_cancelled.text,'资源管理取消')
- assert.equal(page.visibleItems.value.length,1)
+ assert.deepEqual(page.visibleItems.value.map(notice=>notice.type),['management_cancelled','reservation_cancelled'])
  assert.equal(page.typeMeta.reservation_checkin.text,'签到成功')
 })

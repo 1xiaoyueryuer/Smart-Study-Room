@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { getCampusComplaintPhoto, listCampusComplaints, listMyComplaints, getComplaint } from '../api/complaint'
+import { getCampusComplaintPhoto, getCampusComplaintThumbnail, listCampusComplaints, listMyComplaints, getComplaint } from '../api/complaint'
 import { complaintStatuses, complaintCategory, complaintNumber, isFacilityRepair, parseRepair } from '../composables/complaintForm.js'
 import { formatCampusDateTime } from '../composables/campusDateTime.js'
 import { useServiceTargetClock } from '../composables/useServiceTargetClock.js'
@@ -164,7 +164,7 @@ onBeforeUnmount(() => { alive = false; detailSequence++; pager.dispose(); campus
       <template v-else-if="!campusError">
         <ComplaintCampusCard v-for="(item, index) in campusItems" :key="index" :room-name="item.room_name" :category="item.category"
           :summary="item.public_summary" :details="item.public_details" :status="item.status"
-          :photo-ids="item.public_attachment_ids" :load-photo="getCampusComplaintPhoto" />
+          :photo-ids="item.public_attachment_ids" :load-photo="getCampusComplaintPhoto" :load-thumbnail="getCampusComplaintThumbnail" />
         <SEmpty v-if="campusLoaded && !campusItems.length" :description="campusSnapshot.total ? '这一页暂无公开求助' : '暂无校园公开求助'" />
       </template>
       <RecordPageControls v-if="!campusError && campusSnapshot && (campusSnapshot.page > 1 || campusSnapshot.total > campusSnapshot.page_size)"
