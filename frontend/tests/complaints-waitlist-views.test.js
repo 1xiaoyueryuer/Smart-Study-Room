@@ -205,11 +205,11 @@ test('closing a detail during an in-flight read discards the response and stops 
 
 test('complaint templates keep the visible loading, empty and retry texts', async () => {
   const { full: source } = await complaintsPage()
-  assert.match(source, /正在读取本人求助与投诉…/)
+  assert.match(source, /role="status">正在加载求助记录…/)
   assert.match(source, /该分类暂无记录，可新建求助/)
-  assert.match(source, /从左侧选择一条记录查看详情/)
-  assert.match(source, /重试列表/)
-  assert.match(source, /重试详情/)
+  assert.match(source, /选择一条记录查看处理进度/)
+  assert.match(source, /@click="load">重新加载记录/)
+  assert.match(source, /@click="selectItem\(\{id:selectedId\}\)">重新加载详情/)
 })
 
 function waitlistRows() {

@@ -8,7 +8,8 @@ import { formatCampusDateTime } from '../composables/campusDateTime.js'
 const props = defineProps({
   record: { type: Object, required: true },
   targetProgress: { type: Object, default: null },
-  compact: { type: Boolean, default: false }
+  compact: { type: Boolean, default: false },
+  management: Boolean
 })
 // 单行「问题：回答」的说明按字段行展示；多行说明保持正文段落
 const descriptionField = computed(() => parseDescriptionField(props.record?.description))
@@ -81,6 +82,7 @@ function eventLabel(event) {
         </div>
       </div>
       <p v-if="record.context_snapshot.reservation_id" class="muted">关联预约 #{{ record.context_snapshot.reservation_id }} · 座位 {{ record.context_snapshot.seat_no }} · {{ record.context_snapshot.date }} {{ record.context_snapshot.start_time }}—{{ record.context_snapshot.end_time }} · 提交时{{ reservationStatuses[record.context_snapshot.status_at_submission] || record.context_snapshot.status_at_submission }}</p>
+      <p v-else-if="record.context_snapshot.seat_no" class="muted">座位 {{ record.context_snapshot.seat_no }}</p>
     </section>
 
     <section v-if="record.current_feedback" class="record-section feedback-record">
@@ -99,9 +101,9 @@ function eventLabel(event) {
 
     <details v-if="record.attachment_count" class="record-section attachments-section">
       <summary>照片材料（{{ record.attachment_count }}张）</summary>
-      <p v-if="!record.attachments?.length" class="muted">本次未附照片。</p>
+      <p v-if="!record.attachments?.length" class="muted">{{ management ? '照片仅受理管理员可见。' : '照片暂时无法显示。' }}</p>
       <div v-else class="attachments">
-        <ProtectedAttachment v-for="attachment in record.attachments" :key="attachment.id" :attachment="attachment" />
+        <ProtectedAttachment v-for="(attachment, index) in record.attachments" :key="attachment.id" :attachment="attachment" :photo-number="management ? undefined : index + 1" />
       </div>
     </details>
 

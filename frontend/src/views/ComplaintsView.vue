@@ -121,7 +121,6 @@ onBeforeUnmount(() => { alive = false; detailSequence++; pager.dispose() })
     <header class="view-heading with-action" data-page-title>
       <div class="heading-copy">
         <h1>求助与投诉</h1>
-        <p class="heading-sub">预约与座位问题、设施报修、其他服务反馈；提交后等待受理与核实。</p>
       </div>
       <SButton variant="primary" @click="toggleForm">{{ formOpen ? '收起表单' : '＋ 新建求助' }}</SButton>
     </header>
@@ -135,8 +134,8 @@ onBeforeUnmount(() => { alive = false; detailSequence++; pager.dispose() })
         <nav class="complaint-tabs" aria-label="求助类型">
           <button v-for="tab in categories" :key="tab.key" type="button" :class="{active: category === tab.key}" :disabled="loading" @click="selectCategory(tab.key)">{{ tab.label }}</button>
         </nav>
-        <SBanner v-if="error" type="error" :title="error"><SButton size="sm" @click="load">重试列表</SButton></SBanner>
-        <p v-if="loading" role="status">正在读取本人求助与投诉…</p>
+        <SBanner v-if="error" type="error" title="暂时无法加载求助记录"><SButton size="sm" @click="load">重新加载记录</SButton></SBanner>
+        <p v-if="loading" role="status">正在加载求助记录…</p>
         <ul v-if="!loading" class="ticket-list">
           <li v-for="item in visibleItems" :key="item.id">
             <button type="button" class="ticket-item" :class="{active: selectedId === item.id}" @click="selectItem(item)">
@@ -158,14 +157,14 @@ onBeforeUnmount(() => { alive = false; detailSequence++; pager.dispose() })
         <div class="detail-head">
           <h3>详情</h3>
           <div class="row-actions">
-            <RouterLink v-if="selectedId" :to="`/complaints/${selectedId}`" class="text-link">打开完整页面</RouterLink>
+            <RouterLink v-if="selectedId" :to="`/complaints/${selectedId}`" class="text-link">查看处理进度</RouterLink>
             <SButton v-if="selectedId" size="sm" @click="closeDetail">关闭</SButton>
           </div>
         </div>
-        <p v-if="detailLoading" role="status">正在读取本人详情…</p>
-        <SBanner v-if="detailError" type="error" :title="detailError"><SButton size="sm" @click="selectItem({id:selectedId})">重试详情</SButton></SBanner>
+        <p v-if="detailLoading" role="status">正在加载详情…</p>
+        <SBanner v-if="detailError" type="error" title="暂时无法加载这条记录"><SButton size="sm" @click="selectItem({id:selectedId})">重新加载详情</SButton></SBanner>
         <ComplaintRecord v-if="detail && !detailLoading" :record="detail" :target-progress="targetClock.progress(detail)" compact />
-        <SEmpty v-else-if="!detailLoading && !detailError" description="从左侧选择一条记录查看详情" />
+        <SEmpty v-else-if="!detailLoading && !detailError" description="选择一条记录查看处理进度" />
       </section>
     </div>
   </div>

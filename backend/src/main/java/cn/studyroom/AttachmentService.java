@@ -42,7 +42,9 @@ public class AttachmentService {
     @Transactional(readOnly=true,isolation=Isolation.REPEATABLE_READ)
     public Content content(long actor,String rawId,Purpose purpose) {
         var user=requireActive(actor);String id=uuid(rawId,"材料编号");var row=db.one("SELECT "+METADATA+" FROM evidence_attachments WHERE id=CAST(? AS UUID) AND purpose=?",id,purpose.value);boolean owner=Store.id(row,"owner_id")==actor;
-        Api.require(owner||"admin".equals(user.get("role"))&&bound(row),403,"无权读取该材料");
+        boolean adminAccess = "admin".equals(user.get("role")) && bound(row)
+                && (purpose == Purpose.APPEAL || isComplaintHandler(actor, Store.id(row, "complaint_id")));
+        Api.require(owner || adminAccess,403,"无权读取该材料");
         if(!bound(row)) Api.require(now().isBefore(LocalDateTime.parse(row.get("expires_at").toString())),410,"临时材料已过期，请重新上传");
         byte[] bytes=(byte[])db.one("SELECT file_bytes FROM evidence_attachments WHERE id=CAST(? AS UUID)",id).get("file_bytes");return new Content(bytes,Store.text(row,"content_type"),Store.text(row,"display_name"));
     }
@@ -65,6 +67,9 @@ public class AttachmentService {
     }
     private Map<String,Object> metadata(Map<String,Object> row) {
         var result=new LinkedHashMap<String,Object>();for(String key:List.of("id","display_name","content_type","size_bytes","width","height","sha256")) result.put(key,row.get(key));result.put("id",row.get("id").toString());result.put("created_at",offset(row.get("created_at")));result.put("expires_at",!bound(row)?offset(row.get("expires_at")):null);return result;
+    }
+    boolean isComplaintHandler(long actor, long complaint) {
+        return db.count("SELECT count(*) FROM complaints WHERE id=? AND handler_id=?", complaint, actor) > 0;
     }
     private boolean bound(Map<String,Object> row){return row.get("complaint_id")!=null||row.get("appeal_id")!=null;}
     private Image inspect(byte[] bytes) {

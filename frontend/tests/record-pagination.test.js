@@ -5,6 +5,8 @@ import {readFile} from 'node:fs/promises'
 import * as vue from 'vue'
 import * as records from '../src/composables/recordPage.js'
 import * as campusDateTime from '../src/composables/campusDateTime.js'
+import * as complaintForm from '../src/composables/complaintForm.js'
+import { useEvidenceUploadQueue } from '../src/composables/useEvidenceUploadQueue.js'
 import {validEligibility,eligibilityText,restrictionStatuses,restrictionPayload,offsetInstant} from '../src/composables/restrictionForm.js'
 const rows=(start,count)=>Array.from({length:count},(_,n)=>({id:start+n,status:'active',type:'no_show',source:'automatic',reason:'工程记录'+(start+n)}))
 const envelope=(items,query,total=45)=>({items,total,page:query.page,page_size:query.page_size,server_now:'2026-10-30T20:00+08:00'})
@@ -40,8 +42,57 @@ test('admin restriction private evidence is read from single detail, never assum
 })
 
 
-test('shared filters can be embedded in complaint submission without nested forms or native submit buttons',async()=>{
+test('shared filters do not create nested forms or native submit buttons',async()=>{
  const source=await readFile(new URL('../src/components/RecordFilters.vue',import.meta.url),'utf8')
  assert.doesNotMatch(source,/<form|type="submit"/);assert.match(source,/type="button"/);assert.match(source,/@keydown.enter.stop.prevent/)
- const complaint=await readFile(new URL('../src/components/ComplaintForm.vue',import.meta.url),'utf8');assert.match(complaint,/choicesPager.snapshot.value/);assert.match(complaint,/getReservation\(id\)/)
+})
+
+test('complaint reservation picker requests the first five reservations and keeps entry context read-only', async () => {
+  const complaint = await readFile(new URL('../src/components/ComplaintForm.vue', import.meta.url), 'utf8')
+  assert.match(complaint, /recentChoicesQuery = \{ page: 1, page_size: 5 \}/)
+  assert.match(complaint, /listMyReservations\(recentChoicesQuery\)/)
+  assert.match(complaint, /getReservation\(id\)/)
+  assert.match(complaint, /!reservationFromEntry && choosingReservation/)
+  assert.doesNotMatch(complaint, /RecordFilters|RecordPageControls/)
+
+  const listCalls = [], detailCalls = []
+  const mocks = {
+    '../api/complaint': { createComplaint() {}, getComplaint() {}, getComplaintAttachment() {}, getComplaintRoomSeats() {}, uploadComplaintAttachment() {} },
+    '../api/room': { getRooms() {} },
+    '../api/reservation': {
+      listMyReservations: async query => { listCalls.push({ ...query }); return { data: envelope(rows(2, 5), query) } },
+      getReservation: async id => {
+        detailCalls.push(id)
+        if (id === 999) throw { status: 403 }
+        return { data: { id, room_name: '1F-A区', seat_no: '01-02', res_date: '2026-11-27', start_time: '08:00:00', end_time: '08:30:00' } }
+      }
+    },
+    '../composables/complaintForm.js': complaintForm,
+    '../composables/checkinDeadline.js': { checkinDeadlineOf() {} },
+    '../composables/useEvidenceUploadQueue.js': { useEvidenceUploadQueue }
+  }
+  const setup = (props) => component('../src/components/ComplaintForm.vue', mocks,
+    'applyInitial,changeType,choices,choosingReservation,context,contextError,reservationSlot,selectReservation',
+    { defineProps: () => props, defineEmits: () => () => {} })
+  const linked = await setup({ initialReservationId: '342', initialType: 'occupation' })
+  linked.applyInitial()
+  await new Promise(resolve => setImmediate(resolve))
+  assert.deepEqual(listCalls, [])
+  assert.deepEqual(detailCalls, [342])
+  assert.equal(linked.choosingReservation.value, false)
+  assert.equal(linked.reservationSlot(linked.context.value), '2026-11-27 08:00–08:30')
+  linked.changeType('service')
+  assert.equal(linked.context.value.id, 342)
+  const center = await setup({ initialType: 'service' })
+  center.changeType('occupation')
+  await new Promise(resolve => setImmediate(resolve))
+  assert.deepEqual(listCalls, [{ page: 1, page_size: 5 }])
+  assert.equal(center.choices.value.length, 5)
+  await center.selectReservation(999)
+  assert.equal(center.contextError.value, '只能为本人预约发起求助。')
+  await center.selectReservation(4)
+  assert.equal(center.context.value.id, 4)
+  await center.selectReservation(null)
+  assert.equal(center.context.value, null)
+  for (const cleanup of [...linked.cleanup, ...center.cleanup]) cleanup()
 })

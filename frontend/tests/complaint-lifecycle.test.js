@@ -28,7 +28,7 @@ test('owner actions use server permission flags without browser date guesses and
   assert.deepEqual(ownerComplaintActions({status:'processing'}),[])
 })
 test('owner confirmation records explicit user closure only after a real receipt and authoritative detail refresh',async()=>{
-  const page=await owner();await page.act('confirm');assert.equal(page.calls.filter(call=>call[0]==='confirm').length,1);assert.equal(page.record.value.status,'closed');assert.equal(page.record.value.closure_type,'confirmed');assert.match(page.writeNotice.value,/确认本次反馈并结案已记录/);assert.equal(page.actions.value.length,0)
+  const page=await owner();await page.act('confirm');assert.equal(page.calls.filter(call=>call[0]==='confirm').length,1);assert.equal(page.record.value.status,'closed');assert.equal(page.record.value.closure_type,'confirmed');assert.match(page.writeNotice.value,/投诉已结案/);assert.equal(page.actions.value.length,0)
 })
 test('objection validates description, returns to processing and retains input on known conflict',async()=>{
   const page=await owner();await page.act('object');assert.match(page.actionError.value,/1至2000/);assert.equal(page.calls.filter(call=>call[0]==='object').length,0)
@@ -41,7 +41,7 @@ test('withdrawal is available for submitted only and uses the real owner endpoin
 test('expired action 409 shows actual system closure rather than user-confirmation success',async()=>{
   let page
   page=await owner({confirmComplaintFeedback:async()=>{page.setState({...awaiting(),status:'closed',version:4,closure_type:'auto_closed',closed_at:'2026-11-06T09:00:01+08:00',allowed_actions:[]});throw{status:409,message:'确认期限已届满',details:{complaint_id:88,status:'closed',closure_type:'auto_closed'}}}})
-  await page.act('confirm');assert.equal(page.record.value.status,'closed');assert.equal(page.record.value.closure_type,'auto_closed');assert.match(page.actionError.value,/确认本次反馈并结案未执行/);assert.equal(page.writeNotice.value,'');assert.equal(page.actions.value.length,0)
+  await page.act('confirm');assert.equal(page.record.value.status,'closed');assert.equal(page.record.value.closure_type,'auto_closed');assert.match(page.actionError.value,/投诉已自动结案/);assert.equal(page.writeNotice.value,'');assert.equal(page.actions.value.length,0)
 })
 test('unknown owner action keeps endpoint/id/version/body/key and only retries by explicit user action',async()=>{
   const bodies=[];let page
@@ -51,7 +51,7 @@ test('unknown owner action keeps endpoint/id/version/body/key and only retries b
 test('successful owner write with failed read freezes writes and only retries GET while preserving acknowledgement',async()=>{
   let failed=false,posts=0
   const page=await owner({getComplaint:async()=>{if(failed)throw new Error('重读失败');return{data:awaiting()}},confirmComplaintFeedback:async(id,body)=>{posts++;failed=true;return{data:{operation_id:body.operation_id,event_id:10,complaint:{...awaiting(),status:'closed',allowed_actions:[]}}}}})
-  await page.act('confirm');assert.equal(page.readPending.value,true);assert.match(page.error.value,/操作已记录/);assert.match(page.writeNotice.value,/已记录/);await page.act('confirm');await page.refresh();assert.equal(posts,1)
+  await page.act('confirm');assert.equal(page.readPending.value,true);assert.match(page.error.value,/暂时无法加载处理进度/);assert.match(page.writeNotice.value,/投诉已结案/);await page.act('confirm');await page.refresh();assert.equal(posts,1)
 })
 test('owner confirmation locks the exact complaint and body before dialog, and late response cannot contaminate a different route',async()=>{
   let release

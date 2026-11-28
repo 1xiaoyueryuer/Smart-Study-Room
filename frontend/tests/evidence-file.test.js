@@ -1,5 +1,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
+import vm from 'node:vm'
+import { compileScript, parse } from '@vue/compiler-sfc'
+import * as vue from 'vue'
+import * as ssr from 'vue/server-renderer'
 import { validateEvidenceFile } from '../src/composables/evidenceFile.js'
 import { useEvidenceUploadQueue } from '../src/composables/useEvidenceUploadQueue.js'
 
@@ -155,7 +160,7 @@ test('upload queue accepts exactly three photos and uploads them in order', asyn
   assert.ok(queue.items.value.every(item => item.phase === 'uploaded' && item.metadata?.id))
 })
 
-test('upload queue rejects a fourth photo before uploading any of them', async () => {
+test('upload queue preserves existing photos when another selection would exceed three', async () => {
   const uploaded = []
   const errors = []
   const queue = useEvidenceUploadQueue({
@@ -165,13 +170,14 @@ test('upload queue rejects a fourth photo before uploading any of them', async (
     },
     validateFile: async () => {},
     setError: value => errors.push(value),
-    newKey: () => `k-${++uploaded.key}`
+    newKey: () => 'k-1'
   })
-  await queue.selectFiles({ target: { files: [photo(), photo(), photo(), photo()] } })
-  assert.equal(queue.items.value.length, 4)
-  assert.equal(uploaded.length, 0)
-  assert.ok(queue.items.value.every(item => item.phase === 'error'))
-  assert.match(errors.at(-1), /最多3张照片/)
+  await queue.selectFiles({ target: { files: [photo()] } })
+  await queue.selectFiles({ target: { files: [photo(), photo(), photo()] } })
+  assert.equal(queue.items.value.length, 1)
+  assert.equal(uploaded.length, 1)
+  assert.equal(queue.items.value[0].phase, 'uploaded')
+  assert.equal(errors.at(-1), '最多可添加 3 张照片，请少选几张。')
 })
 
 test('upload queue keeps the file in error state when the upload receipt is incomplete', async () => {
@@ -182,5 +188,114 @@ test('upload queue keeps the file in error state when the upload receipt is inco
   })
   await queue.selectFiles({ target: { files: [photo()] } })
   assert.equal(queue.items.value[0].phase, 'error')
-  assert.match(queue.items.value[0].error, /上传结果未确认，未取得附件ID/)
+  assert.equal(queue.items.value[0].validated, true)
+  assert.equal(queue.items.value[0].metadata, null)
+})
+
+test('upload queue replaces a failed photo in place and clears its validation message', async () => {
+  const queue = useEvidenceUploadQueue({
+    uploadFile: async file => ({ data: {
+      id: 2, display_name: file.name, content_type: 'image/png', size_bytes: file.size, width: 800, height: 600
+    } }),
+    validateFile: async file => {
+      if (file.type !== 'image/png') throw new Error('图片类型无效')
+    },
+    newKey: () => 'original-position'
+  })
+  await queue.selectFiles({ target: { files: [photo(100, 'application/pdf', 'a.pdf')] } })
+  const item = queue.items.value[0]
+  assert.equal(item.phase, 'error')
+  assert.equal(item.error, '请选择 JPG 或 PNG 图片。')
+  await queue.selectFiles({ target: { files: [photo()] } }, item)
+  assert.deepEqual(queue.items.value.map(entry => entry.key), ['original-position'])
+  assert.equal(item.phase, 'uploaded')
+  assert.equal(item.error, '')
+  assert.equal(item.metadata.id, 2)
+})
+
+test('complaint queue marks unavailable photos individually and allows an in-place reupload', async t => {
+  let time = 0
+  let uploadCount = 0
+  let key = 0
+  const queue = useEvidenceUploadQueue({
+    uploadFile: async file => ({ data: {
+      id: ++uploadCount,
+      display_name: file.name,
+      content_type: 'image/png',
+      size_bytes: file.size,
+      width: 800,
+      height: 600,
+      created_at: '2026-11-28T08:00:00+08:00',
+      expires_at: '2026-11-29T08:00:00+08:00'
+    } }),
+    validateFile: async () => {},
+    newKey: () => `k-${++key}`,
+    now: () => time,
+    trackExpiry: true
+  })
+  t.after(queue.dispose)
+  await queue.selectFiles({ target: { files: [photo()] } })
+  time += 1000
+  await queue.selectFiles({ target: { files: [photo()] } })
+  assert.equal(queue.expiredCount.value, 0)
+
+  await queue.checkAvailablePhotos(async id => {
+    throw { status: id === 1 ? 410 : 503 }
+  })
+  assert.equal(queue.expiredCount.value, 1)
+  assert.deepEqual(queue.items.value.map(item => item.phase), ['expired', 'uploaded'])
+
+  await queue.uploadItem(queue.items.value[0])
+  assert.equal(queue.expiredCount.value, 0)
+  assert.equal(queue.items.value[0].metadata.id, 3)
+
+  time = 86401000
+  queue.refreshExpiry()
+  assert.equal(queue.expiredCount.value, 2)
+})
+
+test('photo card shows a preview and recovery actions without exposing attachment internals', async () => {
+  const source = await readFile(new URL('../src/components/EvidenceUploadQueue.vue', import.meta.url), 'utf8')
+  const { descriptor } = parse(source)
+  const compiled = compileScript(descriptor, {
+    id: 'evidence-queue-test',
+    inlineTemplate: true,
+    templateOptions: { ssr: true }
+  })
+  const button = {
+    setup(_, { slots }) {
+      return () => vue.h('button', slots.default?.())
+    }
+  }
+  const context = vm.createContext({ Blob, URL: fakeUrls().urls })
+  const module = new vm.SourceTextModule(compiled.content, { context })
+  await module.link(specifier => {
+    const values = ({
+      vue,
+      'vue/server-renderer': ssr,
+      './ui/SButton.vue': { default: button },
+      './ui/SDialog.vue': { default: { render: () => null } }
+    })[specifier]
+    return new vm.SyntheticModule(Object.keys(values), function () {
+      for (const [name, value] of Object.entries(values)) this.setExport(name, value)
+    }, { context })
+  })
+  await module.evaluate()
+  const file = Object.assign(new Blob(['png'], { type: 'image/png' }), { name: 'ORIGINAL_FILENAME.png' })
+  const props = { items: [{
+    key: 'photo',
+    phase: 'expired',
+    file,
+    validated: true,
+    metadata: { display_name: 'material-identifier.png', size_bytes: 123456, width: 987, height: 654, expires_at: '2099-01-01' }
+  }] }
+  const html = await ssr.renderToString(vue.createSSRApp(module.namespace.default, props))
+  assert.match(html, /预览照片 1/)
+  assert.match(html, /<img src="blob:evidence-1"/)
+  assert.match(html, /已失效/)
+  assert.match(html, /重新上传/)
+  assert.match(html, /移除/)
+  assert.match(html, /JPG \/ PNG，单张 ≤ 5MB/)
+  assert.match(html, /<input [^>]*hidden/)
+  assert.doesNotMatch(html, /ORIGINAL_FILENAME|material-identifier|123456|987[×x]654|2099-01-01|下载|重新读取|有效至|字节/)
 })

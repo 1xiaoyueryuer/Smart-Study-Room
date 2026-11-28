@@ -55,7 +55,7 @@ export function complaintCategory(type, description, serviceKind) { if (type ===
 export function positiveId(value) { if (value === null || value === undefined || value === '') return null; if (!/^[0-9]+$/.test(String(value)) || !Number.isSafeInteger(Number(value)) || Number(value) <= 0) throw new Error('关联编号无效，请重新选择'); return Number(value) }
 
 /** 将同学前端的展示枚举转换为当前后端V1.1正式字段；不改变页面布局。 */
-export function complaintPayload({ type, description, reservationId, roomId, items, context, serviceKind, repair, unsafeArea, otherRequestType }) {
+export function complaintPayload({ type, description, reservationId, roomId, seatId, items, context, serviceKind, repair, unsafeArea, otherRequestType }) {
   if (!Object.hasOwn(complaintTypes, type)) throw new Error('请选择求助或投诉类型')
   const reservation_id = positiveId(reservationId), room_id = positiveId(roomId), text = String(description || '').trim()
   if (!text || text.length > 2000) throw new Error('请填写1至2000字的情况说明')
@@ -67,20 +67,22 @@ export function complaintPayload({ type, description, reservationId, roomId, ite
   const attachment_ids = items.map(item => item.metadata.id)
   if (new Set(attachment_ids).size !== attachment_ids.length) throw new Error('不能重复关联同一份材料')
   if (type === 'occupation') return { type, description: text, attachment_ids, reservation_id }
+  const seat_id = positiveId(seatId)
+  const location = seat_id ? { room_id, seat_id } : { room_id }
   if (serviceKind === 'facility') {
     if (!String(repair?.faultType || '').trim() || String(repair.faultType).trim().length > 100 || !String(repair?.impactScope || '').trim() || String(repair.impactScope).trim().length > 100 || !['none','yes'].includes(repair?.safetyRisk) || !['yes','no'].includes(unsafeArea)) throw new Error('请完整填写设施报修字段')
     const priority = repairPriority({ ...repair, unsafeArea })
     const note = `系统自动分级：${priority || '待选择'}级（${repairPriorityText(priority)}）。`
     const payloadDescription = `${repairSummary(repair)}${note}\n具体情况：\n${text}`
     if (payloadDescription.length > 2000) throw new Error('报修信息与说明总长度不能超过2000字')
-    return { type, description: payloadDescription, attachment_ids, room_id, service_kind: 'facility_repair', fault_type: repair.faultType.trim(), impact_scope: repair.impactScope.trim(), safety_risk: repair.safetyRisk === 'yes', unsafe_area: unsafeArea === 'yes' }
+    return { type, description: payloadDescription, attachment_ids, ...location, service_kind: 'facility_repair', fault_type: repair.faultType.trim(), impact_scope: repair.impactScope.trim(), safety_risk: repair.safetyRisk === 'yes', unsafe_area: unsafeArea === 'yes' }
   }
   if (serviceKind === 'other') {
     if (items.length) throw new Error('其他服务问题不接收设施报修现场照片，请移除所选材料')
     if (!String(otherRequestType || '').trim() || String(otherRequestType).trim().length > 100) throw new Error('请填写不超过100字的诉求类型')
     const payloadDescription = `【其他服务问题】诉求类型：${otherRequestType.trim()}。\n具体情况：\n${text}`
     if (payloadDescription.length > 2000) throw new Error('服务问题信息与说明总长度不能超过2000字')
-    return { type, description: payloadDescription, attachment_ids: [], room_id, service_kind: 'other_service', service_topic: otherRequestType.trim() }
+    return { type, description: payloadDescription, attachment_ids: [], ...location, service_kind: 'other_service', service_topic: otherRequestType.trim() }
   }
   throw new Error('请选择具体服务类型')
 }
